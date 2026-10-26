@@ -728,9 +728,9 @@ class GameScene {
     s.background = new THREE.Color(0x2a1a0e);
     s.fog = new THREE.Fog(0x2a1a0e, 30, 52);
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
-    this.camera.position.set(0, 19, 17);
-    this.camPos = new THREE.Vector3(0, 19, 17);
-    this.camTgt = new THREE.Vector3(0, 0, 0);
+    this.camera.position.set(0, 22.1, 7.7);
+    this.camPos = new THREE.Vector3(0, 22.1, 7.7);
+    this.camTgt = new THREE.Vector3(0, 0, 0.5);
     this.hemi = new THREE.HemisphereLight(0xfff2d8, 0x5a4028, 0.8); s.add(this.hemi);
     this.key = new THREE.DirectionalLight(0xffd9a0, 1.55);
     this.key.position.set(7, 13, 8);
@@ -817,21 +817,26 @@ class GameScene {
     floor.rotation.x = -Math.PI / 2; floor.position.y = 0.02; floor.receiveShadow = true; s.add(floor);
     // skyline row
     const winMats = [0x39594a, 0x51606e, 0x6e5a41].map((col, k) => new THREE.MeshStandardMaterial({ map: windowTexture('#' + col.toString(16).padStart(6, '0'), 0.4), roughness: 0.85 }));
-    const hs = [0.45, 0.78, 0.58, 0.95, 0.64, 0.85, 0.5, 0.72, 0.55, 0.88, 0.6];
-    let sx = -4.05;
+    // Skyline kept low (tallest 0.52) and pulled inward (z -3.22, span inside
+    // x +-3.95) so it stays strictly inside the centre island and never
+    // crowds the top track from the full-board camera.
+    const hs = [0.25, 0.43, 0.32, 0.52, 0.35, 0.47, 0.28, 0.4, 0.3, 0.48, 0.33];
+    let sx = -3.3;
     hs.forEach((h, k) => {
-      const w = 0.55 + (k % 3) * 0.14;
-      const b = bx(w, h, 0.5, winMats[k % 3], sx + w / 2, h / 2 + 0.02, -3.78);
-      sx += w + 0.17; s.add(b);
+      const w = 0.42 + (k % 3) * 0.1;
+      const b = bx(w, h, 0.44, winMats[k % 3], sx + w / 2, h / 2 + 0.02, -3.22);
+      sx += w + 0.16; s.add(b);
     });
     // water and bridge
     const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x3f7fbf, roughness: 0.15, metalness: 0.3 }));
     water.rotation.x = -Math.PI / 2; water.position.set(0, 0.035, -2.45); water.receiveShadow = true; s.add(water);
     const bridgeMat = std(0x333a40, 0.6, 0.3);
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(2.25, 0.06, 8, 40, Math.PI), bridgeMat);
+    // Bridge arc scaled to live inside the island: radius 1.45 (peak 1.55),
+    // deck 3.4 long, piers to match. Nothing reaches the track or wordmark.
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.05, 8, 36, Math.PI), bridgeMat);
     arc.position.set(0, 0.10, -2.45); arc.castShadow = true; s.add(arc);
-    s.add(bx(5.2, 0.07, 0.55, bridgeMat, 0, 0.09, -2.45));
-    for (const px2 of [-2.2, 0, 2.2]) s.add(bx(0.16, 0.5, 0.4, bridgeMat, px2, -0.1, -2.45));
+    s.add(bx(3.4, 0.07, 0.55, bridgeMat, 0, 0.09, -2.45));
+    for (const px2 of [-1.3, 0, 1.3]) s.add(bx(0.16, 0.5, 0.4, bridgeMat, px2, -0.1, -2.45));
     this.bridgeDanfo = buildDanfo(0.52); s.add(this.bridgeDanfo);
     // Owambe pot
     const potPts = [];
@@ -1125,8 +1130,8 @@ class GameScene {
     const s = this.scene;
     // bridge danfo shuttle
     const bu = (Math.sin(tNow * 0.13) + 1) / 2;
-    const bx2 = -2.0 + bu * 4.0;
-    this.bridgeDanfo.position.set(bx2, 0.16 + Math.sin(bu * Math.PI) * 2.05, -2.45);
+    const bx2 = -1.22 + bu * 2.44;
+    this.bridgeDanfo.position.set(bx2, 0.16 + Math.sin(bu * Math.PI) * 1.25, -2.45);
     this.bridgeDanfo.rotation.z = Math.cos(bu * Math.PI) * 0.42 * (Math.cos(tNow * 0.13) > 0 ? 1 : -1);
     this.bridgeDanfo.rotation.y = Math.cos(tNow * 0.13) > 0 ? Math.PI / 2 : -Math.PI / 2;
     // pot notes gentle shimmer
@@ -1265,7 +1270,12 @@ class GameScene {
       this.countdownZoom -= dt;
       wantPos = new THREE.Vector3(0, 12.6, 11.4); wantTgt = new THREE.Vector3(0, 0, -0.4); damp = 1.1;
     } else if (B.effectiveFull()) {
-      wantPos = new THREE.Vector3(0, 12.6, 11.4); wantTgt = new THREE.Vector3(0, 0, -0.4);
+      // Full board: steep (72 degrees) and centred on the island, fitted
+      // with the real projection against the square stage (the wrap is
+      // aspect 1/1 at every size): the rim silhouette fills 93% of the
+      // width and 81% of the height, dead centre, so no tile is cropped,
+      // no dead band opens up, and the far row barely foreshortens.
+      wantPos = new THREE.Vector3(0, 22.1, 7.7); wantTgt = new THREE.Vector3(0, 0, 0.5);
     } else {
       let f = null;
       if (this.focusOverride != null && performance.now() < this.focusUntil) {

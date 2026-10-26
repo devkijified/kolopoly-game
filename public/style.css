@@ -413,6 +413,12 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .actionbar .btn.fixed { flex: none; }
 .turn-timer { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--red-deep); }
 
+/* Smart auto-end countdown on the End turn button */
+#actionBar { flex-wrap: wrap; }
+#abEnd { position: relative; overflow: hidden; }
+#abEnd .autoend-fill { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--gold); pointer-events: none; }
+.autoend-label { flex: 0 0 100%; text-align: center; font-size: var(--fs-caption); font-weight: 700; color: var(--gold-deep); }
+
 /* Alerts: bank app style money cards */
 .alerts {
   position: fixed; top: calc(var(--topbar-h) + 6px); left: 50%; transform: translateX(-50%);

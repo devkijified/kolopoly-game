@@ -269,6 +269,66 @@ try {
   await sleep(500);
   await payerPage.screenshot({ path: SHOTS + 'kp-inflation.png' });
   await E.close(); await F.close();
+
+  // ---------------------------------------------------------- scenario 4
+  console.log('B4: smart auto-end passes an idle turn by itself; an open deed sheet holds it');
+  const G = await newPage('G');
+  await G.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(G, 'Gbenga');
+  await G.click('#createBtn');
+  await waitState(G, (s) => s.status === 'lobby', 'G lobby');
+  const code4 = (await S(G)).code;
+  const H = await newPage('H');
+  await H.goto(BASE + '/?join=' + code4, { waitUntil: 'networkidle0' });
+  await typeName(H, 'Halima');
+  await H.click('#joinBtn');
+  await waitState(H, (s) => s.players.length === 2, 'H joined');
+  await front(G);
+  await G.click('#startBtn');
+  await waitState(G, (s) => s.status === 'playing', 'game 4 playing');
+  const ids4 = (await S(G)).players.map((p) => p.id);
+  const page4 = (id) => [G, H][ids4.indexOf(id)];
+
+  // Stage a no-decision landing: sit on 37, roll 1+2, wrap onto START.
+  // Nothing to buy, no card, no build (no deeds owned): the turn is idle.
+  let turnId4 = (await S(G)).turnPlayerId;
+  let tp4 = page4(turnId4);
+  await front(tp4);
+  await send(tp4, 'test_set_position', { playerId: turnId4, space: 37 });
+  await send(tp4, 'test_dice', { rolls: [[1, 2]] });
+  await clickId(tp4, 'abRoll');
+  await waitState(tp4, (s) => s.phase === 'end', 'idle end phase reached');
+  await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 5000, polling: 150 });
+  check('auto-end countdown label shows on the idle End turn', true);
+  {
+    const end = Date.now() + 9000;
+    let passed = false;
+    while (Date.now() < end) { if ((await S(G)).turnPlayerId !== turnId4) { passed = true; break; } await sleep(200); }
+    check('turn passed by itself within about 8s, no End turn click', passed);
+  }
+
+  // Same idle staging for the next player, but they open a deed sheet:
+  // the countdown must cancel and the turn must NOT pass while it is open.
+  turnId4 = (await S(G)).turnPlayerId;
+  tp4 = page4(turnId4);
+  await front(tp4);
+  await send(tp4, 'test_set_position', { playerId: turnId4, space: 37 });
+  await send(tp4, 'test_dice', { rolls: [[1, 2]] });
+  await clickId(tp4, 'abRoll');
+  await waitState(tp4, (s) => s.phase === 'end', 'second idle end phase reached');
+  await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 5000, polling: 150 });
+  await tp4.evaluate(() => { document.querySelectorAll('.bspace')[39].click(); });
+  await tp4.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 6000 });
+  await sleep(7500); // longer than the 6s countdown
+  check('open deed sheet cancelled the auto-end (turn held)', (await S(G)).turnPlayerId === turnId4);
+  await tp4.evaluate(() => document.querySelector('#deedScrim').classList.remove('show'));
+  {
+    const end = Date.now() + 9000;
+    let passed = false;
+    while (Date.now() < end) { if ((await S(G)).turnPlayerId !== turnId4) { passed = true; break; } await sleep(200); }
+    check('auto-end re-armed after the sheet closed and passed the turn', passed);
+  }
+  await G.close(); await H.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

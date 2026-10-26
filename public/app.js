@@ -652,6 +652,105 @@ function renderActionBar(room) {
   wire('sbContracts', () => openContracts());
   wire('sbGist', () => openGist());
 }
+// ---------------------------------------------------------------------------
+// Smart auto-end: when the turn player has nothing left to decide, the turn
+// passes by itself after a short visible countdown on the End turn button.
+// Any touch from that player holds the turn (the management window stays:
+// building, trades, contracts and mortgage decisions all block or cancel
+// it). This is only the client's own end_turn intent on a timer; the server
+// rules and the 60s turn timer backstop are untouched.
+// ---------------------------------------------------------------------------
+const AUTO_END_MS = 6000;
+let autoEnd = null; // { key, deadline }
+
+function autoEndSheetOpen() {
+  return !!document.querySelector('.scrim.show, .overlay.show');
+}
+function autoEndBuildAvailable(room, actor) {
+  // A build counts as available when the placement is legal (full set, even
+  // build, nothing mortgaged or pledged), the bank still has the building,
+  // and the player can pay the printed cost. Printed cost is the floor in
+  // every mode: Inflation multiplies it by a die of 1 or more, so a player
+  // who cannot pay printed cannot build at all, and one who can might.
+  const D = window.KP_DATA;
+  for (let i = 0; i < D.SPACES.length; i++) {
+    const sp = D.SPACES[i];
+    if (!sp || sp.type !== 'street') continue;
+    if (actor.cash < (sp.duplex || 0)) continue;
+    if (room.duplexSupply > 0 && window.KPBoard.canBuildHere(room, actor.id, i, 'duplex')) return true;
+    if (room.mansionSupply > 0 && window.KPBoard.canBuildHere(room, actor.id, i, 'mansion')) return true;
+  }
+  return false;
+}
+function autoEndBlocked(room) {
+  if (!room || room.status !== 'playing' || room.paused || spectator) return true;
+  const actor = byId(room.turnPlayerId);
+  if (!actor || actor.bankrupt) return true;
+  if (actingId() !== room.turnPlayerId) return true; // only the turn player's own client arms it
+  if (room.phase !== 'end') return true; // doubles and roll-again live in the roll phase
+  if (room.auction || room.debt || room.buildPlace || room.trade) return true;
+  if (actor.pendingChoice != null) return true;
+  if (room.inf && (room.inf.proposal || room.inf.loanDecision || room.inf.dealBreakEndsAt)) return true;
+  if (autoEndSheetOpen()) return true;
+  if (autoEndBuildAvailable(room, actor)) return true;
+  if (room.turnDeadline && room.turnDeadline - Date.now() < AUTO_END_MS + 1500) return true;
+  if (!$('abEnd')) return true;
+  return false;
+}
+function autoEndStrip() {
+  const btn = $('abEnd');
+  if (btn) { const f = btn.querySelector('.autoend-fill'); if (f) f.remove(); }
+  const lbl = $('autoEndLabel');
+  if (lbl) lbl.remove();
+}
+function autoEndCancel() {
+  if (!autoEnd) return;
+  autoEnd = null;
+  autoEndStrip();
+}
+function autoEndPaint() {
+  const btn = $('abEnd');
+  if (!btn || !autoEnd) return;
+  const left = Math.max(0, autoEnd.deadline - Date.now());
+  if (!btn.querySelector('.autoend-fill')) {
+    const f = document.createElement('span');
+    f.className = 'autoend-fill';
+    btn.appendChild(f);
+  }
+  btn.querySelector('.autoend-fill').style.width = (left / AUTO_END_MS * 100) + '%';
+  let lbl = $('autoEndLabel');
+  if (!lbl) {
+    lbl = document.createElement('span');
+    lbl.className = 'autoend-label';
+    lbl.id = 'autoEndLabel';
+    $('actionBar').appendChild(lbl);
+  }
+  lbl.textContent = 'Turn go pass by itself in ' + Math.ceil(left / 1000) + 's · touch anything make e wait';
+}
+function autoEndEvaluate() {
+  const room = state;
+  if (!room || autoEndBlocked(room)) { autoEndCancel(); return; }
+  const key = room.turnPlayerId + '|' + (room.turnDeadline || 'x');
+  if (autoEnd && autoEnd.key === key) {
+    if (Date.now() >= autoEnd.deadline) {
+      autoEndCancel();
+      bankruptArmed = false;
+      sendAs('end_turn', {});
+      return;
+    }
+    autoEndPaint();
+    return;
+  }
+  autoEnd = { key, deadline: Date.now() + AUTO_END_MS };
+  autoEndPaint();
+}
+setInterval(autoEndEvaluate, 100);
+// Any real touch or key press by the player holds the turn: cancel at once.
+// State pushes do not fire these, so the countdown survives re-renders; a
+// touch that opens a sheet also keeps it blocked while the sheet is up.
+document.addEventListener('pointerdown', () => autoEndCancel(), true);
+document.addEventListener('keydown', () => autoEndCancel(), true);
+
 function roomAmount(i) { return window.KP_DATA.SPACES[i].price || 0; }
 
 function renderAuction(room) {
