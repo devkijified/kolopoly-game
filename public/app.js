@@ -89,11 +89,13 @@ function pumpAlerts() {
   const a = alertQueue.shift();
   const el = document.createElement('div');
   el.className = 'alert-card ' + a.kind;
-  el.innerHTML = '<div>' + window.icon(a.kind === 'credit' ? 'check' : 'alert', 22) + '</div>' +
-    '<div style="flex:1"><div class="amt">' + (a.kind === 'credit' ? '+' : '-') + fmtN(a.amount).slice(0) + '</div>' +
+  el.innerHTML =
+    '<div class="alert-bank"><span class="alert-logo">' + window.icon('bank', 14) + '</span>' +
+    '<span class="alert-bank-name">KOLOPOLY ALERT</span>' +
+    '<span class="alert-pill">' + (a.kind === 'credit' ? 'CREDIT' : 'DEBIT') + '</span></div>' +
+    '<div class="amt">' + (a.kind === 'credit' ? '+' : '-') + fmtN(a.amount) + '</div>' +
     '<div class="why">' + esc(a.text) + '</div>' +
-    (a.balanceAfter != null ? '<div class="bal">Balance: ' + fmtN(a.balanceAfter) + '</div>' : '') + '</div>';
-  el.querySelector('.amt').textContent = (a.kind === 'credit' ? '+' : '-') + fmtN(a.amount);
+    (a.balanceAfter != null ? '<div class="bal">Balance: ' + fmtN(a.balanceAfter) + '</div>' : '');
   $('alerts').appendChild(el);
   if (a.kind === 'credit') sfx.credit(); else sfx.debit();
   setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); alertBusy = false; pumpAlerts(); }, 260); }, 1450);
@@ -150,9 +152,9 @@ window.__kolopolyState = () => state;
 // Entry: name, tokens, mode pickers, invite
 // ---------------------------------------------------------------------------
 function buildTokenPickers() {
-  $('heroTokens').innerHTML = window.KP_DATA.TOKENS.map((t) => '<span title="' + esc(t.name) + '">' + window.icon(t.id, 30) + '</span>').join('');
+  $('heroTokens').innerHTML = window.KP_DATA.TOKENS.map((t) => '<span title="' + esc(t.name) + '">' + window.tokenArt(t.id, 38) + '</span>').join('');
   $('tokenGrid').innerHTML = window.KP_DATA.TOKENS.map((t) =>
-    '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + '" data-token="' + t.id + '">' + window.icon(t.id, 34) + '<span>' + esc(t.name) + '</span></button>').join('');
+    '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + '" data-token="' + t.id + '">' + window.tokenArt(t.id, 44) + '<span>' + esc(t.name) + '</span></button>').join('');
   $('tokenGrid').querySelectorAll('[data-token]').forEach((b) => b.addEventListener('click', () => {
     selectedToken = b.dataset.token;
     $('tokenGrid').querySelectorAll('[data-token]').forEach((x) => x.classList.toggle('sel', x === b));
@@ -443,11 +445,18 @@ $('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); setTimeo
 window.KPBoard.build($('board'));
 window.KPBoard.onSpaceTap = (i) => onSpaceTap(i);
 $('fullBoardBtn').innerHTML = window.icon('eye', 15) + ' <span>Full board</span>';
+function syncViewBtn() {
+  const span = $('fullBoardBtn').querySelector('span');
+  if (span) span.textContent = window.KPBoard.effectiveFull() ? 'Follow token' : 'Full board';
+}
 $('fullBoardBtn').addEventListener('click', () => {
-  window.KPBoard.fullBoard = !window.KPBoard.fullBoard;
-  $('fullBoardBtn').querySelector('span').textContent = window.KPBoard.fullBoard ? 'Follow token' : 'Full board';
+  window.KPBoard.toggleView();
+  syncViewBtn();
   if (state) window.KPBoard.applyCamera(state);
 });
+syncViewBtn();
+window.addEventListener('resize', syncViewBtn);
+$('rotateHint').innerHTML = window.icon('rotate', 15) + ' Rotate your phone for the full board';
 $('denomRow').innerHTML = window.KP_DATA.DENOMS.map((d) => '<span class="denom">' + fmtN(d) + '</span>').join('');
 
 function onSpaceTap(i) {
@@ -465,6 +474,7 @@ function onSpaceTap(i) {
   const viewer = state.mode === 'pass' ? (pr && pr.o != null ? pr.o : state.turnPlayerId) : myId;
   $('deedSheet').innerHTML = window.KPBoard.deedHTML(i, state, viewer);
   $('deedScrim').classList.add('show');
+  if (window.KP3D) window.KP3D.showDeedCard(i);
   wireSheetButtons($('deedSheet'), viewer);
 }
 function closeScrim(id) { $(id).classList.remove('show'); }
@@ -682,13 +692,28 @@ function renderAuction(room) {
 // ---------------------------------------------------------------------------
 // Modals: drawn card, mortgaged deed choice, proposals, loan decisions
 // ---------------------------------------------------------------------------
+const CARD_FX_LABELS = {
+  payBank: 'Pay am', repairs: 'Pay am', nepaLight: 'Settle am', lekkiRain: 'Settle am', fakeAlert: 'E don happen',
+  payEach: 'Pay am', collectEach: 'Collect am', bankPays: 'Collect am', upNepa: 'Collect am', fineRefund: 'Collect am',
+  freeUnmortgage: 'Use am', sapa: 'Na so e be', moveTo: 'Move', moveBack: 'Move', moveNearest: 'Move', jail: 'Go Kirikiri',
+  goojf: 'Keep the card', shield: 'Keep the shield'
+};
 function showCardModal(card) {
   const m = $('cardModal');
+  const deckData = card.deck === 'wahala' ? window.KP_DATA.WAHALA : window.KP_DATA.FAMILY;
+  const found = deckData.find((c) => c.id === card.id);
+  const fxType = found && found.fx ? found.fx.type : '';
+  const label = CARD_FX_LABELS[fxType] || 'Na so e be';
+  m.className = 'modal-card card-face ' + (card.deck === 'wahala' ? 'face-wahala' : 'face-family');
   m.innerHTML = '<p class="caption" style="letter-spacing:1px;">' + (card.deck === 'wahala' ? 'WAHALA CARD' : 'FAMILY MEETING CARD') + '</p>' +
     '<p class="lead" style="margin-top:8px;">' + esc(card.text) + '</p>' +
-    '<div class="btnrow"><button class="btn" data-close="1">Na so e be</button></div>';
+    '<div class="btnrow"><button class="btn" data-close="1">' + label + '</button></div>';
   $('cardScrim').classList.add('show');
-  m.querySelector('[data-close]').addEventListener('click', () => closeScrim('cardScrim'));
+  if (window.KP3D) window.KP3D.onCardDrawn(card);
+  m.querySelector('[data-close]').addEventListener('click', () => {
+    closeScrim('cardScrim');
+    if (window.KP3D) window.KP3D.onCardResolved(card);
+  });
 }
 function maybeShowModals(room) {
   // Mortgaged deed choice (from a trade or bankruptcy handover)

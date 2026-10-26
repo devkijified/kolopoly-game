@@ -5,6 +5,7 @@
 // as amended by ~/workspace/research_notes/kolopoly-nostalgia-research-20261026.md
 const http = require('http');
 const fs = require('fs');
+const zlib = require('zlib');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const D = require('./public/game-data.js');
@@ -1571,7 +1572,21 @@ const server = http.createServer((req, res) => {
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+    const type = MIME[path.extname(filePath)] || 'application/octet-stream';
+    const headers = { 'Content-Type': type };
+    // Vendor libraries and fonts change rarely: cache them hard. App files
+    // stay no-cache so a fresh deploy always lands on phones immediately.
+    const cacheable = cleanUrl.startsWith('/vendor/') || cleanUrl.startsWith('/fonts/');
+    headers['Cache-Control'] = cacheable ? 'public, max-age=604800' : 'no-cache';
+    const compressible = /^(text\/|application\/json|image\/svg)/.test(type);
+    if (compressible && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+      headers['Content-Encoding'] = 'gzip';
+      headers['Vary'] = 'Accept-Encoding';
+      res.writeHead(200, headers);
+      res.end(zlib.gzipSync(data));
+      return;
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 });

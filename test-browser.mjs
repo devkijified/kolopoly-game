@@ -147,6 +147,13 @@ try {
   await tp.screenshot({ path: SHOTS + 'kp-alert.png' });
   await waitState(tp, (s) => s.phase === 'end', 'rent landing resolved');
   await clickId(tp, 'abEnd');
+  // Without this wait the turnPage() read below races the end turn broadcast
+  // and can pick the player who just ended (their page never shows a roll
+  // button). Same polling pattern as the first end turn check above.
+  {
+    const endBack = Date.now() + 9000;
+    while (Date.now() < endBack) { if ((await S(A)).turnPlayerId !== tpId) break; await sleep(200); }
+  }
 
   // Feed the Owambe pot with the FIRS tax, then shoot the board.
   tp = await turnPage();

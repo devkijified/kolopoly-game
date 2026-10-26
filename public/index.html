@@ -9,12 +9,14 @@
 <link rel="stylesheet" href="/style.css">
 <link rel="preload" href="/fonts/aeonik-pro-bold.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/figtree-variable.woff2" as="font" type="font/woff2" crossorigin>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"/addons/"}}</script>
 </head>
 <body>
 <header class="topbar">
   <div class="wordmark">KOLO<span class="gold">POLY</span></div>
   <div class="spacer"></div>
   <span class="chip hidden" id="roomChip"></span>
+  <button class="iconbtn hidden" id="tierBtn" aria-label="Graphics quality"></button>
   <button class="iconbtn" id="muteBtn" aria-label="Sound on or off"></button>
 </header>
 
@@ -114,6 +116,7 @@
       <button class="btn small ghost" id="shareInviteBtn"></button>
     </div>
     <div class="qr-box" id="inviteQr"></div>
+    <div class="lobby-stage" id="lobbyStage"><div class="lobby-stage-fallback"><span class="ls-word">KOLO<span class="gold">POLY</span></span><span class="ls-sub">Your people dey gather around the board</span></div></div>
     <div class="slots" id="slotBoard"></div>
     <div id="passAddBox" class="hidden">
       <label for="localNameIn" style="display:block;font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--ink-soft);margin-bottom:7px;">Add a player to this phone</label>
@@ -134,10 +137,7 @@
 
 <!-- ============================ GAME ============================ -->
 <main class="view" id="view-game">
-  <div class="game-wrap">
-    <div id="infBar" class="hidden"></div>
-    <div class="msgbar"><span id="msgText">Welcome to Kolopoly.</span></div>
-    <div class="players-strip" id="playersStrip"></div>
+  <div class="game-stage">
     <div class="board-outer">
       <div class="board-wrap" id="boardWrap">
         <div class="board" id="board"></div>
@@ -146,21 +146,30 @@
         </div>
       </div>
     </div>
-    <p class="caption center mt8">Tap any space to see its deed. Tap the board button to see the full board or follow the token.</p>
+    <div class="rotate-hint" id="rotateHint"></div>
   </div>
 
-  <div class="walletbar">
-    <div class="wallet-inner">
-      <div id="auctionSlot"></div>
-      <div class="wallet-top">
-        <div class="wallet-cash"><small id="walletLabel">YOUR CASH</small><span id="walletCash">₦0</span></div>
-        <div class="denoms" id="denomRow" aria-hidden="true"></div>
-      </div>
-      <div id="sapaSlot"></div>
-      <div class="actionbar" id="actionBar"></div>
-      <div class="actionbar" id="secondaryBar" style="margin-top:7px;"></div>
+  <aside class="game-rail">
+    <div class="rail-top">
+      <div id="infBar" class="hidden"></div>
+      <div class="msgbar"><span id="msgText">Welcome to Kolopoly.</span></div>
+      <div class="players-strip" id="playersStrip"></div>
+      <p class="caption center">Tap any space to see its deed. Tap the board button to see the full board or follow the token.</p>
     </div>
-  </div>
+
+    <div class="walletbar">
+      <div class="wallet-inner">
+        <div id="auctionSlot"></div>
+        <div class="wallet-top">
+          <div class="wallet-cash"><small id="walletLabel">YOUR CASH</small><span id="walletCash">₦0</span></div>
+          <div class="denoms" id="denomRow" aria-hidden="true"></div>
+        </div>
+        <div id="sapaSlot"></div>
+        <div class="actionbar" id="actionBar"></div>
+        <div class="actionbar" id="secondaryBar" style="margin-top:7px;"></div>
+      </div>
+    </div>
+  </aside>
 </main>
 
 <!-- Layers -->
@@ -184,5 +193,6 @@
 <script src="/icons.js"></script>
 <script src="/board.js"></script>
 <script src="/app.js"></script>
+<script type="module" src="/board3d.js"></script>
 </body>
 </html>

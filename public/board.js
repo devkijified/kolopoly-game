@@ -3,6 +3,8 @@
 // token hops, drives the follow camera, fills deed sheets and draws the
 // portrait share cards on canvas. No game rules live here beyond display
 // mirrors of the server checks (the server validates everything).
+// Presentation only: art per space, a Lagos skyline centre, an Owambe pot
+// that visibly grows, 3D styled dice and tokens drawn as objects.
 const D = window.KP_DATA;
 
 const COLW = [1.6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.6];
@@ -21,6 +23,73 @@ function spaceCenter(i) {
 }
 const TOKEN_SLOTS = [[-0.021, -0.021], [0.021, -0.021], [-0.021, 0.021], [0.021, 0.021], [0, -0.033], [0, 0.033]];
 
+// Tile price labels are artwork: a compact price never clips into a wrong
+// looking number on a small tile. The deed sheet carries the exact figure.
+function fmtK(n) {
+  const v = Math.round(Number(n) || 0);
+  if (v >= 1000) { const k = v / 1000; return '₦' + (Number.isInteger(k) ? k : k.toFixed(1)) + 'K'; }
+  return '₦' + v;
+}
+function priceLabel(sp) {
+  const v = sp.price ? sp.price : sp.type === 'tax' ? sp.amount : 0;
+  if (!v) return '';
+  return '<span class="pr-full">' + D.fmtN(v) + '</span><span class="pr-compact">' + fmtK(v) + '</span>';
+}
+
+function bandColorFor(i, sp) {
+  return sp.type === 'street' ? D.GROUPS[sp.group].color
+    : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
+    : i === 0 ? '#e8a90c' : i === 20 ? '#e8a90c' : i === 10 || i === 30 ? '#8c2f2f'
+    : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
+}
+// One scene per space identity. Group fallbacks first, hand picks on top.
+const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'house', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', darkblue: 'mansion' };
+const ART_BY_SPACE = {
+  0: 'payday', 1: 'stilts', 3: 'ball', 4: 'taxdoc', 5: 'train', 6: 'stalls', 9: 'bread',
+  12: 'pylon', 13: 'tech', 14: 'stadium', 15: 'plane', 18: 'stalls', 19: 'computer',
+  20: 'party', 24: 'palms', 25: 'crane', 27: 'bank', 28: 'watertower', 29: 'dome',
+  30: 'bars', 32: 'towers', 35: 'interchange', 38: 'taxdoc', 39: 'island'
+};
+function artFor(i, sp) {
+  if (ART_BY_SPACE[i]) return ART_BY_SPACE[i];
+  if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
+  if (sp.type === 'station') return 'train';
+  if (sp.type === 'utility') return i === 12 ? 'pylon' : 'watertower';
+  if (sp.type === 'jail' || sp.type === 'gotojail') return 'bars';
+  if (sp.type === 'freeparking') return 'party';
+  if (sp.type === 'tax') return 'taxdoc';
+  if (sp.type === 'card') return 'cards';
+  if (sp.type === 'start') return 'payday';
+  return 'house';
+}
+
+const DUPLEX_SVG = '<svg viewBox="0 0 24 24" class="bldg" aria-hidden="true"><path d="M3 11 L12 3 L21 11 L19 11 L12 5 L5 11Z" fill="#7a1f1f"/><rect x="6" y="11" width="12" height="9" fill="#1d9e6c"/><rect x="10.4" y="14.5" width="3.2" height="5.5" fill="#0c4d31"/><rect x="7.4" y="12.8" width="2.4" height="2.4" fill="#ffe9a8"/><rect x="14.2" y="12.8" width="2.4" height="2.4" fill="#ffe9a8"/></svg>';
+const MANSION_SVG = '<svg viewBox="0 0 24 24" class="bldg mansion" aria-hidden="true"><path d="M2 9 L12 2 L22 9 L20 9 L12 3.6 L4 9Z" fill="#5d1414"/><rect x="4" y="9" width="16" height="11" fill="#b02e2e"/><rect x="7" y="12" width="2.6" height="4" fill="#ffe9a8"/><rect x="14.4" y="12" width="2.6" height="4" fill="#ffe9a8"/><rect x="10.6" y="13.5" width="2.8" height="6.5" fill="#3d0d0d"/><rect x="2.5" y="20" width="19" height="1.6" fill="#5d1414"/></svg>';
+
+const SKYLINE_SVG =
+  '<svg viewBox="0 0 320 96" preserveAspectRatio="xMidYMax slice" aria-hidden="true">' +
+  '<circle cx="274" cy="18" r="13" fill="#f6b73c" opacity=".55"/>' +
+  '<g fill="#2e6b46" opacity=".20">' +
+  '<rect x="8" y="38" width="26" height="58"/><rect x="40" y="26" width="20" height="70"/>' +
+  '<rect x="64" y="46" width="30" height="50"/><rect x="236" y="30" width="22" height="66"/>' +
+  '<rect x="262" y="44" width="26" height="52"/><rect x="292" y="22" width="20" height="74"/></g>' +
+  '<path d="M0 74 Q160 40 320 74" stroke="#2b2018" stroke-width="4" fill="none" opacity=".30"/>' +
+  '<path d="M60 66 V96 M160 58 V96 M260 66 V96" stroke="#2b2018" stroke-width="4" opacity=".30"/>' +
+  '<path d="M0 76 H320" stroke="#2b2018" stroke-width="3" opacity=".30"/>' +
+  '<g transform="translate(140,50)"><rect width="34" height="13" rx="3" fill="#f6b73c" opacity=".95"/>' +
+  '<rect x="3" y="3" width="6" height="4" fill="#cfeefb"/><rect x="11" y="3" width="6" height="4" fill="#cfeefb"/><rect x="19" y="3" width="6" height="4" fill="#cfeefb"/>' +
+  '<rect y="8" width="34" height="2.4" fill="#232323" opacity=".8"/>' +
+  '<circle cx="8" cy="14" r="2.6" fill="#232323"/><circle cx="26" cy="14" r="2.6" fill="#232323"/></g>' +
+  '<path d="M0 88 Q20 84 40 88 T80 88 T120 88 T160 88 T200 88 T240 88 T280 88 T320 88" stroke="#3f7fbf" stroke-width="2.4" fill="none" opacity=".35"/>' +
+  '</svg>';
+
+const SEAL_SVG =
+  '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="2.4"/>' +
+  '<circle cx="24" cy="24" r="15.5" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+  '<path d="M24 14 L27 20.5 L34 21.4 L28.8 26.2 L30.2 33.2 L24 29.7 L17.8 33.2 L19.2 26.2 L14 21.4 L21 20.5Z" fill="currentColor"/></svg>';
+
+const LANDSCAPE_Q = '(orientation: landscape) and (min-width: 700px)';
+
 const KPBoard = {
   els: [],
   center: null,
@@ -28,9 +97,27 @@ const KPBoard = {
   displayedPos: {},
   animating: false,
   fullBoard: false,
+  followPinned: false,
   focusSpace: 0,
   onSpaceTap: null,
   lastState: null,
+  lastDiceKey: null,
+
+  effectiveFull() {
+    const land = typeof window !== 'undefined' && window.matchMedia && window.matchMedia(LANDSCAPE_Q).matches;
+    return this.fullBoard || (land && !this.followPinned);
+  },
+  toggleView() {
+    const land = window.matchMedia && window.matchMedia(LANDSCAPE_Q).matches;
+    if (this.effectiveFull()) {
+      if (land && !this.fullBoard) this.followPinned = true;
+      else this.fullBoard = false;
+    } else {
+      this.fullBoard = true;
+      this.followPinned = false;
+    }
+    return this.effectiveFull();
+  },
 
   build(boardEl) {
     boardEl.innerHTML = '';
@@ -39,20 +126,20 @@ const KPBoard = {
       const sp = D.SPACES[i];
       const { row, col } = gridPos(i);
       const el = document.createElement('div');
-      el.className = 'bspace' + ((row === 1 || row === 11) && (col === 1 || col === 11) ? ' corner' : '');
+      const isCorner = (row === 1 || row === 11) && (col === 1 || col === 11);
+      el.className = 'bspace' + (isCorner ? ' corner' : '');
       el.style.gridRow = row;
       el.style.gridColumn = col;
       el.dataset.space = i;
-      const bandColor = sp.type === 'street' ? D.GROUPS[sp.group].color
-        : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
-        : i === 0 ? '#e8a90c' : i === 20 ? '#e8a90c' : i === 10 || i === 30 ? '#8c2f2f'
-        : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
+      const bandColor = bandColorFor(i, sp);
+      el.style.setProperty('--band', bandColor);
       el.innerHTML =
-        '<div class="band" style="background:' + bandColor + '"></div>' +
+        '<div class="band"></div>' +
+        '<div class="tile-art" style="color:' + bandColor + '">' + window.tileArt(artFor(i, sp)) + '</div>' +
         '<div class="nm">' + (sp.short || sp.name) + '</div>' +
         '<div class="pips"></div>' +
         (i === 20 ? '<div class="potamt"></div>' : '') +
-        '<div class="pr">' + (sp.price ? D.fmtN(sp.price) : sp.type === 'tax' ? D.fmtN(sp.amount) : '') + '</div>' +
+        '<div class="pr">' + priceLabel(sp) + '</div>' +
         '<div class="ownbar"></div>';
       el.addEventListener('click', () => { if (this.onSpaceTap) this.onSpaceTap(i); });
       boardEl.appendChild(el);
@@ -63,9 +150,11 @@ const KPBoard = {
     center.style.gridRow = '2 / 11';
     center.style.gridColumn = '2 / 11';
     center.innerHTML =
-      '<div class="logo">KOLOPOLY</div>' +
+      '<div class="skyline">' + SKYLINE_SVG + '</div>' +
+      '<div class="logo">KOLO<span class="gold">POLY</span></div>' +
       '<div class="meta" id="centerPhase"></div>' +
-      '<div class="pot" id="centerPot">Pot ₦0</div>' +
+      '<div class="pot-visual" id="centerPotVisual" data-tier="0"><div class="pot-notes"></div><div class="pot-bowl"><span></span></div></div>' +
+      '<div class="pot" id="centerPot">Owambe Pot ₦0</div>' +
       '<div class="dice-row" id="centerDice"></div>' +
       '<div class="deck-row"><span class="deck-pile wahala">WAHALA</span><span class="deck-pile family">FAMILY MEETING</span></div>' +
       '<div class="meta" id="centerSupply"></div>';
@@ -97,9 +186,11 @@ const KPBoard = {
       if (pr && pr.o != null) {
         const owner = byId[pr.o];
         ownbar.style.background = owner ? owner.color : 'transparent';
+        el.classList.add('owned');
+        el.style.setProperty('--own', owner ? owner.color : 'transparent');
         el.classList.toggle('mortgaged', !!pr.m);
-        if (pr.b >= 5) pips.innerHTML = '<i class="mansion"></i>';
-        else if (pr.b > 0) pips.innerHTML = '<i></i>'.repeat(pr.b);
+        if (pr.b >= 5) pips.innerHTML = MANSION_SVG;
+        else if (pr.b > 0) pips.innerHTML = DUPLEX_SVG.repeat(pr.b);
         else pips.innerHTML = '';
         let tag = el.querySelector('.pledgetag');
         if (pr.pl) {
@@ -107,7 +198,8 @@ const KPBoard = {
         } else if (tag) tag.remove();
       } else {
         ownbar.style.background = 'transparent';
-        el.classList.remove('mortgaged');
+        el.classList.remove('owned', 'mortgaged');
+        el.style.removeProperty('--own');
         pips.innerHTML = '';
         const tag = el.querySelector('.pledgetag');
         if (tag) tag.remove();
@@ -120,8 +212,28 @@ const KPBoard = {
     }
     const centerPot = document.getElementById('centerPot');
     if (centerPot) centerPot.textContent = 'Owambe Pot ' + D.fmtN(state.pot);
+    const potVisual = document.getElementById('centerPotVisual');
+    if (potVisual) {
+      const pot = state.pot || 0;
+      const tier = pot <= 0 ? 0 : pot < 100000 ? 1 : pot < 300000 ? 2 : pot < 600000 ? 3 : pot < 1000000 ? 4 : 5;
+      if (potVisual.dataset.tier !== String(tier)) {
+        potVisual.dataset.tier = String(tier);
+        potVisual.querySelector('.pot-notes').innerHTML = '<i></i>'.repeat(tier * 2);
+      }
+    }
     const centerDice = document.getElementById('centerDice');
-    if (centerDice) centerDice.innerHTML = state.dice ? this.dieHTML(state.dice[0]) + this.dieHTML(state.dice[1]) : '';
+    if (centerDice) {
+      const key = state.dice ? state.dice.join(',') : '';
+      if (key !== this.lastDiceKey) {
+        this.lastDiceKey = key;
+        centerDice.innerHTML = state.dice ? this.dieHTML(state.dice[0]) + this.dieHTML(state.dice[1]) : '';
+        if (key && state.status === 'playing') {
+          centerDice.classList.remove('tumble');
+          void centerDice.offsetWidth;
+          centerDice.classList.add('tumble');
+        }
+      }
+    }
     const centerSupply = document.getElementById('centerSupply');
     if (centerSupply) centerSupply.textContent = 'Bank supply: ' + state.duplexSupply + ' duplexes, ' + state.mansionSupply + ' mansions';
     const centerPhase = document.getElementById('centerPhase');
@@ -148,8 +260,11 @@ const KPBoard = {
         this.tokenEls[p.id] = el;
         layer.appendChild(el);
       }
-      el.style.background = p.color;
-      el.innerHTML = window.icon(p.token, 13);
+      const sig = p.token + '|' + p.color;
+      if (el.dataset.sig !== sig) {
+        el.dataset.sig = sig;
+        el.innerHTML = '<span class="tok-base" style="background:' + p.color + '"></span><span class="tok-in">' + window.tokenArt(p.token) + '</span>';
+      }
       el.title = p.name;
       const target = p.position;
       const shown = this.displayedPos[p.id];
@@ -177,6 +292,20 @@ const KPBoard = {
     el.style.opacity = p.bankrupt ? '0.35' : '1';
   },
 
+  dropTrail(p, pos) {
+    if (this.effectiveFull() || !this.tokenLayer) return;
+    const layer = this.tokenLayer;
+    if (layer.querySelectorAll('.tok-trail').length > 18) return;
+    const c = spaceCenter(pos);
+    const g = document.createElement('div');
+    g.className = 'tok-trail';
+    g.style.background = p.color;
+    g.style.left = (c.x * 100) + '%';
+    g.style.top = (c.y * 100) + '%';
+    layer.appendChild(g);
+    setTimeout(() => g.remove(), 700);
+  },
+
   animateToken(p, from, to, slotCount, state) {
     // Teleports (Kirikiri) jump; normal moves hop space by space.
     const el = this.tokenEls[p.id];
@@ -189,12 +318,19 @@ const KPBoard = {
       return;
     }
     this.animating = true;
+    const inner = el.querySelector('.tok-in');
     let cur = from;
     const step = () => {
       if (!this.lastState || this.lastState !== state && this.displayedPos[p.id] === to) { this.animating = false; return; }
+      this.dropTrail(p, cur);
       cur = (cur + 1) % 40;
       this.displayedPos[p.id] = cur;
       this.placeToken(el, p, cur, slotCount);
+      if (inner) {
+        inner.classList.remove('hop');
+        void inner.offsetWidth;
+        inner.classList.add('hop');
+      }
       this.focusSpace = cur;
       this.applyCamera(state);
       if (cur !== to) setTimeout(step, 230);
@@ -207,9 +343,9 @@ const KPBoard = {
     const board = document.getElementById('board');
     const wrap = document.getElementById('boardWrap');
     if (!board || !wrap) return;
-    const size = wrap.clientWidth;
+    const size = board.clientWidth;
     if (!size) return;
-    if (this.fullBoard || !state || state.status !== 'playing') {
+    if (this.effectiveFull() || !state || state.status !== 'playing') {
       board.style.transform = 'scale(1)';
       return;
     }
@@ -260,6 +396,13 @@ const KPBoard = {
     const byId = {};
     for (const p of state.players) byId[p.id] = p;
     const esc = window.KPesc || ((s) => String(s));
+    const band = bandColorFor(i, sp);
+    const head =
+      '<div class="grab"></div><div class="deed-doc">' +
+      '<div class="deed-head" style="background:' + band + '">' +
+      '<div class="deed-seal">' + SEAL_SVG + '</div>' +
+      '<div class="deed-head-tx"><div class="deed-kicker">KOLOPOLY LAND REGISTRY · TITLE DEED</div>' +
+      '<h3 class="title">' + esc(sp.name) + '</h3>';
     if (!sp.price) {
       let body = '';
       if (sp.type === 'start') body = 'Pass START and salary alert enter your account. Classic pays ' + D.fmtN(D.START_PAY) + (state.inf ? '; this room dey Phase ' + state.inf.phase + ', so salary na ' + D.fmtN(state.inf.salary) : '') + '.';
@@ -268,20 +411,22 @@ const KPBoard = {
       else if (sp.type === 'freeparking') body = 'Owambe Grounds. The pot holds ' + D.fmtN(state.pot) + ' right now. Land here and you collect everything. The pot only grows from taxes, fines and fees, never from rent.';
       else if (sp.type === 'tax') body = 'Tax space. Landing here costs ' + D.fmtN(sp.amount) + (i === 4 ? ' flat, or 10 percent of your total worth, your choice' : '') + '. The money enters the Owambe pot.';
       else if (sp.type === 'card') body = 'Draw a ' + (sp.deck === 'wahala' ? 'WAHALA' : 'FAMILY MEETING') + ' card and do wetin e talk.';
-      return '<div class="grab"></div><h3 class="title">' + esc(sp.name) + '</h3>' +
+      return head + '</div></div>' +
+        '<div class="deed-body">' +
         (sp.meaning ? '<div class="meaning">' + esc(sp.meaning) + '</div>' : '') +
         '<p class="lead" style="margin-top:10px;">' + body + '</p>' +
-        '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+        '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>' +
+        '</div></div>';
     }
     const pr = state.props[i];
     const owner = pr && pr.o != null ? byId[pr.o] : null;
-    const band = sp.type === 'street' ? D.GROUPS[sp.group].color : sp.type === 'station' ? '#3d3d3d' : '#3f7fbf';
-    let html = '<div class="grab"></div><div class="deed-band" style="background:' + band + '"></div>';
-    html += '<h3 class="title">' + esc(sp.name) + '</h3>';
-    html += '<p class="caption">' + (sp.type === 'street' ? D.GROUPS[sp.group].name + ' set' : sp.type === 'station' ? 'Station' : 'Utility') +
+    let html = head +
+      '<p class="deed-sub">' + (sp.type === 'street' ? D.GROUPS[sp.group].name + ' set' : sp.type === 'station' ? 'Station' : 'Utility') +
       (owner ? ' · Owner: <b>' + esc(owner.name) + '</b>' : ' · Unowned, bank dey hold am') +
       (pr && pr.m ? ' · <b>MORTGAGED</b>' : '') + (pr && pr.pl ? ' · <b>PLEDGED as loan security</b>' : '') +
-      (pr && pr.b ? ' · ' + (pr.b >= 5 ? 'Mansion built' : pr.b + ' duplex(es) built') : '') + '</p>';
+      (pr && pr.b ? ' · ' + (pr.b >= 5 ? 'Mansion built' : pr.b + ' duplex(es) built') : '') + '</p></div>' +
+      (owner ? '<div class="deed-stamp" style="--own:' + owner.color + '">OWNED</div>' : '') +
+      '</div><div class="deed-body">';
     if (sp.meaning) html += '<div class="meaning">' + esc(sp.meaning) + '</div>';
     html += '<div class="kv"><span>Price</span><b>' + D.fmtN(sp.price) + '</b></div>';
     html += '<div class="kv"><span>Mortgage value</span><b>' + D.fmtN(D.mortgageOf(sp.price)) + '</b></div>';
@@ -319,6 +464,7 @@ const KPBoard = {
         '</div><p class="caption mt8">Manage actions work on your turn, or while you dey raise money for a debt. The server enforces even building, full sets and pledges.</p>';
     }
     html += '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+    html += '</div></div>';
     return html;
   },
 
@@ -390,3 +536,6 @@ function wrapText(x, text, cx, y, maxW, lh) {
   return yy;
 }
 window.KPBoard = KPBoard;
+window.addEventListener('resize', () => {
+  if (KPBoard.lastState) KPBoard.applyCamera(KPBoard.lastState);
+});
