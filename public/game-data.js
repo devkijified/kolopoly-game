@@ -125,7 +125,7 @@ const FAMILY = [
   { id: 'f10', tag: 'E', text: 'Money order from your uncle for abroad don reach post office. Collect ₦50,000.', fx: { type: 'bankPays', amount: 50000 } },
   { id: 'f11', tag: 'C', text: 'WAEC lesson money don due for your younger ones. Pay ₦25,000.', fx: { type: 'payBank', amount: 25000 } },
   { id: 'f12', tag: 'E', text: 'You win monkey post for your street. Holder of the small ball, champion of the close. Collect ₦10,000.', fx: { type: 'bankPays', amount: 10000 } },
-  { id: 'f13', tag: 'C', text: 'Allowee alert don enter. Corper wey dey serve don see small joy. Collect ₦30,000.', fx: { type: 'bankPays', amount: 30000 } },
+  { id: 'f13', tag: 'C', text: 'Allowee alert don enter! Corper allowee don rise to ₦77,000, and your cousin wey dey serve don send you part of it. Collect ₦30,000.', fx: { type: 'bankPays', amount: 30000 } },
   { id: 'f14', tag: 'E', text: 'Story story! Tales by Moonlight don teach you sense. Take back one fine you paid this game, up to ₦20,000.', fx: { type: 'fineRefund', cap: 20000 } },
   { id: 'f15', tag: 'C', text: 'End of month don reach. Sapa dey visit everybody. Every player with more than ₦1,000,000 pays ₦20,000 into the Owambe pot. Players under ₦200,000 collect ₦10,000 from the bank.', fx: { type: 'sapa' } },
   { id: 'f16', tag: 'C', text: 'Your C of O don finally ready. Lift one mortgage free, no 10 percent interest.', fx: { type: 'freeUnmortgage' } }

@@ -6,6 +6,7 @@
 const http = require('http');
 const fs = require('fs');
 const zlib = require('zlib');
+const crypto = require('crypto');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const D = require('./public/game-data.js');
@@ -143,8 +144,8 @@ function eligibleForBuild(room, playerId, kind) {
 // touch any of this: every helper is gated on room.inf.
 // ---------------------------------------------------------------------------
 const INF_PRESETS = {
-  quick: { durations: [720, 480, 600], horn: 300, p4Two: 600 },
-  standard: { durations: [1500, 900, 1200], horn: 600, p4Two: 600 },
+  quick: { durations: [480, 360, 600], horn: 300, p4Two: 600 },
+  standard: { durations: [900, 720, 1200], horn: 600, p4Two: 600 },
   fullnight: { durations: [2700, 1800, Infinity], horn: 600, p4Two: 900, p4TotalAt: 9000 }
 };
 const INF_SALARIES = [200000, 100000, 50000, 25000];
@@ -250,6 +251,7 @@ function newPlayer(name, token, colorIdx) {
     id: nextPlayerId++, name, token: token || 'danfo',
     color: D.PLAYER_COLORS[colorIdx % D.PLAYER_COLORS.length],
     connected: true, ws: null, spectator: false,
+    reconnectToken: crypto.randomBytes(12).toString('hex'), clientId: null,
     cash: D.START_CASH, position: 0, inJail: false, jailTurns: 0, bankrupt: false,
     goojf: [], doublesCount: 0, lap: 0, minCash: D.START_CASH,
     everMortgaged: false, kirikiriTrips: 0, lastRentReceived: 0,
@@ -258,6 +260,28 @@ function newPlayer(name, token, colorIdx) {
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
     peakCash: D.START_CASH, purchases: [], salaryNote2: false
   };
+}
+// A persistent per-device id (localStorage UUID on the client). It lets a
+// returning player reclaim their seat in a room instead of duplicating.
+function cleanClientId(v) {
+  const s = String(v || '');
+  return /^[a-zA-Z0-9-]{8,64}$/.test(s) ? s : null;
+}
+// Bind a socket to an existing seat (reconnect resume and join reclaim share
+// this): the newest socket wins, host falls back to the seat if the recorded
+// host is gone, and the room unpauses if it was waiting on this player.
+function bindSeat(ctx, ws, room, player, send) {
+  // Close code 4001 tells the old client its seat was taken on purpose, so
+  // it must not auto-reconnect and start a tab war over the seat.
+  if (player.ws && player.ws !== ws && player.ws.readyState === 1) { try { player.ws.close(4001, 'seat taken'); } catch (e) { } }
+  player.ws = ws;
+  player.connected = true;
+  ctx.room = room; ctx.player = player; ctx.spectator = false;
+  const hostP = room.players.find((p) => p.id === room.hostId);
+  if (!hostP || !hostP.connected) room.hostId = player.id;
+  updatePause(room);
+  send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken, rejoined: true });
+  broadcast(room);
 }
 function newRoom(code, isPublic, mode, settings) {
   const props = {};
@@ -817,6 +841,12 @@ function endTurn(room) {
   room.dice = null;
   room.lastCard = null;
   if (room.status !== 'playing') return;
+  // Inflation: a fully claimed board ends Settling at this turn boundary,
+  // with the normal phase ceremony (the owner's parlour rule).
+  if (room.inf && room.inf.phase === 1 && D.OWNABLE.every((i) => room.props[i] && room.props[i].owner != null)) {
+    advancePhase(room);
+    setMessage(room, 'Every street, station and utility don get owner, so Settling don finish early. ' + room.message);
+  }
   const alive = room.turnOrder.filter((id) => {
     const p = room.players.find((x) => x.id === id);
     return p && !p.bankrupt;
@@ -1476,11 +1506,11 @@ setInterval(() => {
         if ((room.pendingChoices[player.id] || []).length) {
           if (resolveMortgageChoice(room, player, 'interest')) changed = true;
           else room.turnDeadline = now() + 30000;
-        } else if (room.phase === 'roll') { doRoll(room, player); changed = true; }
-        else if (room.phase === 'jail') { jailRoll(room, player); changed = true; }
-        else if (room.phase === 'buy') { declineBuy(room, player); changed = true; }
-        else if (room.phase === 'tax') { taxChoose(room, player, null); changed = true; }
-        else if (room.phase === 'end') { endTurn(room); changed = true; }
+        } else if (room.phase === 'roll') { pushFeed(room, 'timeout', player.name + ' time don finish: the dice roll by itself.', { playerId: player.id }); doRoll(room, player); changed = true; }
+        else if (room.phase === 'jail') { pushFeed(room, 'timeout', player.name + ' time don finish: the Kirikiri dice roll by itself.', { playerId: player.id }); jailRoll(room, player); changed = true; }
+        else if (room.phase === 'buy') { pushFeed(room, 'timeout', player.name + ' time don finish with no answer: the deed go auction.', { playerId: player.id }); declineBuy(room, player); changed = true; }
+        else if (room.phase === 'tax') { pushFeed(room, 'timeout', player.name + ' time don finish: FIRS collect the smaller charge.', { playerId: player.id }); taxChoose(room, player, null); changed = true; }
+        else if (room.phase === 'end') { pushFeed(room, 'timeout', player.name + ' time don finish: turn don pass.', { playerId: player.id }); endTurn(room); changed = true; }
         else if (room.phase === 'buildPlace') { room.turnDeadline = now() + 30000; }
       }
     } else if (!changed && room.debt && room.turnDeadline && now() >= room.turnDeadline) {
@@ -1567,6 +1597,20 @@ function resolveMortgageChoice(room, player, choice) {
 // ---------------------------------------------------------------------------
 const server = http.createServer((req, res) => {
   const cleanUrl = req.url.split('?')[0];
+  // Invite landing support: whose room is this, before you join it.
+  if (cleanUrl.startsWith('/api/room/')) {
+    const code = cleanUrl.slice('/api/room/'.length).trim().toUpperCase();
+    const room = rooms.get(code);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
+    if (!room || room.mode === 'pass') { res.end(JSON.stringify({ exists: false })); return; }
+    const host = room.players.find((p) => p.id === room.hostId);
+    res.end(JSON.stringify({
+      exists: true, code: room.code, status: room.status,
+      hostName: host ? host.name : null,
+      players: room.players.length, full: room.players.length >= MAX_PLAYERS
+    }));
+    return;
+  }
   let filePath = cleanUrl === '/' ? '/index.html' : cleanUrl;
   filePath = path.normalize(path.join(PUBLIC_DIR, filePath));
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
@@ -1660,13 +1704,14 @@ wss.on('connection', (ws) => {
       const mode = msg.mode === 'pass' ? 'pass' : 'online';
       const room = newRoom(makeCode(), false, mode, sanitizeSettings(msg.settings, false));
       const player = newPlayer(name, pickToken(room, msg.token), 0);
+      player.clientId = cleanClientId(msg.clientId);
       player.ws = ws; player.local = mode === 'pass';
       room.players.push(player);
       room.hostId = player.id;
       rooms.set(room.code, room);
       ctx.room = room; ctx.player = player; ctx.spectator = false;
       setMessage(room, name + ' created the room. Share the code and wait for friends.');
-      send({ type: 'joined', playerId: player.id, code: room.code });
+      send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken });
       broadcast(room);
       return;
     }
@@ -1683,13 +1728,19 @@ wss.on('connection', (ws) => {
         target = newRoom(makeCode(), true, 'online', sanitizeSettings(null, true));
         rooms.set(target.code, target);
       }
+      const quickClientId = cleanClientId(msg.clientId);
+      if (quickClientId) {
+        const prior = target.players.find((p) => p.clientId && p.clientId === quickClientId);
+        if (prior) { bindSeat(ctx, ws, target, prior, send); return; }
+      }
       const player = newPlayer(name, pickToken(target, msg.token), target.players.length);
+      player.clientId = quickClientId;
       player.ws = ws;
       target.players.push(player);
       if (!target.hostId) target.hostId = player.id;
       ctx.room = target; ctx.player = player; ctx.spectator = false;
       setMessage(target, name + ' joined the room.');
-      send({ type: 'joined', playerId: player.id, code: target.code });
+      send({ type: 'joined', playerId: player.id, code: target.code, token: player.reconnectToken });
       broadcast(target);
       return;
     }
@@ -1698,16 +1749,24 @@ wss.on('connection', (ws) => {
       const room = rooms.get(code);
       if (!room) return fail('No room with that code. Check the code and try again.');
       if (room.mode === 'pass') return fail('That room dey play for one phone. You no fit join from another phone.');
+      // A returning device reclaims its seat (same deeds, cash, turn state)
+      // instead of duplicating in the lobby or spectating its own game.
+      const joinClientId = cleanClientId(msg.clientId);
+      if (joinClientId) {
+        const prior = room.players.find((p) => p.clientId && p.clientId === joinClientId);
+        if (prior) { bindSeat(ctx, ws, room, prior, send); return; }
+      }
       if (room.status === 'lobby') {
         const name = cleanName(msg.name);
         if (!name) return fail('Type your display name first.');
         if (room.players.length >= MAX_PLAYERS) return fail('That room is full. Rooms hold 6 players.');
         const player = newPlayer(name, pickToken(room, msg.token), room.players.length);
+        player.clientId = joinClientId;
         player.ws = ws;
         room.players.push(player);
         ctx.room = room; ctx.player = player; ctx.spectator = false;
         setMessage(room, name + ' joined the room.');
-        send({ type: 'joined', playerId: player.id, code: room.code });
+        send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken });
         broadcast(room);
       } else {
         // Game already running: come in as a spectator through the link.
@@ -1716,6 +1775,26 @@ wss.on('connection', (ws) => {
         send({ type: 'joined', playerId: null, code: room.code, spectator: true });
         send({ type: 'state', room: publicRoom(room) });
       }
+      return;
+    }
+
+    // Reconnect resume: a dropped socket rebinds to its seat with the token
+    // issued at join time. Without this, every reconnected socket was a
+    // stranger and the next intent falsely failed with "Join a room first."
+    if (msg.type === 'rejoin') {
+      const code = String(msg.code || '').trim().toUpperCase();
+      const target = rooms.get(code);
+      if (!target || target.mode === 'pass') { send({ type: 'rejoin_failed' }); return; }
+      if (msg.spectator) {
+        ctx.room = target; ctx.player = null; ctx.spectator = true;
+        target.spectators.add(ws);
+        send({ type: 'joined', playerId: null, code: target.code, spectator: true });
+        send({ type: 'state', room: publicRoom(target) });
+        return;
+      }
+      const player = target.players.find((p) => p.id === Number(msg.playerId));
+      if (!player || !msg.token || msg.token !== player.reconnectToken) { send({ type: 'rejoin_failed' }); return; }
+      bindSeat(ctx, ws, target, player, send);
       return;
     }
 
@@ -2154,6 +2233,7 @@ wss.on('connection', (ws) => {
     if (room.mode === 'pass') { rooms.delete(room.code); return; }
     const me = ctx.player;
     if (!me) return;
+    if (me.ws && me.ws !== ws) return; // a rejoined socket owns this seat now
     me.connected = false;
     me.ws = null;
     setMessage(room, me.name + ' disconnected.');

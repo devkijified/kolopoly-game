@@ -581,6 +581,51 @@ try {
     check('winner paid exactly their cap and took the deed', g.player(o.playerId).cash === 0);
     for (const c of g.clients) c.ws.close();
   }
+
+  console.log('I7: preset phase lengths (Quick 8, Standard 15, Full Night 45 for Phase 1) and a fully claimed board ends Settling at the turn boundary');
+  {
+    for (const [preset, p1] of [['quick', 480], ['standard', 900], ['fullnight', 2700]]) {
+      const g = await makeGame({ gameMode: 'inflation', preset, timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+      const left = Math.round((g.S().inf.phaseEndsAt - Date.now()) / 1000);
+      check(preset + ' Phase 1 runs about ' + p1 + 's', Math.abs(left - p1) < 6, 'left=' + left);
+      for (const c of g.clients) c.ws.close();
+    }
+    const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const ids = g.S().players.map((p) => p.id);
+    const OWNABLE = g.S().props.map((p, i) => i).filter((i) => [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39].includes(i));
+    OWNABLE.forEach((sp, i) => g.hook('test_give', { playerId: ids[i % 2], space: sp }));
+    await sleep(300);
+    check('every ownable space has an owner', g.S().props.every((p, i) => !OWNABLE.includes(i) || p.o != null));
+    await nullTurn(g);
+    check('Phase 1 ended early at the turn boundary once the board was fully claimed', g.S().inf.phase === 2);
+    check('the early end still ran the phase ceremony feed', g.S().feed.some((e) => e.kind === 'phase'));
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('R1: a returning device (same client id) reclaims its seat instead of duplicating or spectating');
+  {
+    const host = new Client('Host');
+    await host.connect();
+    host.send('create_room', { name: 'Host', token: 'danfo', mode: 'online', settings: { timed: false, turnTimerSec: 0 }, clientId: 'engine-host-1' });
+    await host.waitFor((s) => s.status === 'lobby', 'host lobby');
+    const code = host.state.code;
+    const guest = new Client('Guest');
+    await guest.connect();
+    guest.send('join_room', { code, name: 'Guest', token: 'keke', clientId: 'engine-guest-1' });
+    await guest.waitFor((s) => s.players.length === 2, 'guest joined');
+    const guestId = guest.playerId;
+    host.send('start_game', {});
+    await host.waitFor((s) => s.status === 'playing', 'game playing');
+    guest.ws.close();
+    await sleep(400);
+    const back = new Client('GuestBack');
+    await back.connect();
+    back.send('join_room', { code, name: 'Guest', token: 'keke', clientId: 'engine-guest-1' });
+    await back.waitFor((s) => s.status === 'playing' && s.players.length === 2, 'reclaimed seat state');
+    check('reclaim keeps the same player id and does not duplicate the seat', back.playerId === guestId && back.state.players.length === 2);
+    check('reclaimed player is connected again', back.state.players.find((p) => p.id === guestId).connected === true);
+    host.ws.close(); back.ws.close();
+  }
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

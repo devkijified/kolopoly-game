@@ -13,7 +13,13 @@ let myCode = null;
 let spectator = false;
 let state = null;
 let entrySent = false;
-let selectedToken = 'danfo';
+let selectedToken = (() => {
+  try {
+    const t = localStorage.getItem('kolopolyToken');
+    if (t && window.KP_DATA && window.KP_DATA.TOKENS.some((x) => x.id === t)) return t;
+  } catch (e) { }
+  return 'danfo';
+})();
 let selectedGameMode = 'classic';
 let selectedRoomMode = 'online';
 let lastFeedSeq = 0;
@@ -32,35 +38,145 @@ let bidAs = null;
 let bankruptArmed = false;
 const seenPositions = {};
 
+// Reconnect session: a seat (room code + player id + token) survives a
+// dropped socket, so a reconnected player resumes instead of becoming a
+// stranger whose next intent fails with "Join a room first."
+let myToken = null;
+let hasSeat = false;
+let sessionLive = false;
+let rejoinPending = false;
+const sendQueue = [];
+function saveSeat() {
+  try {
+    if (myCode) {
+      const fp = (state && myId != null) ? state.players.find((p) => p.id === myId) : null;
+      const seat = { code: myCode, playerId: myId, token: myToken, spectator, name: fp ? fp.name : rememberedName() };
+      sessionStorage.setItem('kolopolySeat', JSON.stringify(seat));
+      // A localStorage twin (with a timestamp) lets a closed tab reclaim the
+      // same seat later; the server token still has to match.
+      localStorage.setItem('kolopolySeatLS', JSON.stringify(Object.assign({ ts: Date.now() }, seat)));
+    } else {
+      sessionStorage.removeItem('kolopolySeat');
+      localStorage.removeItem('kolopolySeatLS');
+    }
+  } catch (e) { }
+}
+function clearSeat() {
+  myCode = null; myId = null; myToken = null; hasSeat = false; spectator = false;
+  try { sessionStorage.removeItem('kolopolySeat'); localStorage.removeItem('kolopolySeatLS'); } catch (e) { }
+}
+function loadSeat() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem('kolopolySeat') || 'null');
+    if (s && s.code) return s;
+    const ls = JSON.parse(localStorage.getItem('kolopolySeatLS') || 'null');
+    if (ls && ls.code && ls.ts && Date.now() - ls.ts < 6 * 60 * 60 * 1000) return ls;
+  } catch (e) { }
+  return null;
+}
+// Remember the player: one persistent id per device, plus the profile.
+function makeClientId() {
+  try {
+    const id = localStorage.getItem('kolopolyClientId');
+    if (id) return id;
+    const fresh = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : 'kp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+    localStorage.setItem('kolopolyClientId', fresh);
+    return fresh;
+  } catch (e) { return null; }
+}
+const CLIENT_ID = makeClientId();
+function rememberedName() { try { return localStorage.getItem('kolopolyName') || ''; } catch (e) { return ''; } }
+function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { } }
+
 // ---------------------------------------------------------------------------
 // Sound: tiny WebAudio synth, no samples. Mute persists.
 // ---------------------------------------------------------------------------
 let audioCtx = null;
+let busMain = null;    // important sounds: alerts, siren, gavel, horns
+let busAmbient = null; // quiet texture: hop ticks, auction ticks; ducked by important sounds
+let noiseBuf = null;
 let muted = localStorage.getItem('kolopolyMute') === '1';
-function beep(freq, t0, dur, type, vol) {
-  if (muted) return;
+function audio() {
+  if (muted) return null;
   try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      busMain = audioCtx.createGain(); busMain.gain.value = 0.9; busMain.connect(audioCtx.destination);
+      busAmbient = audioCtx.createGain(); busAmbient.gain.value = 0.8; busAmbient.connect(audioCtx.destination);
+    }
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    const t = audioCtx.currentTime + t0;
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.type = type || 'sine';
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(vol || 0.08, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g).connect(audioCtx.destination);
-    o.start(t); o.stop(t + dur);
-  } catch (e) { /* sound is garnish */ }
+    return audioCtx;
+  } catch (e) { return null; }
+}
+// Mix rule: the newest important sound ducks the ambient texture briefly.
+function duckAmbient() {
+  if (!audioCtx || !busAmbient) return;
+  const t = audioCtx.currentTime;
+  busAmbient.gain.cancelScheduledValues(t);
+  busAmbient.gain.setValueAtTime(0.22, t);
+  busAmbient.gain.linearRampToValueAtTime(0.8, t + 0.7);
+}
+function tone(o) {
+  const ctx = audio(); if (!ctx) return;
+  const t = ctx.currentTime + (o.at || 0);
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = o.type || 'sine';
+  osc.frequency.setValueAtTime(o.f, t);
+  if (o.f2) osc.frequency.exponentialRampToValueAtTime(Math.max(30, o.f2), t + o.dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(o.vol || 0.08, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+  osc.connect(g); g.connect(o.ambient ? busAmbient : busMain);
+  osc.start(t); osc.stop(t + o.dur + 0.05);
+}
+function noiseHit(o) {
+  const ctx = audio(); if (!ctx) return;
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 1.2), ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const t = ctx.currentTime + (o.at || 0);
+  const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  const f = ctx.createBiquadFilter();
+  f.type = o.ftype || 'bandpass';
+  f.frequency.setValueAtTime(o.freq || 1200, t);
+  f.Q.value = o.q || 0.9;
+  if (o.freq2) f.frequency.exponentialRampToValueAtTime(o.freq2, t + o.dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(o.vol || 0.05, t + (o.attack || 0.015));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+  src.connect(f); f.connect(g); g.connect(o.ambient ? busAmbient : busMain);
+  src.start(t); src.stop(t + o.dur + 0.05);
 }
 const sfx = {
-  credit() { beep(740, 0, 0.12); beep(990, 0.09, 0.16); },
-  debit() { beep(420, 0, 0.12); beep(300, 0.09, 0.18); },
-  horn() { beep(185, 0, 0.16, 'sawtooth', 0.07); beep(185, 0.22, 0.2, 'sawtooth', 0.07); },
-  clang() { beep(1400, 0, 0.3, 'square', 0.04); beep(220, 0.02, 0.4, 'triangle', 0.09); },
-  chime() { beep(880, 0, 0.14); beep(1174, 0.1, 0.2); },
-  phase() { beep(392, 0, 0.16, 'triangle', 0.09); beep(523, 0.13, 0.16, 'triangle', 0.09); beep(659, 0.26, 0.24, 'triangle', 0.09); }
+  // OPay style success: two bright tones up, tiny sparkle.
+  credit() { duckAmbient(); tone({ f: 988, dur: 0.13, vol: 0.10 }); tone({ f: 1319, at: 0.09, dur: 0.26, vol: 0.10 }); tone({ f: 1976, at: 0.09, dur: 0.1, vol: 0.028 }); },
+  // Calm low thud, no celebration.
+  debit() { tone({ f: 170, f2: 92, dur: 0.2, vol: 0.12 }); noiseHit({ dur: 0.08, vol: 0.03, freq: 300, ftype: 'lowpass' }); },
+  dice() { [0, 0.055, 0.12].forEach((at, i) => noiseHit({ at, dur: 0.035, vol: 0.045, freq: 1500 + i * 350, q: 1.4 })); tone({ f: 210, at: 0.12, dur: 0.07, type: 'triangle', vol: 0.05 }); },
+  hop() { tone({ f: 1250, dur: 0.03, type: 'square', vol: 0.011, ambient: true }); },
+  buy() { tone({ f: 1319, dur: 0.09, type: 'triangle', vol: 0.09 }); tone({ f: 1760, at: 0.07, dur: 0.17, type: 'triangle', vol: 0.09 }); noiseHit({ at: 0.02, dur: 0.05, vol: 0.02, freq: 3200, q: 2 }); },
+  gavel() { duckAmbient(); tone({ f: 190, f2: 90, dur: 0.1, type: 'triangle', vol: 0.14 }); noiseHit({ dur: 0.05, vol: 0.06, freq: 900, ftype: 'lowpass' }); tone({ f: 190, f2: 90, at: 0.13, dur: 0.1, type: 'triangle', vol: 0.1 }); },
+  auctionTick() { tone({ f: 1560, dur: 0.03, type: 'square', vol: 0.018, ambient: true }); },
+  swish() { noiseHit({ dur: 0.28, vol: 0.05, freq: 750, freq2: 2600, q: 1.1 }); },
+  build() { [0, 0.13, 0.26].forEach((at) => { noiseHit({ at, dur: 0.05, vol: 0.07, freq: 500, ftype: 'lowpass' }); tone({ f: 240, at, dur: 0.06, type: 'triangle', vol: 0.06 }); }); },
+  stamp() { tone({ f: 130, f2: 60, dur: 0.16, vol: 0.14 }); noiseHit({ dur: 0.07, vol: 0.06, freq: 420, ftype: 'lowpass' }); },
+  // Police siren first (the owner's order), then the cell clang.
+  siren() { duckAmbient(); for (let i = 0; i < 7; i++) tone({ f: i % 2 ? 720 : 960, at: i * 0.17, dur: 0.17, type: 'triangle', vol: 0.05 }); this.clang(1.26); },
+  clang(at) { tone({ f: 1400, at: at || 0, dur: 0.3, type: 'square', vol: 0.032 }); tone({ f: 220, at: (at || 0) + 0.02, dur: 0.4, type: 'triangle', vol: 0.08 }); },
+  // Up NEPA: crowd murmur swell under the bright return notes.
+  chime() { noiseHit({ dur: 0.9, vol: 0.04, freq: 480, ftype: 'lowpass', attack: 0.3 }); tone({ f: 880, at: 0.05, dur: 0.14, vol: 0.07 }); tone({ f: 1174, at: 0.16, dur: 0.2, vol: 0.07 }); },
+  horn() { tone({ f: 185, dur: 0.16, type: 'sawtooth', vol: 0.06 }); tone({ f: 185, at: 0.22, dur: 0.2, type: 'sawtooth', vol: 0.06 }); },
+  cheer() { noiseHit({ dur: 1.1, vol: 0.045, freq: 900, freq2: 1400, q: 0.6, attack: 0.25 }); tone({ f: 659, at: 0.1, dur: 0.12, vol: 0.05 }); tone({ f: 784, at: 0.22, dur: 0.12, vol: 0.05 }); tone({ f: 988, at: 0.34, dur: 0.22, vol: 0.05 }); },
+  phaseLetter() { tone({ f: 180, f2: 90, dur: 0.09, type: 'triangle', vol: 0.1 }); noiseHit({ at: 0.05, dur: 0.25, vol: 0.04, freq: 900, freq2: 2200 }); },
+  newsSting() { duckAmbient(); [523, 659, 784].forEach((f, i) => tone({ f, at: i * 0.09, dur: 0.16, type: 'sawtooth', vol: 0.04 })); noiseHit({ at: 0.27, dur: 0.2, vol: 0.04, freq: 2400, q: 1.5 }); },
+  phase() { tone({ f: 392, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 523, at: 0.13, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 659, at: 0.26, dur: 0.24, type: 'triangle', vol: 0.09 }); }
 };
+window.KPSfxHop = () => sfx.hop();
 function renderMuteBtn() { $('muteBtn').innerHTML = window.icon(muted ? 'mute' : 'sound', 20); }
 $('muteBtn').addEventListener('click', () => { muted = !muted; localStorage.setItem('kolopolyMute', muted ? '1' : '0'); renderMuteBtn(); if (!muted) sfx.credit(); });
 renderMuteBtn();
@@ -69,13 +185,32 @@ renderMuteBtn();
 // Toasts, alerts (the phone style money cards), spray, flicker
 // ---------------------------------------------------------------------------
 let toastTimer = null;
+const toastQueue = [];
+let toastShowing = false;
+// Toasts queue: a second toast never kills the first early. Ordinary toasts
+// hold 4.5s; big moments pass 5000+. Tapping a toast dismisses it.
 function toast(html, ms) {
+  toastQueue.push({ html, ms: ms || 4500 });
+  if (toastQueue.length > 3) toastQueue.splice(0, toastQueue.length - 3);
+  pumpToast();
+}
+function pumpToast() {
+  if (toastShowing || !toastQueue.length) return;
+  toastShowing = true;
+  const item = toastQueue.shift();
   const t = $('toast');
-  t.innerHTML = html;
+  t.innerHTML = item.html;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), ms || 3400);
+  toastTimer = setTimeout(dismissToast, item.ms);
 }
+function dismissToast() {
+  clearTimeout(toastTimer);
+  $('toast').classList.remove('show');
+  toastShowing = false;
+  setTimeout(pumpToast, 180);
+}
+$('toast').addEventListener('click', dismissToast);
 const alertQueue = [];
 let alertBusy = false;
 function queueAlert(kind, amount, text, balanceAfter) {
@@ -83,22 +218,27 @@ function queueAlert(kind, amount, text, balanceAfter) {
   if (alertQueue.length > 3) alertQueue.splice(0, alertQueue.length - 3);
   pumpAlerts();
 }
+const SUCC_SVG = '<svg viewBox="0 0 52 52" aria-hidden="true"><circle class="succ-c" cx="26" cy="26" r="23" fill="none"/><path class="succ-k" fill="none" d="M14.5 27.5l7.5 7.5L37.5 19"/></svg>';
 function pumpAlerts() {
   if (alertBusy || !alertQueue.length) return;
   alertBusy = true;
   const a = alertQueue.shift();
+  const isCredit = a.kind === 'credit';
   const el = document.createElement('div');
   el.className = 'alert-card ' + a.kind;
   el.innerHTML =
     '<div class="alert-bank"><span class="alert-logo">' + window.icon('bank', 14) + '</span>' +
     '<span class="alert-bank-name">KOLOPOLY ALERT</span>' +
-    '<span class="alert-pill">' + (a.kind === 'credit' ? 'CREDIT' : 'DEBIT') + '</span></div>' +
-    '<div class="amt">' + (a.kind === 'credit' ? '+' : '-') + fmtN(a.amount) + '</div>' +
+    '<span class="alert-pill">' + (isCredit ? 'CREDIT' : 'DEBIT') + '</span></div>' +
+    (isCredit ? '<div class="alert-success"><span class="succ-ring">' + SUCC_SVG + '</span><span class="succ-text">Payment received</span></div>' : '') +
+    '<div class="amt">' + (isCredit ? '+' : '-') + fmtN(a.amount) + '</div>' +
     '<div class="why">' + esc(a.text) + '</div>' +
     (a.balanceAfter != null ? '<div class="bal">Balance: ' + fmtN(a.balanceAfter) + '</div>' : '');
   $('alerts').appendChild(el);
-  if (a.kind === 'credit') sfx.credit(); else sfx.debit();
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); alertBusy = false; pumpAlerts(); }, 260); }, 1450);
+  if (isCredit) sfx.credit(); else sfx.debit();
+  if (isCredit && a.amount >= 750000) buzz(90); // the biggest hits only
+  const hold = isCredit ? 3200 : 2600; // alerts dwell ~2.8s; credits a beat longer, OPay style
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); alertBusy = false; pumpAlerts(); }, 260); }, hold);
 }
 function spray() {
   for (let k = 0; k < 14; k++) {
@@ -126,27 +266,97 @@ function nepaFlicker() {
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(proto + '//' + location.host);
+  ws.onopen = () => {
+    // Resume the seat on every (re)connect: this is what makes a dropped
+    // socket a brief pause instead of a stranger session mid-game. An invite
+    // link for a different room wins over the stored seat.
+    const seat = loadSeat();
+    const invite = new URLSearchParams(location.search).get('join');
+    const inviteWins = invite && seat && invite.trim().toUpperCase().slice(0, 4) !== seat.code;
+    // A seat saved under a different display name belongs to a different
+    // person on this device: never auto-resume into their game.
+    const seatStale = seat && seat.name && rememberedName() && seat.name !== rememberedName();
+    if (seat && seat.code && !inviteWins && !seatStale) {
+      myCode = seat.code; myId = seat.playerId; myToken = seat.token; spectator = !!seat.spectator; hasSeat = true;
+      rejoinPending = true;
+      ws.send(JSON.stringify({ type: 'rejoin', code: seat.code, playerId: seat.playerId, token: seat.token, spectator: seat.spectator }));
+    }
+  };
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.type === 'joined') {
       myId = msg.playerId;
       myCode = msg.code;
+      if (msg.token) myToken = msg.token;
       spectator = !!msg.spectator;
+      hasSeat = true;
+      sessionLive = true;
+      rejoinPending = false;
       entrySent = true;
+      saveSeat();
+      flushQueue();
       return;
     }
-    if (msg.type === 'error') { toast(esc(msg.message)); return; }
-    if (msg.type === 'notice') { toast(esc(msg.message), 4200); return; }
-    if (msg.type === 'state') { onState(msg.room); return; }
+    if (msg.type === 'rejoin_failed') {
+      rejoinPending = false;
+      clearSeat();
+      try { sessionStorage.setItem('kolopolyRoomGone', '1'); } catch (e) { }
+      location.reload();
+      return;
+    }
+    if (msg.type === 'error') {
+      // A bound seat can never be told to join a room: that error only makes
+      // sense on the landing screen before any room exists.
+      if (msg.message === 'Join a room first.' && (state || hasSeat)) return;
+      toast(esc(msg.message)); return;
+    }
+    if (msg.type === 'notice') { toast(esc(msg.message), 5200); return; }
+    if (msg.type === 'state') {
+      if (!sessionLive) { sessionLive = true; flushQueue(); }
+      onState(msg.room); return;
+    }
   };
-  ws.onclose = () => { setTimeout(connect, 2500); };
+  ws.onclose = (ev) => {
+    sessionLive = false;
+    if (ev && ev.code === 4001) {
+      // The seat was taken by a newer tab or window on purpose: sign this
+      // one out of the game instead of fighting over the seat.
+      clearSeat();
+      entrySent = false;
+      showView('view-landing');
+      toast('Your seat don open for another tab or window. This one don sign out.', 5200);
+      return;
+    }
+    setTimeout(connect, 2500);
+  };
+}
+function flushQueue() {
+  while (sendQueue.length && ws && ws.readyState === 1) {
+    const m = sendQueue.shift();
+    ws.send(JSON.stringify(Object.assign({ type: m.type }, m.obj || {})));
+  }
 }
 function send(type, obj) {
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify(Object.assign({ type }, obj || {})));
+  if (!ws || ws.readyState !== 1) return;
+  // While a rejoin is in flight the socket is open but unbound: queue the
+  // intent instead of firing it at a session that has no room yet.
+  if (!sessionLive && hasSeat && type !== 'rejoin') {
+    if (sendQueue.length < 12) sendQueue.push({ type, obj });
+    return;
+  }
+  ws.send(JSON.stringify(Object.assign({ type }, obj || {})));
 }
 window.__kolopolySend = send;
 window.__kolopolyState = () => state;
+window.__kolopolyDrop = () => { if (ws) ws.close(); };
+window.__kolopolySession = () => ({ live: sessionLive, hasSeat, code: myCode, id: myId, queued: sendQueue.length });
+try {
+  if (sessionStorage.getItem('kolopolyRoomGone')) {
+    sessionStorage.removeItem('kolopolyRoomGone');
+    setTimeout(() => toast('Your room don close. Start a fresh one.'), 500);
+  }
+} catch (e) { }
 
 // ---------------------------------------------------------------------------
 // Entry: name, tokens, mode pickers, invite
@@ -157,6 +367,7 @@ function buildTokenPickers() {
     '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + '" data-token="' + t.id + '">' + window.tokenArt(t.id, 44) + '<span>' + esc(t.name) + '</span></button>').join('');
   $('tokenGrid').querySelectorAll('[data-token]').forEach((b) => b.addEventListener('click', () => {
     selectedToken = b.dataset.token;
+    try { localStorage.setItem('kolopolyToken', selectedToken); } catch (e) { }
     $('tokenGrid').querySelectorAll('[data-token]').forEach((x) => x.classList.toggle('sel', x === b));
   }));
 }
@@ -177,9 +388,10 @@ function needName() { if (!myName()) { toast('Type your display name first.'); $
 
 $('createBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
+  clearSeat(); // a fresh entry choice abandons any stored seat
   entrySent = true;
   send('create_room', {
-    name: myName(), token: selectedToken, mode: selectedRoomMode,
+    name: myName(), token: selectedToken, clientId: CLIENT_ID, mode: selectedRoomMode,
     settings: {
       gameMode: selectedGameMode,
       preset: $('presetSel').value,
@@ -194,29 +406,90 @@ $('createBtn').addEventListener('click', () => {
 });
 $('quickBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
+  clearSeat();
   entrySent = true;
-  send('quick_join', { name: myName(), token: selectedToken });
+  send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID });
 });
 let joinSentFor = null;
 function tryJoin(code) {
   code = (code || '').trim().toUpperCase();
   if (code.length !== 4 || !needName()) return;
   if (entrySent && joinSentFor === code) return;
+  clearSeat();
   entrySent = true;
   joinSentFor = code;
-  send('join_room', { code, name: myName(), token: selectedToken });
+  send('join_room', { code, name: myName(), token: selectedToken, clientId: CLIENT_ID });
 }
 $('joinBtn').addEventListener('click', () => tryJoin($('codeIn').value));
 $('codeIn').addEventListener('input', () => { if ($('codeIn').value.trim().length === 4) tryJoin($('codeIn').value); });
 
 const inviteCode = new URLSearchParams(location.search).get('join');
+function tokenArtFor(id) {
+  const t = window.KP_DATA.TOKENS.find((x) => x.id === id) || window.KP_DATA.TOKENS[0];
+  return window.tokenArt(t.id, 40);
+}
+function revealForm(focusId) {
+  $('joinCard').classList.remove('hidden');
+  $('welcomeCard').classList.add('hidden');
+  if (focusId) { const el = $(focusId); if (el) el.focus(); }
+}
+// Welcome back: a remembered player acts first; editing is one tap away,
+// never a fresh form by default.
+(function setupWelcome() {
+  const name = rememberedName();
+  if (!name || inviteCode) return;
+  $('welcomeTitle').textContent = 'Welcome back, ' + name;
+  $('welcomeToken').innerHTML = tokenArtFor(selectedToken);
+  $('welcomeSub').textContent = 'Your token and settings dey as you leave am. Create a room, quick play, or join with a code.';
+  $('welcomeCard').classList.remove('hidden');
+  $('joinCard').classList.add('hidden');
+  $('welcomeCreate').addEventListener('click', () => { $('nameIn').value = name; $('createBtn').click(); });
+  $('welcomeQuick').addEventListener('click', () => { $('nameIn').value = name; $('quickBtn').click(); });
+  $('welcomeJoinCode').addEventListener('click', () => revealForm('codeIn'));
+  $('welcomeChange').addEventListener('click', () => revealForm('nameIn'));
+})();
+// Invite link: one compact prompt, one tap into the lobby.
+let inviteInfo = null;
 if (inviteCode) {
   const code = inviteCode.trim().toUpperCase().slice(0, 4);
   $('codeIn').value = code;
-  const b = $('inviteBanner');
-  b.textContent = 'You were invited to room ' + code + '. Type your name, pick a token, and you are in.';
-  b.classList.add('show');
+  $('inviteBanner').classList.add('show');
+  const name = rememberedName();
+  $('inviteTitle').textContent = 'You were invited to room ' + code;
+  $('inviteToken').innerHTML = tokenArtFor(selectedToken);
+  if (name) {
+    $('joinCard').classList.add('hidden');
+    $('inviteAs').textContent = 'Join as ' + name;
+  } else {
+    $('inviteAs').textContent = 'Type your name below, then join.';
+  }
+  $('inviteMeta').textContent = 'Checking the room...';
   history.replaceState(null, '', location.pathname);
+  fetch('/api/room/' + code).then((r) => r.json()).then((info) => {
+    inviteInfo = info;
+    if (!info.exists) {
+      $('inviteTitle').textContent = 'That room don close.';
+      $('inviteMeta').textContent = 'The link don expire, or the game don finish.';
+      $('inviteJoinBtn').textContent = 'Start fresh instead';
+      return;
+    }
+    $('inviteTitle').textContent = (info.hostName ? info.hostName + "'s room" : 'Room ' + code) + ' · ' + code;
+    $('inviteMeta').textContent = info.players + (info.players === 1 ? ' player' : ' players') + ' inside · ' + (info.status === 'lobby' ? 'waiting in the lobby' : 'game don start: watch, or reclaim your seat if you been dey inside');
+    if (info.full) {
+      $('inviteMeta').textContent = 'That room don full: 6 players dey inside.';
+      $('inviteJoinBtn').textContent = 'Start fresh instead';
+    }
+  }).catch(() => { $('inviteMeta').textContent = 'Room ' + code + '. Join when you ready.'; });
+  $('inviteJoinBtn').addEventListener('click', () => {
+    if (inviteInfo && (!inviteInfo.exists || inviteInfo.full)) { location.href = location.pathname; return; }
+    if (!name) { revealForm('nameIn'); return; }
+    if (entrySent) return;
+    clearSeat();
+    entrySent = true;
+    joinSentFor = code;
+    send('join_room', { code, name, token: selectedToken, clientId: CLIENT_ID });
+  });
+  $('inviteChangeBtn').addEventListener('click', () => revealForm('nameIn'));
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +518,9 @@ function byId(id) { return state ? state.players.find((p) => p.id === id) : null
 function onState(room) {
   const prev = state;
   state = room;
+  const meNow = room.players.find((p) => p.id === myId);
+  if (meNow && meNow.token) { try { localStorage.setItem('kolopolyToken', meNow.token); } catch (e) { } }
+  if (prev && prev.auction && !room.auction && room.status === 'playing') sfx.gavel();
   if (!prev || prev.status !== room.status) {
     if (room.status === 'lobby') showView('view-lobby');
     else if (room.status === 'countdown' || room.status === 'playing' || room.status === 'ended') {
@@ -282,9 +558,12 @@ function processFeed(room, prev) {
       const p = room.players.find((x) => x.id === e.playerId);
       queueAlert(e.kind, e.amount, e.text, p ? p.cash : null);
     }
-    if (e.kind === 'kirikiri') sfx.clang();
+    if (e.kind === 'kirikiri') { sfx.siren(); buzz([70, 50, 70]); }
+    if (e.kind === 'timeout') toast(esc(e.text), 5200);
     if (e.kind === 'jackpot' && e.amount >= 100000) {
       spray();
+      sfx.cheer();
+      buzz(120);
       const winner = room.players.find((x) => x.id === e.playerId);
       if (focusIds.includes(e.playerId)) {
         setTimeout(() => openShare('jackpot', { name: winner ? winner.name : 'A landlord', amount: e.amount, line: 'collect the full Owambe pot for room ' + room.code + '. Spray am for everybody.', code: room.code }), 900);
@@ -303,7 +582,11 @@ function processFeed(room, prev) {
       }
     }
     if (e.kind === 'phase') {
-      sfx.phase();
+      // Phase 2 arrives as the landlord's letter (knock + paper), Phase 3
+      // breaks like a news sting, the rest keep the rising tones.
+      if (room.inf && room.inf.phase === 2) sfx.phaseLetter();
+      else if (room.inf && room.inf.phase === 3) sfx.newsSting();
+      else sfx.phase();
       showPhaseCeremony(room, e);
     }
   }
@@ -312,7 +595,10 @@ function processFeed(room, prev) {
     const drawer = room.lastCard.playerId;
     if (room.mode === 'pass' || drawer === myId) showCardModal(room.lastCard);
   }
-  if (room.dice && prev && room.dice !== prev.dice && room.dice[0] === room.dice[1] && room.status === 'playing') sfx.horn();
+  if (room.dice && prev && room.dice !== prev.dice && room.status === 'playing') {
+    sfx.dice();
+    if (room.dice[0] === room.dice[1]) sfx.horn();
+  }
 }
 function processPositions(room) {
   for (const p of room.players) {
@@ -324,7 +610,7 @@ function showPhaseCeremony(room, entry) {
   const inf = room.inf;
   if (!inf) return;
   const o = $('phaseOverlay');
-  const PW = [5, 10, 20, 50][inf.phase - 1];
+  const PW = [50, 100, 200, 500][inf.phase - 1];
   let inner;
   if (inf.phase === 2) {
     // The landlord's rent increase letter (lessons doc, Upgrade 1).
@@ -437,7 +723,7 @@ $('addLocalBtn').addEventListener('click', () => {
   $('localNameIn').value = '';
 });
 $('startBtn').addEventListener('click', () => send('start_game', {}));
-$('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); setTimeout(() => location.reload(), 250); });
+$('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); clearSeat(); setTimeout(() => location.reload(), 250); });
 
 // ---------------------------------------------------------------------------
 // Game rendering
@@ -485,11 +771,11 @@ function wireSheetButtons(root, viewer) {
     const space = Number(b.dataset.space);
     const as = state.mode === 'pass' ? viewer : undefined;
     const sendAct = (type, obj) => { const o = Object.assign({}, obj || {}); if (as != null) o.as = as; send(type, o); };
-    if (b.dataset.act === 'build-duplex') sendAct('build', { space, kind: 'duplex' });
-    if (b.dataset.act === 'build-mansion') sendAct('build', { space, kind: 'mansion' });
+    if (b.dataset.act === 'build-duplex') { sfx.build(); sendAct('build', { space, kind: 'duplex' }); }
+    if (b.dataset.act === 'build-mansion') { sfx.build(); sendAct('build', { space, kind: 'mansion' }); }
     if (b.dataset.act === 'sell-building') sendAct('sell_building', { space });
-    if (b.dataset.act === 'mortgage') sendAct('mortgage', { space });
-    if (b.dataset.act === 'unmortgage') sendAct('unmortgage', { space });
+    if (b.dataset.act === 'mortgage') { sfx.stamp(); sendAct('mortgage', { space }); }
+    if (b.dataset.act === 'unmortgage') { sfx.stamp(); sendAct('unmortgage', { space }); }
     setTimeout(() => root.closest('.scrim').classList.remove('show'), 120);
   }));
 }
@@ -501,12 +787,12 @@ function renderGame(room) {
     infBar.classList.remove('hidden');
     infBar.innerHTML = '<span class="ph">Phase ' + room.inf.phase + ': ' + esc(room.inf.phaseName) + '</span>' +
       '<span class="idx">Index ' + room.inf.index + 'x</span>' +
-      '<span class="water-chip">Pure water ₦' + [5, 10, 20, 50][room.inf.phase - 1] + '</span>' +
+      '<span class="water-chip">Pure water ₦' + [50, 100, 200, 500][room.inf.phase - 1] + '</span>' +
       '<span>Salary ' + fmtN(room.inf.salary) + '</span>' +
       '<span class="clk" id="infClock"></span>' +
       '<button id="dealBreakBtn">' + window.icon('clock', 14) + ' Deal Break</button>' +
       '<button id="contractsBtn">' + window.icon('card', 14) + ' Contracts (' + room.inf.contracts.length + ')</button>' +
-      '<span class="infbar-note">Pure water na the gauge: na im price dey tell us how market don be. The Index na the maths; the sachet na the memory.</span>';
+      '<span class="infbar-note">Pure water na the gauge: one sachet start from ₦50 these days, and na im price dey tell us how market don be. The Index na the maths; the sachet na the memory.</span>';
     $('dealBreakBtn').addEventListener('click', () => sendAs('call_deal_break', {}));
     $('contractsBtn').addEventListener('click', () => openContracts());
   } else {
@@ -567,6 +853,10 @@ function renderWallet(room) {
   if (fp.sapa && fp.sapa.warn) {
     sapaSlot.innerHTML = '<div class="sapa-warn">' + window.icon('alert', 15) + ' Sapa dey near: one bad landing fit cost you ' + fmtN(fp.sapa.exposure) + '. Buy a Pass or arrange a loan before you roll.</div>';
   } else sapaSlot.innerHTML = '';
+  // The portrait rail clears the fixed wallet bar by its real height, so
+  // nothing hides behind it when the auction card or sapa warning grows it.
+  const wb = document.querySelector('.walletbar');
+  if (wb) document.documentElement.style.setProperty('--wallet-h', wb.offsetHeight + 'px');
 }
 
 function timerSpan(deadline) {
@@ -630,7 +920,7 @@ function renderActionBar(room) {
   wire('abJailPay', () => sendAs('jail_pay', {}));
   wire('abJailCard', () => sendAs('jail_card', {}));
   wire('abJailRoll', () => sendAs('jail_roll', {}));
-  wire('abBuy', () => sendAs('buy', {}));
+  wire('abBuy', () => { sfx.buy(); sendAs('buy', {}); });
   wire('abDecline', () => sendAs('decline', {}));
   wire('abTaxFlat', () => sendAs('tax_choice', { choice: 'flat' }));
   wire('abTaxPct', () => sendAs('tax_choice', { choice: 'percent' }));
@@ -798,6 +1088,7 @@ const CARD_FX_LABELS = {
   goojf: 'Keep the card', shield: 'Keep the shield'
 };
 function showCardModal(card) {
+  sfx.swish();
   const m = $('cardModal');
   const deckData = card.deck === 'wahala' ? window.KP_DATA.WAHALA : window.KP_DATA.FAMILY;
   const found = deckData.find((c) => c.id === card.id);
@@ -1122,7 +1413,7 @@ function renderEnd(room) {
     });
   });
   $('endAgain').addEventListener('click', () => { o.classList.remove('show'); send('play_again', {}); });
-  $('endLeave').addEventListener('click', () => { send('leave', {}); setTimeout(() => location.reload(), 250); });
+  $('endLeave').addEventListener('click', () => { send('leave', {}); clearSeat(); setTimeout(() => location.reload(), 250); });
 }
 let shareCanvas = null;
 function openShare(kind, data) {
@@ -1158,8 +1449,28 @@ function openShare(kind, data) {
 }
 window.__kolopolyShareCard = openShare;
 
+// Sheets dismiss with a downward swipe too, like every app users know.
+// (Modal cards carry forced choices and stay button-only.)
+document.querySelectorAll('.sheet').forEach((sh) => {
+  let y0 = null;
+  sh.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; }, { passive: true });
+  sh.addEventListener('touchend', (e) => {
+    if (y0 == null) return;
+    const dy = e.changedTouches[0].clientY - y0;
+    y0 = null;
+    if (dy > 70 && sh.scrollTop <= 0) { const sc = sh.closest('.scrim'); if (sc) sc.classList.remove('show'); }
+  }, { passive: true });
+});
+
 // One second ticker: countdown labels only, no full re-render.
+let lastAuctionTickSec = -1;
 setInterval(() => {
+  // Auction pressure: a tick a second under the last five seconds.
+  const auc = state && state.auction;
+  if (auc) {
+    const s = Math.ceil((auc.endsAt - Date.now()) / 1000);
+    if (s <= 5 && s >= 1 && s !== lastAuctionTickSec) { lastAuctionTickSec = s; sfx.auctionTick(); }
+  } else lastAuctionTickSec = -1;
   document.querySelectorAll('[data-deadline]').forEach((el) => {
     const left = Math.max(0, Math.round((Number(el.dataset.deadline) - Date.now()) / 1000));
     el.textContent = left + 's';

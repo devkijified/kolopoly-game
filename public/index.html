@@ -32,9 +32,35 @@
     <div class="token-rain" id="heroTokens"></div>
   </div>
 
-  <div class="banner" id="inviteBanner"></div>
+  <div class="banner" id="inviteBanner">
+    <p class="invite-title" id="inviteTitle"></p>
+    <div class="invite-row">
+      <span class="invite-token" id="inviteToken"></span>
+      <div class="grow">
+        <p class="invite-as" id="inviteAs"></p>
+        <p class="caption" id="inviteMeta"></p>
+      </div>
+    </div>
+    <button class="btn block" id="inviteJoinBtn">Join game</button>
+    <button class="btn ghost block mt8" id="inviteChangeBtn">Change name or token</button>
+  </div>
 
-  <section class="join-card">
+  <section class="join-card hidden" id="welcomeCard">
+    <p class="overline">WELCOME BACK</p>
+    <h2 class="welcome-title" id="welcomeTitle">Welcome back</h2>
+    <div class="invite-row">
+      <span class="invite-token" id="welcomeToken"></span>
+      <p class="caption grow" id="welcomeSub"></p>
+    </div>
+    <button class="btn block" id="welcomeCreate">Create room</button>
+    <div class="btnrow mt8">
+      <button class="btn ghost" id="welcomeQuick">Quick play</button>
+      <button class="btn ghost" id="welcomeJoinCode">Join with a code</button>
+    </div>
+    <button class="btn ghost block mt8" id="welcomeChange">Change name or token</button>
+  </section>
+
+  <section class="join-card" id="joinCard">
     <label for="nameIn">Your display name</label>
     <input class="textin" id="nameIn" maxlength="20" placeholder="e.g. Adaeze" autocomplete="name">
 
@@ -55,8 +81,8 @@
     <div id="presetRow" class="hidden">
       <label for="presetSel">Inflation preset</label>
       <select class="textin" id="presetSel">
-        <option value="quick">Quick Bite: about 30 minutes (12 / 8 / 10)</option>
-        <option value="standard" selected>Standard: about 60 to 70 minutes (25 / 15 / 20)</option>
+        <option value="quick">Quick Bite: about 25 to 30 minutes (8 / 6 / 10)</option>
+        <option value="standard" selected>Standard: about 55 to 60 minutes (15 / 12 / 20)</option>
         <option value="fullnight">Full Night: the owner table (45 / 30 / open)</option>
       </select>
       <p class="caption mt8">Phase 1 salary ₦200,000, Phase 2 ₦100,000, Phase 3 ₦50,000, Sudden Death ₦25,000. Rent multiplies by your dice from Phase 2. Passage rights and collateral loans open as registered contracts.</p>

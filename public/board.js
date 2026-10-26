@@ -239,7 +239,7 @@ const KPBoard = {
     const centerPhase = document.getElementById('centerPhase');
     if (centerPhase) {
       centerPhase.textContent = state.inf
-        ? 'Phase ' + state.inf.phase + ': ' + state.inf.phaseName + ' · Index ' + state.inf.index + 'x · Pure water ₦' + [5, 10, 20, 50][state.inf.phase - 1] + ' · Salary ' + D.fmtN(state.inf.salary)
+        ? 'Phase ' + state.inf.phase + ': ' + state.inf.phaseName + ' · Index ' + state.inf.index + 'x · Pure water ₦' + [50, 100, 200, 500][state.inf.phase - 1] + ' · Salary ' + D.fmtN(state.inf.salary)
         : '';
     }
     this.renderTokens(state);
@@ -331,6 +331,7 @@ const KPBoard = {
         void inner.offsetWidth;
         inner.classList.add('hop');
       }
+      if (window.KPSfxHop) window.KPSfxHop();
       this.focusSpace = cur;
       this.applyCamera(state);
       if (cur !== to) setTimeout(step, 230);

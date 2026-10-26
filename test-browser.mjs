@@ -33,7 +33,10 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--no-proxy-server', '--ignore-certificate-errors']
 });
 async function newPage(tag) {
-  const page = await browser.newPage();
+  // One isolated browser context per page: each rig page is a different
+  // person's phone, with its own localStorage and sessionStorage.
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
   page.on('pageerror', (e) => pageErrors.push(tag + ': ' + e.message));
@@ -52,19 +55,31 @@ async function waitState(page, pred, label, ms) {
   }, { timeout: ms || 12000, polling: 200 }, src).catch(() => { throw new Error('waitState timeout: ' + label); });
 }
 const front = (page) => page.bringToFront().catch(() => {});
-// All rig pages share one origin, so the remembered name pre-fills later
-// pages. Clear the field before typing a fresh name.
+// Each page is an isolated context (its own phone). Clear the field before
+// typing a fresh name. Returning players get
+// the welcome or invite layout with the form tucked behind a Change button:
+// reveal it first when the name field is not visible.
 async function typeName(page, name) {
+  await page.evaluate(() => {
+    const n = document.getElementById('nameIn');
+    if (n && n.offsetParent === null) {
+      const cand = [document.getElementById('inviteChangeBtn'), document.getElementById('welcomeChange')];
+      const t = cand.find((b) => b && b.offsetParent !== null);
+      if (t) t.click();
+    }
+  });
   await page.evaluate(() => { document.getElementById('nameIn').value = ''; });
   await page.type('#nameIn', name);
 }
 // In-game action buttons are re-rendered on every state change, so a resolved
 // node can detach mid-click. Click them by id at evaluate time, with retries.
+// The retry budget is generous: the rig renders WebGL in software and this VM
+// is shared, so a page can take seconds to produce a button under load.
 async function clickId(page, id) {
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 14; i++) {
     const ok = await page.evaluate((x) => { const el = document.getElementById(x); if (!el) return false; el.click(); return true; }, id);
     if (ok) return;
-    await sleep(300);
+    await sleep(400);
   }
   throw new Error('clickId: #' + id + ' never appeared');
 }
@@ -138,15 +153,28 @@ try {
   await tp.waitForFunction(() => {
     const el = document.querySelector('.alert-card.credit');
     return el && /Salary alert/.test(el.textContent);
-  }, { timeout: 9000 }).catch(() => {});
+  }, { timeout: 15000 }).catch(() => {});
   const creditAlert = await tp.evaluate(() => {
     const el = document.querySelector('.alert-card.credit');
     return el ? el.textContent : '';
   });
   check('salary credit alert rendered green with exact ₦200,000', /₦200,000/.test(creditAlert), creditAlert.slice(0, 90));
   await tp.screenshot({ path: SHOTS + 'kp-alert.png' });
-  await waitState(tp, (s) => s.phase === 'end', 'rent landing resolved');
-  await clickId(tp, 'abEnd');
+  // The smart auto-end may pass this idle turn by itself while the rig is
+  // busy screenshotting the alert (that is B4's feature working), so the
+  // landing counts as resolved when the end phase shows OR the turn has
+  // already moved on. Either outcome passes the turn.
+  {
+    const end = Date.now() + 12000;
+    let resolved = false;
+    while (Date.now() < end) {
+      const s = await S(tp);
+      if (s.phase === 'end' || s.turnPlayerId !== tpId) { resolved = true; break; }
+      await sleep(200);
+    }
+    if (!resolved) throw new Error('rent landing never resolved');
+  }
+  await clickId(tp, 'abEnd').catch(() => {});
   // Without this wait the turnPage() read below races the end turn broadcast
   // and can pick the player who just ended (their page never shows a roll
   // button). Same polling pattern as the first end turn check above.
@@ -173,7 +201,7 @@ try {
 
   // Deed sheet for Banana Island, with its area meaning line.
   await tp.evaluate(() => { document.querySelectorAll('.bspace')[39].click(); });
-  await tp.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 6000 });
+  await tp.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 15000 });
   const deedText = await tp.evaluate(() => document.querySelector('#deedSheet').textContent);
   check('deed sheet shows price, ladder and the area meaning', /Banana Island/.test(deedText) && /₦400,000/.test(deedText) && /Final boss\. If you get house here/.test(deedText), deedText.slice(0, 120));
   await tp.screenshot({ path: SHOTS + 'kp-deed.png' });
@@ -181,7 +209,7 @@ try {
 
   // Share card: the Landlord card.
   await tp.evaluate(() => window.__kolopolyShareCard('landlord', { name: 'Ada', amount: 400000, line: 'don buy Banana Island. LANDLORD level don change for this table.', code: window.__kolopolyState().code }));
-  await tp.waitForFunction(() => document.querySelector('#shareOverlay').classList.contains('show'), { timeout: 6000 });
+  await tp.waitForFunction(() => document.querySelector('#shareOverlay').classList.contains('show'), { timeout: 15000 });
   await sleep(300);
   await tp.screenshot({ path: SHOTS + 'kp-share.png' });
   check('share card overlay rendered a canvas', await tp.evaluate(() => !!document.querySelector('#shareOverlay canvas')));
@@ -212,12 +240,17 @@ try {
   await send(tp2, 'test_dice', { rolls: [[2, 3]] });
   await clickId(tp2, 'abRoll');
   await waitState(tp2, (s) => s.phase === 'buy' && s.buySpace === 5, 'Iddo offered');
-  await clickId(tp2, 'abDecline');
-  await waitState(other2, (s) => !!s.auction, 'auction panel live');
-  check('auction opened on decline', true);
+  // Test auctions run a 4s clock (KP_TEST) and this rig is slow, so the bid
+  // button wait is registered BEFORE the decline and the bidder's page is
+  // fronted (background pages get their timers throttled): the click then
+  // lands inside the window.
   await front(other2);
-  await other2.waitForFunction(() => !!document.querySelector('#auctionSlot [data-bid]'), { timeout: 6000, polling: 200 });
+  const bidReady = other2.waitForFunction(() => !!document.querySelector('#auctionSlot [data-bid]'), { timeout: 12000, polling: 100 });
+  await clickId(tp2, 'abDecline');
+  await bidReady;
+  check('auction opened on decline', true);
   await other2.evaluate(() => { const bs = document.querySelectorAll('#auctionSlot [data-bid]'); bs[bs.length - 1].click(); });
+  await waitState(other2, (s) => !!s.auction && s.auction.highBid > 0, 'bid registered', 6000);
   await tp2.evaluate(() => { const p = document.querySelector('#bidPass'); if (p) p.click(); });
   await waitState(C, (s) => !s.auction && !!s.props[5].o, 'auction settled', 12000);
   const winnerId = (await S(C)).props[5].o;
@@ -258,14 +291,14 @@ try {
   await payerPage.waitForFunction(() => {
     const el = document.querySelector('.alert-card.debit');
     return el && /x 2/.test(el.textContent);
-  }, { timeout: 9000 }).catch(() => {});
+  }, { timeout: 15000 }).catch(() => {});
   const rentAlert = await payerPage.evaluate(() => {
     const el = document.querySelector('.alert-card.debit');
     return el ? el.textContent : '';
   });
   check('Phase 2 rent alert shows the multiplied ₦20,000 (printed x lowest die)', /₦20,000/.test(rentAlert), rentAlert.slice(0, 90));
   const infBarText = await payerPage.evaluate(() => document.querySelector('#infBar').textContent);
-  check('infobar shows Index 5.1x and Pure water ₦10', /5\.1x/.test(infBarText) && /Pure water ₦10/.test(infBarText), infBarText.slice(0, 120));
+  check('infobar shows Index 5.1x and Pure water ₦100', /5\.1x/.test(infBarText) && /Pure water ₦100(?![0-9])/.test(infBarText), infBarText.slice(0, 120));
   await sleep(500);
   await payerPage.screenshot({ path: SHOTS + 'kp-inflation.png' });
   await E.close(); await F.close();
@@ -298,7 +331,7 @@ try {
   await send(tp4, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp4, 'abRoll');
   await waitState(tp4, (s) => s.phase === 'end', 'idle end phase reached');
-  await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 5000, polling: 150 });
+  await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 10000, polling: 150 });
   check('auto-end countdown label shows on the idle End turn', true);
   {
     const end = Date.now() + 9000;
@@ -316,9 +349,9 @@ try {
   await send(tp4, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp4, 'abRoll');
   await waitState(tp4, (s) => s.phase === 'end', 'second idle end phase reached');
-  await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 5000, polling: 150 });
+  await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 10000, polling: 150 });
   await tp4.evaluate(() => { document.querySelectorAll('.bspace')[39].click(); });
-  await tp4.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 6000 });
+  await tp4.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 15000 });
   await sleep(7500); // longer than the 6s countdown
   check('open deed sheet cancelled the auto-end (turn held)', (await S(G)).turnPlayerId === turnId4);
   await tp4.evaluate(() => document.querySelector('#deedScrim').classList.remove('show'));
@@ -329,6 +362,97 @@ try {
     check('auto-end re-armed after the sheet closed and passed the turn', passed);
   }
   await G.close(); await H.close();
+
+  // ---------------------------------------------------------- scenario 5
+  console.log('B5: a dropped socket rejoins its seat mid-game; "Join a room first." can never toast in game');
+  const I = await newPage('I');
+  await I.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(I, 'Ibrahim');
+  await I.click('#createBtn');
+  await waitState(I, (s) => s.status === 'lobby', 'I lobby');
+  const code5 = (await S(I)).code;
+  const J = await newPage('J');
+  await J.goto(BASE + '/?join=' + code5, { waitUntil: 'networkidle0' });
+  await typeName(J, 'Joke');
+  await J.click('#joinBtn');
+  await waitState(J, (s) => s.players.length === 2, 'J joined');
+  await front(I);
+  await I.click('#startBtn');
+  await waitState(I, (s) => s.status === 'playing', 'game 5 playing');
+  const jId = (await S(J)).players.find((p) => p.name === 'Joke').id;
+  const toastText = (page) => page.evaluate(() => { const t = document.querySelector('#toast'); return t ? t.textContent : ''; });
+  // Drop J's socket mid-game; the client reconnects and must rejoin its seat.
+  await J.evaluate(() => window.__kolopolyDrop());
+  await J.waitForFunction(() => window.__kolopolySession && window.__kolopolySession().live === true, { timeout: 20000, polling: 250 });
+  check('reconnected socket rejoined the room (session live again)', true);
+  check('the seat kept its identity across the reconnect', (await J.evaluate(() => window.__kolopolySession().id)) === jId);
+  {
+    const end = Date.now() + 9000;
+    let back = false;
+    while (Date.now() < end) { const jp = (await S(I)).players.find((p) => p.id === jId); if (jp && jp.connected) { back = true; break; } await sleep(200); }
+    check('server marks the rejoined player connected', back);
+  }
+  await J.evaluate(() => { document.querySelector('#toast').innerHTML = ''; });
+  // The rejoined socket must be bound: a server intent from J must land.
+  await send(J, 'test_set_position', { playerId: jId, space: 7 });
+  {
+    const end = Date.now() + 9000;
+    let landed = false;
+    while (Date.now() < end) { const jp = (await S(J)).players.find((p) => p.id === jId); if (jp && jp.position === 7) { landed = true; break; } await sleep(200); }
+    check('intents from the rejoined socket reach the room', landed);
+  }
+  // Sweep the visible rail controls; the forbidden toast must never appear.
+  await front(J);
+  await clickId(J, 'sbGist');
+  await sleep(400);
+  await J.evaluate(() => { document.querySelectorAll('.scrim.show').forEach((s) => s.classList.remove('show')); });
+  await clickId(J, 'sbDeeds');
+  await sleep(400);
+  await J.evaluate(() => { document.querySelectorAll('.scrim.show').forEach((s) => s.classList.remove('show')); });
+  check('rail sweep after reconnect shows no "Join a room first." toast', !/Join a room first/.test(await toastText(J)), await toastText(J));
+  // A real propose + cancel round trip through the rejoined socket.
+  const other5 = (await S(J)).players.find((p) => p.id !== jId);
+  await J.evaluate((toId) => { window.__kolopolySend('trade_propose', { to: toId, offer: { cash: 0, spaces: [], goojf: 0 }, request: { cash: 0, spaces: [], goojf: 0 } }); }, other5.id);
+  await waitState(J, (s) => !!s.trade, 'trade proposed from rejoined socket');
+  await send(J, 'trade_cancel', {});
+  await waitState(J, (s) => !s.trade, 'trade cancelled');
+  check('trade propose and cancel round trip works after reconnect', true);
+  check('no "Join a room first." toast after the whole sweep', !/Join a room first/.test(await toastText(J)), await toastText(J));
+  // A full page reload mid-game resumes the same seat too.
+  await J.reload({ waitUntil: 'networkidle0' });
+  await J.waitForFunction(() => window.__kolopolySession && window.__kolopolySession().live === true && window.__kolopolyState() && window.__kolopolyState().status === 'playing', { timeout: 20000, polling: 250 });
+  check('a full page reload mid-game resumes the same seat', (await J.evaluate(() => window.__kolopolySession().id)) === jId);
+  await I.close(); await J.close();
+
+  // ---------------------------------------------------------- scenario 6
+  console.log('B6: invite link shows one compact prompt; a returning player joins in one tap');
+  const K = await newPage('K');
+  await K.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(K, 'Kamsi');
+  await K.click('#createBtn');
+  await waitState(K, (s) => s.status === 'lobby', 'K lobby');
+  const code6 = (await S(K)).code;
+  const L = await newPage('L');
+  await L.goto(BASE, { waitUntil: 'networkidle0' });
+  await L.evaluate(() => { localStorage.setItem('kolopolyName', 'Ladi'); localStorage.setItem('kolopolyToken', 'keke'); });
+  await L.goto(BASE + '/?join=' + code6, { waitUntil: 'networkidle0' });
+  await L.waitForFunction(() => {
+    const m = document.querySelector('#inviteMeta');
+    return m && /Kamsi/.test(m.textContent) || /inside/.test(m && m.textContent || '');
+  }, { timeout: 15000, polling: 200 }).catch(() => {});
+  const promptText = await L.evaluate(() => document.querySelector('#inviteBanner').textContent.replace(/\s+/g, ' '));
+  check('compact prompt names the host and the remembered player', /Kamsi/.test(promptText) && /Ladi/.test(promptText), promptText.slice(0, 120));
+  check('the full form stays tucked away behind Change', await L.evaluate(() => document.querySelector('#joinCard').classList.contains('hidden')));
+  let taps = 0;
+  await L.click('#inviteJoinBtn'); taps += 1;
+  await waitState(L, (s) => s.status === 'lobby' && s.players.length === 2, 'L in the lobby after one tap');
+  check('join link landing joined within two taps (used ' + taps + ')', taps <= 2 && (await S(L)).players.some((p) => p.name === 'Ladi'));
+  await L.screenshot({ path: SHOTS + 'kp-joinlink-lobby.png' });
+  const M = await newPage('M');
+  await M.goto(BASE + '/?join=ZZZZ', { waitUntil: 'networkidle0' });
+  await M.waitForFunction(() => /don close/.test(document.querySelector('#inviteTitle').textContent), { timeout: 15000, polling: 200 }).catch(() => {});
+  check('a dead invite link says so in one line', await M.evaluate(() => /don close/.test(document.querySelector('#inviteTitle').textContent)));
+  await K.close(); await L.close(); await M.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

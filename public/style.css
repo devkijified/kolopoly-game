@@ -71,7 +71,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--paper); border: 1px solid var(--line); border-radius: 999px;
-  padding: 5px 11px; font-size: var(--fs-caption); font-weight: 700;
+  padding: 7px 12px; min-height: 36px; font-size: 13px; font-weight: 700;
 }
 .iconbtn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -82,7 +82,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 /* Buttons */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: none; border-radius: 14px; padding: 13px 18px;
+  border: none; border-radius: 14px; padding: 12px 16px; min-height: 44px;
   font-size: var(--fs-lead); font-weight: 800;
   background: linear-gradient(180deg, #ffd97a, var(--gold));
   color: var(--ink);
@@ -94,8 +94,12 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .btn.red { background: linear-gradient(180deg, #e25858, var(--red)); color: #fff; box-shadow: 0 3px 0 var(--red-deep); }
 .btn.ghost { background: var(--paper); color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
 .btn.dark { background: linear-gradient(180deg, #3d2d1e, var(--ink)); color: var(--cream); box-shadow: 0 3px 0 #120d09; }
-.btn.small { padding: 9px 13px; font-size: var(--fs-body); border-radius: 11px; }
+.btn.small { padding: 10px 13px; min-height: 44px; font-size: var(--fs-body); border-radius: 11px; }
 .btn.block { width: 100%; }
+/* Button type pass (Kijitech scale): action bar primaries stay lead (16px);
+   sheet and dialog buttons are secondary at 15px; small utilities 13-14px;
+   tap targets never shrink below 44px, padding carries the height. */
+.sheet .btn, .modal-card .btn { font-size: 15px; }
 @media (hover: hover) { .btn:hover { filter: brightness(1.05); } }
 
 /* Landing */
@@ -134,7 +138,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .token-pick {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 10px 4px; border-radius: 13px; border: 1.5px solid var(--line);
-  background: var(--paper); font-size: var(--fs-caption); font-weight: 700; color: var(--ink);
+  background: var(--paper); font-size: 13px; font-weight: 700; color: var(--ink);
 }
 .token-pick .tokart { filter: drop-shadow(0 3px 3px rgba(43, 32, 24, 0.25)); }
 .token-pick.sel { border-color: var(--gold-deep); background: #fff3d1; box-shadow: 0 0 0 2px var(--gold); }
@@ -171,6 +175,13 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   display: none;
 }
 .banner.show { display: block; }
+.invite-title { font-family: 'Aeonik Pro', sans-serif; font-size: var(--fs-title); }
+.invite-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 12px; }
+.invite-row .grow { flex: 1; min-width: 0; }
+.invite-token { flex: none; display: inline-flex; }
+.invite-as { font-weight: 800; }
+.welcome-title { font-family: 'Aeonik Pro', sans-serif; font-size: var(--fs-title); margin-top: 2px; }
+.overline { font-size: var(--fs-meta); font-weight: 900; letter-spacing: 1.4px; color: var(--gold-deep); }
 .divider { display: flex; align-items: center; gap: 10px; margin: 18px 0 4px; color: var(--ink-soft); font-size: var(--fs-caption); font-weight: 700; }
 .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
@@ -196,7 +207,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 
 /* Game layout: portrait stacks stage over rail; landscape is stage + rail */
 .game-stage { padding: 8px 8px 0; }
-.game-rail { display: flex; flex-direction: column; padding-bottom: 208px; }
+.game-rail { display: flex; flex-direction: column; padding-bottom: calc(var(--wallet-h, 190px) + 16px); }
 .rail-top { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 4px; min-height: 0; }
 .msgbar {
   background: linear-gradient(180deg, #3d2d1e, var(--ink)); color: var(--cream); border-radius: 13px;
@@ -378,8 +389,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .deck-pile.family { background: linear-gradient(160deg, #5b97d6, #3f7fbf); }
 .board-tools { position: absolute; right: 8px; bottom: 8px; z-index: 8; display: flex; gap: 7px; }
 .toolbtn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px;
-  background: rgba(43, 32, 24, 0.88); color: var(--cream); border: none; font-weight: 700; font-size: var(--fs-caption);
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 40px; border-radius: 999px;
+  background: rgba(43, 32, 24, 0.88); color: var(--cream); border: none; font-weight: 700; font-size: 13px;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
 }
 
@@ -450,6 +461,17 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .alert-card.debit .amt { color: var(--red-deep); }
 .alert-card .why { font-size: var(--fs-caption); color: var(--ink-soft); line-height: 1.35; padding: 1px 13px 0; }
 .alert-card .bal { font-size: var(--fs-caption); font-weight: 800; padding: 7px 13px 1px; margin-top: 7px; border-top: 1px dashed var(--line); }
+/* OPay style success moment on credits: the check draws itself, ripples once. */
+.alert-success { display: flex; align-items: center; gap: 9px; padding: 9px 13px 0; }
+.succ-ring { position: relative; width: 34px; height: 34px; flex: none; }
+.succ-ring svg { width: 100%; height: 100%; display: block; }
+.succ-c { stroke: var(--green); stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 145; stroke-dashoffset: 145; animation: succdraw 0.5s ease forwards; }
+.succ-k { stroke: var(--green-deep); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; animation: succdraw 0.3s 0.35s ease forwards; }
+.succ-ring::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(29, 158, 108, 0.55); opacity: 0; animation: succripple 0.85s 0.15s ease-out forwards; }
+@keyframes succdraw { to { stroke-dashoffset: 0; } }
+@keyframes succripple { 0% { transform: scale(0.62); opacity: 0.85; } 100% { transform: scale(1.55); opacity: 0; } }
+.succ-text { font-size: var(--fs-caption); font-weight: 800; color: var(--green-deep); letter-spacing: 0.2px; }
+.alert-card.credit .amt { font-size: 27px; }
 @keyframes alertin { from { opacity: 0; transform: translateY(-14px) scale(0.97); } to { opacity: 1; transform: none; } }
 .alert-card.out { opacity: 0; transform: translateY(-8px); transition: opacity 0.25s, transform 0.25s; }
 
@@ -591,7 +613,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 #infBar .ph { font-family: 'Aeonik Pro', sans-serif; font-size: var(--fs-lead); }
 #infBar .idx { background: var(--gold); color: var(--ink); font-weight: 900; border-radius: 8px; padding: 2px 8px; font-size: var(--fs-caption); }
 #infBar .clk { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
-#infBar button { background: rgba(255, 250, 240, 0.14); color: #ffe9c9; border: 1px solid rgba(255, 233, 201, 0.4); border-radius: 9px; padding: 6px 10px; font-weight: 700; font-size: var(--fs-caption); }
+#infBar button { background: rgba(255, 250, 240, 0.14); color: #ffe9c9; border: 1px solid rgba(255, 233, 201, 0.4); border-radius: 9px; padding: 6px 10px; min-height: 36px; font-weight: 700; font-size: 13px; }
 .sapa-warn {
   margin-top: 7px; background: #fff0d6; border: 1px solid var(--gold-deep); color: #7a5200;
   border-radius: 11px; padding: 8px 11px; font-weight: 700; font-size: var(--fs-caption);
@@ -661,7 +683,12 @@ select.textin { appearance: none; }
     border-left: 1px solid var(--line);
     background: linear-gradient(180deg, rgba(255, 250, 240, 0.75), rgba(245, 239, 226, 0.4));
   }
-  .rail-top { overflow-y: auto; flex: 1 1 auto; padding: 10px 10px 6px; }
+  .rail-top { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding: 10px 10px 6px; }
+  /* The phase bar cannot carry its explainer note in a 306px rail: the
+     chips stay, the note stays a portrait luxury. */
+  #infBar { gap: 5px; padding: 7px 9px; }
+  #infBar .ph { font-size: 14px; }
+  #infBar .infbar-note { display: none; }
   .walletbar {
     position: static; flex: none;
     border-top: 1.5px solid var(--line);
@@ -690,6 +717,27 @@ select.textin { appearance: none; }
   .banner { grid-column: 2; margin: 12px 14px 0; }
   .join-card { grid-column: 2; overflow-y: auto; margin: 12px 14px; min-height: 0; }
   #view-landing > p.caption { grid-column: 2; }
+}
+
+/* Landscape on smaller phones: a slimmer rail keeps the board big. */
+@media (orientation: landscape) and (min-width: 700px) and (max-width: 940px) {
+  :root { --rail-w: 306px; }
+}
+
+/* Small portrait phones: compress the busy bars, keep every tap target. */
+@media (max-width: 480px) {
+  #infBar { gap: 6px; padding: 8px 10px; }
+  #infBar .ph { font-size: 15px; }
+  #infBar .clk { margin-left: 0; }
+  .infbar-note { line-height: 1.35; }
+  .msgbar { padding: 8px 11px; min-height: 36px; }
+  .players-strip { gap: 6px; }
+  .pchip { flex-basis: 118px; padding: 6px 8px; }
+  .wallet-top { gap: 8px; }
+  .wallet-cash { font-size: 20px; }
+  .denom { font-size: 8.5px; padding: 4px 5px; margin-left: -9px; }
+  .action-row .btn { padding: 12px 10px; }
+  .alerts { top: calc(8px + env(safe-area-inset-top)); }
 }
 
 /* ================= 3D layer (board3d.js; inert when WebGL is off) ========= */
