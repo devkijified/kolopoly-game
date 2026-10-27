@@ -959,8 +959,6 @@ class GameScene {
     this.diceAnim = null; this.cardAnim = null; this.deedAnim = null;
     this.lastDiceKey = ''; this.lastCardSeq = -1; this.lastFeedSeq = -1;
     this.bankruptSeen = new Set();
-    this.focusOverride = null; this.focusUntil = 0;
-    this.viewKickUntil = 0; // Lesson 12: fast glide window after a view toggle
     this.fullDist = null; this.fullAspect = 0; // Lesson 6: fitted full distance cache
     this.countdownZoom = 0;
     this.phaseLook = 0; this.phaseLookCur = { key: new THREE.Color(0xffd9a0), int: 1.55, bg: new THREE.Color(0x2a1a0e) };
@@ -1312,15 +1310,9 @@ class GameScene {
     if (!hits.length) return;
     const h = hits[0].object;
     if (h.userData.space != null) {
-      const i = h.userData.space;
-      const now = performance.now();
-      if (this.lastTap && this.lastTap.space === i && now - this.lastTap.at < 420) {
-        this.focusOverride = i; this.focusUntil = now + 4200; // inspect zoom
-      } else {
-        this.focusOverride = i; this.focusUntil = now + 2600;
-      }
-      this.lastTap = { space: i, at: now };
-      if (B.onSpaceTap) B.onSpaceTap(i);
+      // KP10: a tap opens the deed, nothing more. The camera never zooms
+      // or chases: the whole board is already on screen.
+      if (B.onSpaceTap) B.onSpaceTap(h.userData.space);
     } else if (h.userData.trayPlayer != null) {
       const btn = $('abJailCard');
       if (btn) btn.click();
@@ -1341,11 +1333,29 @@ class GameScene {
   // the rim now renders at about 98 percent of the stage width: the
   // board is fitted to the BOARD, edge to edge, not shrunk inside a
   // table and a frame.
+  // KP10: one view only, and on a square portrait stage the camera
+  // rides near plan (about 87 degrees instead of 72) aimed at the rim's
+  // own centre. The geometry is unforgiving: a tilted square projects
+  // shorter than it is wide (72 degrees: 382 wide, 329 tall; 80 degrees:
+  // 356 tall), and the old target sat half a unit north of centre,
+  // throwing the projection off-centre as well. At 87 degrees on centre
+  // the rim projects about 381 by 374 inside its 390 square: the board
+  // fills the stage on both axes, tiles read at their boldest, and no
+  // background band survives above or below. Wider stages keep the
+  // KP9 framing untouched.
+  fullDir(aspect) {
+    if (aspect < 1.2) return new THREE.Vector3(0, 26.6, 1.4).normalize();
+    return new THREE.Vector3(0, 22.1, 7.2).normalize();
+  }
+  fullTarget(aspect) {
+    if (aspect < 1.2) return new THREE.Vector3(0, 0, 0);
+    return new THREE.Vector3(0, 0, 0.5);
+  }
   fitFull() {
     const aspect = this.camera.aspect || 1;
     if (this.fullDist && Math.abs(aspect - this.fullAspect) < 0.01) return this.fullDist;
-    const dir = new THREE.Vector3(0, 22.1, 7.2).normalize();
-    const tgt = new THREE.Vector3(0, 0, 0.5);
+    const dir = this.fullDir(aspect);
+    const tgt = this.fullTarget(aspect);
     const cam = this.camera;
     const corners = [];
     for (const cx of [-7.08, 7.08]) for (const cz of [-7.08, 7.08]) corners.push(new THREE.Vector3(cx, -0.47, cz));
@@ -1512,49 +1522,30 @@ class GameScene {
     }
     if (this.accentT > 0) { this.accentT = Math.max(0, this.accentT - dt * 1.4); this.accent.intensity = this.accentT * 14; }
     // camera
-    const st = this.lastState;
     let wantPos, wantTgt, damp = 2.4;
     if (this.countdownZoom > 0) {
+      // The 3-2-1 countdown opens on a closer angled pass, then the
+      // camera glides out to the one fitted full-board framing and stays.
       this.countdownZoom -= dt;
       wantPos = new THREE.Vector3(0, 12.6, 11.4); wantTgt = new THREE.Vector3(0, 0, -0.4); damp = 1.1;
-    } else if (B.effectiveFull()) {
-      // Full board: steep (72 degrees) and centred on the island, at the
-      // distance fitFull computed from the live stage aspect (Lesson 6):
-      // the rim fills about 98 percent of the binding dimension, dead
-      // centre, no tile cropped, in both orientations.
-      const dist = this.fitFull();
-      wantTgt = new THREE.Vector3(0, 0, 0.5);
-      wantPos = wantTgt.clone().addScaledVector(new THREE.Vector3(0, 22.1, 7.2).normalize(), dist);
     } else {
-      let f = null;
-      if (this.focusOverride != null && performance.now() < this.focusUntil) {
-        const t2 = this.tiles[this.focusOverride];
-        f = new THREE.Vector3(t2.grp.position.x, 0.2, t2.grp.position.z);
-      } else if (st) {
-        const turn = st.players.find((p) => p.id === st.turnPlayerId);
-        if (turn) { const o = this.tokens.get(turn.id); if (o) f = o.grp.position.clone(); }
-      }
-      if (!f) f = new THREE.Vector3(0, 0.2, 0);
-      const inspect = this.focusOverride != null && performance.now() < this.focusUntil;
-      // Follow sits a touch lower and closer than before (Lesson 8), a
-      // tight crop on the token's side of the board (Lesson 12). KP9: a
-      // step closer and steeper (2.6, 5.0, 4.6), so the active side fills
-      // the frame width and the slim plinth below the near edge leaves
-      // visibly less dead table in frame.
-      wantPos = f.clone().add(inspect ? new THREE.Vector3(1.8, 3.2, 3.2) : new THREE.Vector3(2.6, 5.0, 4.6));
-      wantTgt = f; damp = 3.0;
+      // KP10: THE camera. One view only: the full board, fitted by
+      // fitFull from the live stage aspect (Lesson 6), centred on the
+      // island, steady. It never follows, zooms to, or chases a token:
+      // token hops, the turn ring, landing flashes and the pot label
+      // all play out on the board in plain sight.
+      const dist = this.fitFull();
+      wantTgt = this.fullTarget(this.camera.aspect || 1);
+      wantPos = wantTgt.clone().addScaledVector(this.fullDir(this.camera.aspect || 1), dist);
     }
-    // Lesson 12: for about 300ms after a view toggle the camera glides
-    // fast, so the switch reads as an answer, not a suggestion.
-    if (performance.now() < this.viewKickUntil) damp = 9;
     const kk = 1 - Math.exp(-dt * damp);
     this.camPos.lerp(wantPos, kk); this.camTgt.lerp(wantTgt, kk);
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camTgt);
     this.camGlide = this.camPos.distanceTo(wantPos) > 0.05 || this.camTgt.distanceTo(wantTgt) > 0.05;
     // Owambe pot label: keep the chip fully on stage. The pot sits at the
-    // board centre, so in Follow framing it projects off the left edge and
-    // the label followed it out and clipped ("ambe Pot NO"). Project the
+    // board centre; when framing ever pushed it toward an edge the label
+    // followed it out and clipped ("ambe Pot NO"). Project the
     // home anchor; when the label would cross a stage edge, slide it back
     // inside with a 6px margin, moving along the camera plane so its depth
     // and size hold. The pot amount is a headline number: it stays readable.
@@ -1998,7 +1989,7 @@ KP3D.boardProbePx = function () {
   return {
     rimWidthPx: Math.round(Math.max(...xs) - Math.min(...xs)),
     rimHeightPx: Math.round(Math.max(...ys) - Math.min(...ys)),
-    canvasW: w, canvasH: h, full: !!(window.KPBoard && window.KPBoard.effectiveFull())
+    canvasW: w, canvasH: h
   };
 };
 
@@ -2020,15 +2011,6 @@ function patchBoard() {
   B.applyCamera = function (state) {
     if (KP3D.active) return;
     origCam(state);
-  };
-  // Lesson 12: a view toggle kicks the game camera into its fast glide and
-  // forces frames, interrupting any move camera lock at once.
-  const origToggle = B.toggleView.bind(B);
-  B.toggleView = function () {
-    const r = origToggle();
-    if (SCENES.game) SCENES.game.viewKickUntil = performance.now() + 400;
-    motion(1.5);
-    return r;
   };
   // the lobby renders through its own app function, not KPBoard.render
   if (typeof window.renderLobby === 'function') {

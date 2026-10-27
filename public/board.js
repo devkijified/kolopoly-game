@@ -1,6 +1,7 @@
 'use strict';
 // KOLOPOLY board renderer. Builds the 40 space grid from KP_DATA, animates
-// token hops, drives the follow camera, fills deed sheets and draws the
+// token hops on the one full board (KP10: there is no follow view; the
+// whole board is always on screen), fills deed sheets and draws the
 // portrait share cards on canvas. No game rules live here beyond display
 // mirrors of the server checks (the server validates everything).
 // Presentation only: art per space, a Lagos skyline centre, an Owambe pot
@@ -90,38 +91,15 @@ const SEAL_SVG =
 
 const LANDSCAPE_Q = '(orientation: landscape) and (min-width: 700px)';
 
-// Lesson 6a + 12: the view choice is the player's, remembered across
-// sessions. Follow is the phone default at all times (portrait AND
-// landscape) until the player explicitly picks Full board.
-let viewPref = null;
-try { viewPref = localStorage.getItem('kolopolyView'); } catch (e) { viewPref = null; }
-if (viewPref !== 'full' && viewPref !== 'follow') viewPref = null;
-
 const KPBoard = {
   els: [],
   center: null,
   tokenEls: {},
   displayedPos: {},
   animating: false,
-  fullBoard: false,
-  followPinned: false,
-  focusSpace: 0,
   onSpaceTap: null,
   lastState: null,
   lastDiceKey: null,
-
-  effectiveFull() {
-    if (viewPref) return viewPref === 'full';
-    return false; // Follow everywhere until the player picks otherwise
-  },
-  toggleView() {
-    const nowFull = !this.effectiveFull();
-    viewPref = nowFull ? 'full' : 'follow';
-    try { localStorage.setItem('kolopolyView', viewPref); } catch (e) { }
-    this.fullBoard = nowFull;
-    this.followPinned = !nowFull;
-    return nowFull;
-  },
 
   build(boardEl) {
     boardEl.innerHTML = '';
@@ -296,29 +274,14 @@ const KPBoard = {
     el.style.opacity = p.bankrupt ? '0.35' : '1';
   },
 
-  dropTrail(p, pos) {
-    if (this.effectiveFull() || !this.tokenLayer) return;
-    const layer = this.tokenLayer;
-    if (layer.querySelectorAll('.tok-trail').length > 18) return;
-    const c = spaceCenter(pos);
-    const g = document.createElement('div');
-    g.className = 'tok-trail';
-    g.style.background = p.color;
-    g.style.left = (c.x * 100) + '%';
-    g.style.top = (c.y * 100) + '%';
-    layer.appendChild(g);
-    setTimeout(() => g.remove(), 700);
-  },
-
   animateToken(p, from, to, slotCount, state) {
-    // Teleports (Kirikiri) jump; normal moves hop space by space.
+    // Teleports (Kirikiri) jump; normal moves hop space by space, in the
+    // open, on the full board (KP10: one view only, nothing chases them).
     const el = this.tokenEls[p.id];
     const fwd = (to - from + 40) % 40;
     if (p.inJail || fwd > 12 || fwd === 0) {
       this.displayedPos[p.id] = to;
       this.placeToken(el, p, to, slotCount);
-      this.focusSpace = to;
-      this.applyCamera(state);
       return;
     }
     this.animating = true;
@@ -326,7 +289,6 @@ const KPBoard = {
     let cur = from;
     const step = () => {
       if (!this.lastState || this.lastState !== state && this.displayedPos[p.id] === to) { this.animating = false; return; }
-      this.dropTrail(p, cur);
       cur = (cur + 1) % 40;
       this.displayedPos[p.id] = cur;
       this.placeToken(el, p, cur, slotCount);
@@ -336,33 +298,19 @@ const KPBoard = {
         inner.classList.add('hop');
       }
       if (window.KPSfxHop) window.KPSfxHop();
-      this.focusSpace = cur;
-      this.applyCamera(state);
       if (cur !== to) setTimeout(step, 230);
       else { this.animating = false; if (this.lastState) this.renderTokens(this.lastState); }
     };
     setTimeout(step, 60);
   },
 
+  // KP10: there is no DOM camera anymore. The board is never transformed:
+  // the whole square is always on screen. The hook stays because the 3D
+  // layer patches it (in gl mode the DOM board is an invisible click grid
+  // and must never be transformed either).
   applyCamera(state) {
     const board = document.getElementById('board');
-    const wrap = document.getElementById('boardWrap');
-    if (!board || !wrap) return;
-    const size = board.clientWidth;
-    if (!size) return;
-    if (this.effectiveFull() || !state || state.status !== 'playing') {
-      board.style.transform = 'scale(1)';
-      return;
-    }
-    const focusPlayer = state.players.find((p) => p.id === state.turnPlayerId);
-    const focus = this.animating ? this.focusSpace : (focusPlayer ? focusPlayer.position : this.focusSpace);
-    const c = spaceCenter(focus);
-    const k = 2.2;
-    let tx = size / 2 - c.x * size * k;
-    let ty = size / 2 - c.y * size * k;
-    tx = Math.max(size - size * k, Math.min(0, tx));
-    ty = Math.max(size - size * k, Math.min(0, ty));
-    board.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + k + ')';
+    if (board) board.style.transform = 'scale(1)';
   },
 
   // Client mirror of the server rent maths, for deed sheet previews only.

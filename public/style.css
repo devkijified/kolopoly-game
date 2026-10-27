@@ -2,7 +2,8 @@
    type scale, warm ink and cream and gold, money always exact.
    The game board is landscape first: on a wide screen the square board sits
    left with a rail of players, wallet and actions on the right. Portrait
-   phones run the board full-bleed in a tall stage (KP9). */
+   phones run one view only: the full board in a square, full-bleed stage
+   (KP10). */
 @font-face {
   font-family: 'Aeonik Pro';
   src: url('/fonts/aeonik-pro-bold.woff2') format('woff2'), url('/fonts/aeonik-pro-bold.woff') format('woff');
@@ -55,7 +56,7 @@ h1, h2, h3, .display, .headline, .title { font-family: 'Aeonik Pro', 'Figtree', 
 button { font-family: inherit; cursor: pointer; }
 /* Taps must land the first time: no double-tap zoom delay or zoom on rapid
    dice taps, and no tap highlight flash on any control. */
-button, .btn, .toolbtn, .mode-pick, .slot, .chip, input, select, textarea { touch-action: manipulation; }
+button, .btn, .mode-pick, .slot, .chip, input, select, textarea { touch-action: manipulation; }
 input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--ink); }
 .ic { vertical-align: -4px; flex: none; }
 
@@ -333,15 +334,6 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   82% { transform: translateY(0) scale(1.13, 0.83); }
   100% { transform: translateY(0) scale(1, 1); }
 }
-.tok-trail {
-  position: absolute; width: clamp(10px, 3.4cqw, 18px); aspect-ratio: 1; border-radius: 50%;
-  transform: translate(-50%, -50%); opacity: 0.5; pointer-events: none; z-index: 4;
-  animation: trailfade 0.65s ease-out forwards;
-}
-@keyframes trailfade {
-  from { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
-  to { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-}
 .bcenter {
   position: relative; overflow: hidden;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
@@ -407,14 +399,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .deck-pile.wahala { background: linear-gradient(160deg, #e25858, var(--red)); }
 .deck-pile.family { background: linear-gradient(160deg, #5b97d6, #3f7fbf); }
-.board-tools { position: absolute; right: 8px; bottom: 8px; z-index: 8; display: flex; gap: 7px; }
-.toolbtn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; min-height: 44px; min-width: 44px; border-radius: 999px;
-  background: rgba(43, 32, 24, 0.88); color: var(--cream); border: none; font-weight: 700; font-size: 13px;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
-}
-/* The active view shows on the toggle itself (Lesson 12). */
-.toolbtn.active { background: var(--gold); color: var(--ink); box-shadow: 0 3px 8px rgba(232, 169, 12, 0.45); }
+
 
 /* Wallet and action bar */
 .walletbar {
@@ -609,7 +594,6 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .pause-card .caption { margin-top: 8px; }
 #view-game.is-paused .walletbar { opacity: 0.45; pointer-events: none; filter: saturate(0.6); }
-#view-game.is-paused .board-tools { opacity: 0.45; pointer-events: none; }
 .count-num { font-family: 'Aeonik Pro', sans-serif; font-size: 110px; color: var(--gold); animation: countpop 0.55s ease; }
 @keyframes countpop { from { transform: scale(1.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .end-table { width: 100%; max-width: 460px; border-collapse: collapse; margin: 14px 0; }
@@ -916,8 +900,6 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .actionbar .btn { min-height: var(--btn-h); height: var(--btn-h); padding: 0 14px; font-size: 15px; border-radius: 12px; }
   #secondaryBar { gap: 6px; margin-top: 6px !important; }
   .auction-card { padding: 10px 12px; border-radius: 14px; }
-  .toolbtn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
-  .board-tools { right: 6px; bottom: 6px; }
 }
 
 /* Portrait phones: the whole layout system. */
@@ -929,20 +911,20 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .topbar .iconbtn { width: 34px; height: 34px; border-radius: 10px; }
   .topbar .iconbtn svg { width: 18px; height: 18px; }
 
-  /* Game: [stage grows] [rail scrolls in what is left] [dock pinned].
-     KP9: the stage is FULL-BLEED. No side padding, no wrap frame, no
-     rounded bezel: the canvas touches the screen edges left and right,
-     and the rows the rotate hint and the Classic bar used to eat now
-     belong to the board, so the stage runs about two thirds of the
-     viewport height. The board is held, not shrinked. */
+  /* Game: [stage is the board] [rail scrolls in what is left] [dock
+     pinned]. KP9 took the stage full-bleed; KP10 makes it SQUARE and
+     final: one view only, the full board, so the stage is exactly as
+     tall as it is wide, the board's own silhouette is the whole picture
+     edge to edge on all four sides, and zero stage background shows
+     around it. No side padding, no wrap frame, no rounded bezel. The
+     rail flexes to absorb whatever height the square leaves, so the
+     dock stays pinned at the bottom. The board is held, not shrinked. */
   #view-game.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
-  .game-stage { order: 1; flex: 1 1 auto; min-height: 0; padding: 0; display: flex; flex-direction: column; }
+  .game-stage { order: 1; flex: 0 0 auto; padding: 0; display: flex; flex-direction: column; }
   .game-rail { display: contents; }
-  .board-outer { flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; display: flex; }
-  .board-wrap { flex: 1 1 auto; width: 100%; min-height: 0; --frame: 0px; padding: 0; border-radius: 0; box-shadow: none; }
-  body:not(.gl-on) .board-wrap { aspect-ratio: 1 / 1; flex: 0 1 auto; margin: auto; max-height: 100%; }
-  body.gl-on .board-wrap { aspect-ratio: auto; }
-  .rail-top { order: 2; flex: 0 1 auto; max-height: 30dvh; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
+  .board-outer { flex: 0 0 auto; width: 100%; max-width: none; margin: 0; display: flex; }
+  .board-wrap { flex: 0 0 auto; width: 100%; aspect-ratio: 1 / 1; --frame: 0px; padding: 0; border-radius: 0; box-shadow: none; }
+  .rail-top { order: 2; flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
   .rail-top > .caption { display: none; }
   .walletbar { order: 3; position: static; flex: 0 0 auto; width: 100%; padding: 8px var(--sp-3) calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 18px rgba(43, 32, 24, 0.07); }
   .wallet-inner { max-width: none; }

@@ -194,7 +194,8 @@ try {
   await clickId(tp, 'abTaxFlat');
   await waitState(tp, (s) => s.pot === 200000, 'pot fed');
   await sleep(700); // let the token finish hopping and the camera settle
-  await tp.click('#fullBoardBtn'); // full board: the pot label sits on Owambe Grounds itself
+  // KP10: the full board is the only view there is; the pot label sits on
+  // Owambe Grounds itself, no toggle to tap.
   await sleep(500);
   await tp.screenshot({ path: SHOTS + 'kp-board.png' });
   check('board shot taken with the pot on Owambe Grounds', (await S(tp)).pot === 200000);
@@ -455,7 +456,7 @@ try {
   await K.close(); await L.close(); await M.close();
 
   // ---------------------------------------------------------- scenario 7
-  console.log('B7: lessons round: banner person forms, frozen roll label with beeps, view toggle frame difference, pause overlay');
+  console.log('B7: lessons round: banner person forms, frozen roll label with beeps, no view toggle anywhere (KP10), a move settling on the full board, pause overlay');
   const N = await newPage('N');
   await N.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(N, 'Ngozi');
@@ -513,27 +514,11 @@ try {
   check('the other phone reads the third person banner', otherBanner.indexOf('Na ' + name2 + ' turn') === 0, otherBanner.slice(0, 60));
   check('the mode pill names the game in the top bar', /Classic/.test(await N.evaluate(() => document.querySelector('#modePill').textContent)));
 
-  // View toggle (Lessons 6 and 12): follow by default, a physical tap flips
-  // to full, and the two frames provably differ.
+  // KP10: one view only, the full board. The owner deleted Follow ("if
+  // the board is visible, players can see, they are not blind"), so the
+  // toggle is gone from the DOM entirely, at every width, for good.
   await front(tp7b);
-  check('follow is the phone default view', await tp7b.evaluate(() => window.KPBoard.effectiveFull() === false));
-  const wrapEl = await tp7b.$('#boardWrap');
-  const shotFollow = await wrapEl.screenshot();
-  await tp7b.click('#fullBoardBtn');
-  await sleep(1000);
-  check('a tap flips to the full board view', await tp7b.evaluate(() => window.KPBoard.effectiveFull() === true));
-  const shotFull = await wrapEl.screenshot();
-  const frameDiff = await tp7b.evaluate(async (a64, b64) => {
-    const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = 'data:image/png;base64,' + src; });
-    const ia = await load(a64); const ib = await load(b64);
-    const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
-    const cx = cv.getContext('2d');
-    cx.drawImage(ia, 0, 0, 64, 64); const da = cx.getImageData(0, 0, 64, 64).data;
-    cx.clearRect(0, 0, 64, 64); cx.drawImage(ib, 0, 0, 64, 64); const db = cx.getImageData(0, 0, 64, 64).data;
-    let sum = 0; for (let i = 0; i < da.length; i += 4) sum += Math.abs(da[i] - db[i]) + Math.abs(da[i + 1] - db[i + 1]) + Math.abs(da[i + 2] - db[i + 2]);
-    return sum / (64 * 64 * 3);
-  }, shotFollow.toString('base64'), shotFull.toString('base64'));
-  check('follow and full frames are unmistakably different', frameDiff > 4, 'diff=' + frameDiff.toFixed(2));
+  check('no view toggle exists anywhere in the game', await tp7b.evaluate(() => !document.getElementById('fullBoardBtn') && !document.querySelector('.board-tools')));
   // Frozen label plus beeps (Lessons 4 and 7): drive the turn clock into
   // its last 10 seconds and watch the label and the beep counter.
   await send(tp7b, 'test_deadline_in', { seconds: 9 });
@@ -546,16 +531,19 @@ try {
   const beeps = await tp7b.evaluate(() => window.__kpBeeps || 0);
   check('clock beeps fired inside the last 10 seconds', beeps >= 2, 'beeps=' + beeps);
 
-  // Mid-move toggle: roll, then flip the view while the token is travelling.
+  // A full move on the full board (KP10): the token travels the track
+  // and the landing resolves with the camera steady on the whole board.
   await send(tp7b, 'test_deadline_in', { seconds: 30 });
   const tpId7 = (await S(tp7b)).turnPlayerId;
   await send(tp7b, 'test_set_position', { playerId: tpId7, space: 0 });
   await send(tp7b, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp7b, 'abRoll');
-  await sleep(250);
-  await tp7b.click('#fullBoardBtn');
-  check('the toggle answers mid-move, back to follow', await tp7b.evaluate(() => window.KPBoard.effectiveFull() === false));
-  await waitState(tp7b, (s) => s.phase === 'buy' || s.phase === 'end', 'the move settled after the mid-move toggle');
+  await waitState(tp7b, (s) => s.phase === 'buy' || s.phase === 'end', 'the move settled on the full board');
+  check('token movement completes on the full board', await tp7b.evaluate((pid) => {
+    const st = window.__kolopolyState();
+    const p = st.players.find((x) => x.id === pid);
+    return !!p && p.position === 3;
+  }, tpId7));
 
   // Pause overlay (Lesson 14): O drops for real; N gets the waiting card.
   await O.evaluate(() => window.__kolopolyDrop());
@@ -613,7 +601,7 @@ try {
   check('the bot completes its first turn unaided and the board state advances', botMoved);
   await BP.close();
 
-  console.log('B9: KP8/KP9 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact, no rotate hint or Classic bar, match clock in the header chip, full-bleed stage, icon utility bar');
+  console.log('B9: KP10 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact, no rotate hint, Classic bar or view toggle, match clock in the header chip, square full-bleed stage with the rim filling it, icon utility bar');
   const overflowOf = (page) => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
   for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844]]) {
     const MP = await newPage(tag);
@@ -676,30 +664,32 @@ try {
       lb: b.querySelector('.u-lb') ? getComputedStyle(b.querySelector('.u-lb')).fontSize : ''
     })));
     check(tag + ' game: every utility button carries an inline icon and an 11px label', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px'), JSON.stringify(ubar));
-    // KP9: the reclaimed rows belong to the board: measure the stage share.
-    const share = await MP.evaluate(() => document.querySelector('.game-stage').clientHeight / window.innerHeight);
-    console.log('    ' + tag + ' stage share: ' + share.toFixed(3));
-    if (W === 390) check('390 game: the stage takes at least 62 percent of the viewport height', share >= 0.62, share.toFixed(3));
-    // KP9: full board fits the BOARD. Flip to full, then poll the rim's
-    // projected pixel width off the live 3D camera until the glide
-    // settles (two reads within 3px): the rig's software GL runs the
-    // camera damping in capped steps, so a fixed sleep reads mid-glide
-    // and the board is still cropped on its way out.
-    await MP.click('#fullBoardBtn');
+    // KP10: the stage IS the board. A square, as tall as it is wide, so
+    // zero stage background can pad the game above or below the board,
+    // and no view toggle exists to bring any other framing back.
+    const stageDims = await MP.evaluate(() => { const s = document.querySelector('.game-stage'); return { w: s.clientWidth, h: s.clientHeight, ih: window.innerHeight }; });
+    console.log('    ' + tag + ' stage: ' + JSON.stringify(stageDims));
+    check(tag + ' game: the stage is square, height within 10px of width', Math.abs(stageDims.h - stageDims.w) <= 10, JSON.stringify(stageDims));
+    check(tag + ' game: no view toggle element exists', await MP.evaluate(() => !document.getElementById('fullBoardBtn') && !document.querySelector('.board-tools')));
+    // KP10: the board fills its square. Poll the rim's projected pixel
+    // size off the live 3D camera until the settle glide lands (two
+    // reads within 3px): the rig's software GL runs the camera damping
+    // in capped steps, so a fixed sleep reads mid-glide.
     let probe = null;
     {
       let prevW = -1;
       const end = Date.now() + 25000;
       while (Date.now() < end) {
         probe = await MP.evaluate(() => window.KP3D && window.KP3D.boardProbePx ? window.KP3D.boardProbePx() : null);
-        if (probe && probe.full && Math.abs(probe.rimWidthPx - prevW) <= 3) break;
+        if (probe && Math.abs(probe.rimWidthPx - prevW) <= 3) break;
         if (probe) prevW = probe.rimWidthPx;
         await sleep(700);
       }
     }
     console.log('    ' + tag + ' board probe (settled): ' + JSON.stringify(probe));
-    if (W === 390) check('390 game: the full-board rim renders at least 355px wide', !!probe && probe.full && probe.rimWidthPx >= 355, JSON.stringify(probe));
-    if (W === 360) check('360 game: the full-board rim renders at least 345px wide', !!probe && probe.full && probe.rimWidthPx >= 345, JSON.stringify(probe));
+    if (W === 390) check('390 game: the full-board rim renders at least 355px wide', !!probe && probe.rimWidthPx >= 355, JSON.stringify(probe));
+    if (W === 360) check('360 game: the full-board rim renders at least 345px wide', !!probe && probe.rimWidthPx >= 345, JSON.stringify(probe));
+    check(tag + ' game: the rim height matches its width within 12px, so the board fills its square', !!probe && Math.abs(probe.rimHeightPx - probe.rimWidthPx) <= 12, JSON.stringify(probe));
     await MP.close();
   }
 } catch (err) {

@@ -844,23 +844,6 @@ $('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); clearSea
 // ---------------------------------------------------------------------------
 window.KPBoard.build($('board'));
 window.KPBoard.onSpaceTap = (i) => onSpaceTap(i);
-$('fullBoardBtn').innerHTML = window.icon('eye', 15) + ' <span>Full board</span>';
-function syncViewBtn() {
-  const span = $('fullBoardBtn').querySelector('span');
-  if (span) span.textContent = window.KPBoard.effectiveFull() ? 'Follow token' : 'Full board';
-  // Lesson 12: the active view shows on the button itself.
-  $('fullBoardBtn').classList.toggle('active', window.KPBoard.effectiveFull());
-}
-// Lesson 12: the toggle answers on pointerdown, not after the full click,
-// and it interrupts a moving camera at once (the 3D layer reads the same
-// effectiveFull state every frame and glides to the new framing).
-$('fullBoardBtn').addEventListener('pointerdown', () => {
-  window.KPBoard.toggleView();
-  syncViewBtn();
-  if (state) window.KPBoard.applyCamera(state);
-});
-syncViewBtn();
-window.addEventListener('resize', syncViewBtn);
 $('denomRow').innerHTML = window.KP_DATA.DENOMS.map((d) => '<span class="denom">' + fmtN(d) + '</span>').join('');
 
 function onSpaceTap(i) {
