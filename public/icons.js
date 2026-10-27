@@ -31,7 +31,15 @@ const KP_ICON_PATHS = {
   leave: '<path d="M14 4h-7.5v16H14M10.5 12h10M17 8.5L20.5 12 17 15.5"/>',
   book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15z"/><path d="M5 19.5A1.5 1.5 0 0 1 6.5 18H19v3H6.5A1.5 1.5 0 0 1 5 19.5z"/>',
   jail: '<path d="M5 21V8.5M9.7 21V8.5M14.3 21V8.5M19 21V8.5M3.5 8.5h17M3.5 4.5h17M3.5 21h17"/>',
-  play: '<path d="M7 4.8v14.4L19 12 7 4.8z"/>'
+  play: '<path d="M7 4.8v14.4L19 12 7 4.8z"/>',
+  // KP9 utility bar: the five IconSax glyphs, vendored as files under
+  // public/icons/ (document-text, arrow-swap-horizontal, messages-2,
+  // logout, tick-circle) and mapped here through the same helper.
+  docText: '<path d="M21 10.5V15.2C21 19.1 19.1 21 15.2 21H8.8C4.9 21 3 19.1 3 15.2V8.8C3 4.9 4.9 3 8.8 3H15.5"/><path d="M21 10.5H18.3C16.5 10.5 15.5 9.5 15.5 7.7V3"/><path d="M8 13.2H13.5"/><path d="M8 16.8H11"/>',
+  swapH: '<path d="M3.5 7.5H20.5"/><path d="M17.2 4.2L20.5 7.5L17.2 10.8"/><path d="M20.5 16.5H3.5"/><path d="M6.8 13.2L3.5 16.5L6.8 19.8"/>',
+  messages: '<path d="M14.5 2.5H18C20.6 2.5 21.5 3.4 21.5 6V9.5C21.5 12.1 20.6 13 18 13H17"/><path d="M6.5 20.5H13C15.8 20.5 17 19.3 17 16.5V11.5C17 8.7 15.8 7.5 13 7.5H6.5C3.7 7.5 2.5 8.7 2.5 11.5V16.5C2.5 19.3 3.7 20.5 6.5 20.5Z"/><path d="M6.2 20.4L5.9 22.4C5.8 23 6.5 23.4 7 23L9.8 20.5"/>',
+  logout: '<path d="M12.5 3.5H10C6.5 3.5 4.5 5.5 4.5 9V15C4.5 18.5 6.5 20.5 10 20.5H12.5"/><path d="M9 12H20.5"/><path d="M17 8L20.5 12L17 16"/>',
+  tickCircle: '<path d="M12 21.5C17.25 21.5 21.5 17.25 21.5 12C21.5 6.75 17.25 2.5 12 2.5C6.75 2.5 2.5 6.75 2.5 12C2.5 17.25 6.75 21.5 12 21.5Z"/><path d="M8.2 12.4L11.1 15.3L15.9 10"/>'
 };
 // Token glyphs, drawn on a 48 grid so they stay crisp on the board pieces.
 const KP_TOKEN_PATHS = {
@@ -306,6 +314,3 @@ function tileArt(id) {
 }
 window.tileArt = tileArt;
 window.KP_ART = KP_ART;
-
-// A rotate glyph for the portrait rotate hint.
-KP_ICON_PATHS.rotate = '<path d="M20 12a8 8 0 1 1-2.34-5.66M20.5 2.8v4.2h-4.2"/>';

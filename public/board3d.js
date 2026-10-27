@@ -936,9 +936,13 @@ class GameScene {
     this.keyLight = this.key;
     const fill = new THREE.DirectionalLight(0xbfd9ff, 0.32); fill.position.set(-7, 9, -6); s.add(fill);
     this.accent = new THREE.PointLight(0xffc857, 0, 12); this.accent.position.set(0, 2.5, 0); s.add(this.accent);
-    // table
-    const table = new THREE.Mesh(new THREE.CircleGeometry(26, 40), std(0x1d1208, 1));
-    table.rotation.x = -Math.PI / 2; table.position.y = -0.62; table.receiveShadow = true; s.add(table);
+    // table (KP9): the old radius-26 disc filled the lower half of the
+    // follow frame with dark wood and made the board read shrinked inside
+    // its own furniture. The table is now a slim plinth: the board rim
+    // (14.15 across) plus about 6 percent, its top flush under the
+    // platform. Beyond it the scene background (the same dark tone)
+    // takes over, so the slim table edge reads clean.
+    const table = bx(15.0, 0.3, 15.0, std(0x1d1208, 1), 0, -0.77, 0); table.receiveShadow = true; s.add(table);
     // platform and rim
     const wood = new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.8 });
     const platform = bx(13.7, 0.62, 13.7, wood, 0, -0.31, 0); s.add(platform);
@@ -1331,9 +1335,12 @@ class GameScene {
   // not tuned for one screen. Binary search the camera distance along the
   // fixed full view direction until the island rim corners (the board's
   // true silhouette: rim box 14.15 wide at y -0.47, tiles inside it)
-  // project inside NDC 0.96 on both axes: the board spans about 96 percent
-  // of the stage width, centred, in portrait and landscape alike, with
-  // mansion tops still inside the frame.
+  // project inside the fit bound on both axes, centred, in portrait and
+  // landscape alike, with mansion tops still inside the frame.
+  // KP9: the bound rose 0.96 to 0.98 and the stage went full-bleed, so
+  // the rim now renders at about 98 percent of the stage width: the
+  // board is fitted to the BOARD, edge to edge, not shrunk inside a
+  // table and a frame.
   fitFull() {
     const aspect = this.camera.aspect || 1;
     if (this.fullDist && Math.abs(aspect - this.fullAspect) < 0.01) return this.fullDist;
@@ -1351,7 +1358,7 @@ class GameScene {
       let fits = true;
       for (const c of corners) {
         const v = c.clone().project(cam);
-        if (Math.abs(v.x) > 0.96 || Math.abs(v.y) > 0.96) { fits = false; break; }
+        if (Math.abs(v.x) > 0.98 || Math.abs(v.y) > 0.98) { fits = false; break; }
       }
       if (fits) hi = mid; else lo = mid;
     }
@@ -1513,7 +1520,7 @@ class GameScene {
     } else if (B.effectiveFull()) {
       // Full board: steep (72 degrees) and centred on the island, at the
       // distance fitFull computed from the live stage aspect (Lesson 6):
-      // the rim fills about 97 percent of the binding dimension, dead
+      // the rim fills about 98 percent of the binding dimension, dead
       // centre, no tile cropped, in both orientations.
       const dist = this.fitFull();
       wantTgt = new THREE.Vector3(0, 0, 0.5);
@@ -1530,8 +1537,11 @@ class GameScene {
       if (!f) f = new THREE.Vector3(0, 0.2, 0);
       const inspect = this.focusOverride != null && performance.now() < this.focusUntil;
       // Follow sits a touch lower and closer than before (Lesson 8), a
-      // tight crop on the token's side of the board (Lesson 12).
-      wantPos = f.clone().add(inspect ? new THREE.Vector3(1.8, 3.2, 3.2) : new THREE.Vector3(2.8, 4.6, 5.0));
+      // tight crop on the token's side of the board (Lesson 12). KP9: a
+      // step closer and steeper (2.6, 5.0, 4.6), so the active side fills
+      // the frame width and the slim plinth below the near edge leaves
+      // visibly less dead table in frame.
+      wantPos = f.clone().add(inspect ? new THREE.Vector3(1.8, 3.2, 3.2) : new THREE.Vector3(2.6, 5.0, 4.6));
       wantTgt = f; damp = 3.0;
     }
     // Lesson 12: for about 300ms after a view toggle the camera glides
@@ -1969,6 +1979,28 @@ KP3D.onCardDrawn = function (card) {
   motion(3);
 };
 KP3D.onCardResolved = function (card) { if (SCENES.game) { SCENES.game.resolveCard(card); motion(1.6); } };
+// KP9 proof probe: project the board rim corners (the fitFull silhouette,
+// rim box 14.15 wide at y -0.47) through the LIVE game camera and report
+// their on-canvas pixel extent, so tests measure the rendered board
+// instead of guessing from CSS sizes.
+KP3D.boardProbePx = function () {
+  const g = SCENES.game;
+  if (!g || !renderer || !renderer.domElement) return null;
+  const cam = g.camera;
+  cam.updateMatrixWorld(true);
+  const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+  if (!w || !h) return null;
+  const xs = [], ys = [];
+  for (const cx of [-7.08, 7.08]) for (const cz of [-7.08, 7.08]) {
+    const v = new THREE.Vector3(cx, -0.47, cz).project(cam);
+    xs.push((v.x + 1) / 2 * w); ys.push((1 - v.y) / 2 * h);
+  }
+  return {
+    rimWidthPx: Math.round(Math.max(...xs) - Math.min(...xs)),
+    rimHeightPx: Math.round(Math.max(...ys) - Math.min(...ys)),
+    canvasW: w, canvasH: h, full: !!(window.KPBoard && window.KPBoard.effectiveFull())
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Board patches: feed the 3D sync from the same render the DOM uses, and

@@ -2,7 +2,7 @@
    type scale, warm ink and cream and gold, money always exact.
    The game board is landscape first: on a wide screen the square board sits
    left with a rail of players, wallet and actions on the right. Portrait
-   keeps a playable follow view with a rotate hint. */
+   phones run the board full-bleed in a tall stage (KP9). */
 @font-face {
   font-family: 'Aeonik Pro';
   src: url('/fonts/aeonik-pro-bold.woff2') format('woff2'), url('/fonts/aeonik-pro-bold.woff') format('woff');
@@ -75,6 +75,10 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   background: var(--paper); border: 1px solid var(--line); border-radius: 999px;
   padding: 3px 10px; min-height: var(--chip-h); font-size: 12px; font-weight: 700;
 }
+/* KP9: the room chip carries the running match clock while a timed game
+   plays; under a minute left the time turns urgent. */
+.chip .chip-time { font-variant-numeric: tabular-nums; font-weight: 800; }
+.chip .chip-time.urgent { color: var(--red-deep); }
 
 .iconbtn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -100,9 +104,11 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .btn.small { padding: 7px 10px; min-height: var(--btn-h-s); font-size: 13px; border-radius: 11px; }
 .btn.block { width: 100%; }
 /* Button type pass (KP8 compact density, owner correction): primaries are
-   43px tall with 15px labels, utilities 38px with 13px labels, chips and
-   pills 28px with 12px labels. Hit comfort comes from the 6px dead gaps
-   between controls, not from inflating every control to desktop size. */
+   43px tall with 15px labels, chips and pills 28px with 12px labels.
+   Hit comfort comes from the 6px dead gaps between controls, not from
+   inflating every control to desktop size. (KP9 later replaced the 38px
+   text utilities with a 48px icon-over-label bar, and took the stage
+   full-bleed; see the KP9 notes in the portrait block.) */
 .sheet .btn, .modal-card .btn { font-size: 15px; }
 @media (hover: hover) { .btn:hover { filter: brightness(1.05); } }
 
@@ -241,7 +247,6 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .pchip .nm { font-weight: 800; font-size: var(--fs-caption); }
 .pchip .cash { font-weight: 800; font-size: var(--fs-caption); color: var(--green-deep); }
 .pchip.jailed .nm::after { content: ' · Kirikiri'; color: var(--red-deep); }
-.rotate-hint { display: none; }
 
 /* Board */
 .board-outer { position: relative; width: 100%; max-width: 640px; margin: 0 auto; }
@@ -438,6 +443,19 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .denom:nth-child(7) { background: #5c6b7a; transform: rotate(-4deg); }
 .actionbar { display: flex; gap: 8px; margin-top: 9px; }
 .actionbar .btn { flex: 1; }
+/* KP9 utility bar: bottom-nav pattern. An IconSax glyph (about 21px) over
+   an 11px label, the whole bar about 48px tall. The armed two-tap state
+   (Leave, End) tints red and swaps its label to "Sure?". */
+.ubtn {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 48px; padding: 5px 2px 4px;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  font-family: inherit; cursor: pointer; touch-action: manipulation;
+}
+.ubtn:active { transform: translateY(1px); }
+.ubtn .u-ic { display: flex; line-height: 0; }
+.ubtn .u-lb { font-size: 11px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.ubtn.armed { color: var(--red-deep); border-color: var(--red); background: #fdf0ec; }
 .actionbar .btn.fixed { flex: none; }
 .turn-timer { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--red-deep); }
 /* Countdowns live in their own chips beside frozen primary labels
@@ -641,13 +659,6 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   font-size: 7px; font-weight: 900; letter-spacing: 0.4px; color: #fff;
   background: #7a4fa3; padding: 1px 4px; border-radius: 3px; pointer-events: none; z-index: 3;
 }
-#classicBar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  background: linear-gradient(90deg, #3d2d1e, var(--ink));
-  color: var(--cream); border-radius: 13px; padding: 8px 12px;
-}
-#classicBar .ph { font-family: 'Aeonik Pro', sans-serif; font-size: var(--fs-lead); }
-#classicBar .clk { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
 #infBar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   background: linear-gradient(90deg, #3a1428, #6e1f1f);
@@ -701,18 +712,6 @@ select.textin { appearance: none; }
 .end-lessons { font-size: var(--fs-caption); color: #ffe9c9; opacity: 0.92; display: block; margin-top: 3px; max-width: 300px; }
 .real-table-note { max-width: 460px; }
 
-/* Portrait phones: the rotate hint shows while a game is on screen */
-@media (orientation: portrait) and (max-width: 699px) {
-  .rotate-hint {
-    display: flex; align-items: center; gap: 7px; width: fit-content;
-    margin: 9px auto 0; padding: 8px 14px; border-radius: 999px;
-    background: rgba(43, 32, 24, 0.9); color: var(--cream);
-    font-weight: 700; font-size: var(--fs-caption); box-shadow: var(--shadow);
-    animation: hintpulse 2.6s ease infinite;
-  }
-  @keyframes hintpulse { 0%, 100% { transform: none; } 50% { transform: rotate(-1.2deg) scale(1.03); } }
-}
-
 /* Landscape: the designed composition. Board left, rail right. */
 @media (orientation: landscape) and (min-width: 700px) {
   /* Lesson 2: chrome slims in landscape so the stage grows: shorter top
@@ -722,7 +721,7 @@ select.textin { appearance: none; }
   .topbar { padding-top: 5px; padding-bottom: 5px; }
   .wordmark { font-size: 18px; }
   .msgbar { padding: 6px 11px; min-height: 32px; }
-  #infBar, #classicBar { padding: 6px 10px; }
+  #infBar { padding: 6px 10px; }
   #view-game.active {
     display: grid; grid-template-columns: minmax(0, 1fr) var(--rail-w);
     height: calc(100dvh - var(--topbar-h));
@@ -879,7 +878,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
    Owner correction, binding: compact density with a native mobile game
    feel, not desktop slabs scaled down. Primary 43px/15px, utility
    38px/13px, chips and pills 28px/12px, page padding 12px, card padding
-   12px, section gaps 8px, stage padding 4px. The board wins the space:
+   12px, section gaps 8px. The board wins the space:
    the portrait game is one column [stage grows][rail scrolls][dock in
    flow at the bottom], so the dock never covers rail content and no
    JavaScript measures it. Hard invariant: nothing may push
@@ -887,11 +886,11 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
 
 /* Shared compact pieces for the portrait column and the landscape rail. */
 @media (max-width: 940px) {
-  /* Mode and phase bars: one row, the clock always visible. The Classic
-     explainer sentence and the Inflation salary span and note are
-     desktop luxuries; the phase, index, water gauge and clock stay. */
-  #classicBar, #infBar { padding: 7px 10px; border-radius: 12px; gap: 6px; }
-  #classicBar > span:not(.ph):not(.clk) { display: none; }
+  /* The Inflation phase strip: one row, the phase countdown always
+     visible. The salary span and the explainer note are desktop luxuries;
+     the phase, index, water gauge and clock stay. (KP9 removed the
+     Classic bar entirely: its match clock lives in the header chip.) */
+  #infBar { padding: 7px 10px; border-radius: 12px; gap: 6px; }
   #infBar > span:not(.ph):not(.idx):not(.water-chip):not(.clk) { display: none; }
   #infBar .idx, #infBar .water-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 8px; font-size: 11px; border-radius: 999px; }
   #infBar button { min-height: 26px; padding: 3px 8px; font-size: 11px; }
@@ -916,8 +915,6 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .actionbar { gap: 6px; margin-top: 6px; }
   .actionbar .btn { min-height: var(--btn-h); height: var(--btn-h); padding: 0 14px; font-size: 15px; border-radius: 12px; }
   #secondaryBar { gap: 6px; margin-top: 6px !important; }
-  #secondaryBar .btn { flex: 1 1 auto; min-width: 0; min-height: var(--btn-h-s); height: var(--btn-h-s); padding: 0 8px; font-size: 13px; border-radius: 11px; white-space: nowrap; }
-  #secondaryBar .btn .ic { width: 15px; height: 15px; }
   .auction-card { padding: 10px 12px; border-radius: 14px; }
   .toolbtn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
   .board-tools { right: 6px; bottom: 6px; }
@@ -932,15 +929,19 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .topbar .iconbtn { width: 34px; height: 34px; border-radius: 10px; }
   .topbar .iconbtn svg { width: 18px; height: 18px; }
 
-  /* Game: [stage grows] [rail scrolls in what is left] [dock pinned]. */
+  /* Game: [stage grows] [rail scrolls in what is left] [dock pinned].
+     KP9: the stage is FULL-BLEED. No side padding, no wrap frame, no
+     rounded bezel: the canvas touches the screen edges left and right,
+     and the rows the rotate hint and the Classic bar used to eat now
+     belong to the board, so the stage runs about two thirds of the
+     viewport height. The board is held, not shrinked. */
   #view-game.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
-  .game-stage { order: 1; flex: 1 1 auto; min-height: 0; padding: 4px 4px 0; display: flex; flex-direction: column; }
+  .game-stage { order: 1; flex: 1 1 auto; min-height: 0; padding: 0; display: flex; flex-direction: column; }
   .game-rail { display: contents; }
   .board-outer { flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; display: flex; }
-  .board-wrap { flex: 1 1 auto; width: 100%; min-height: 0; --frame: 5px; border-radius: 14px; }
+  .board-wrap { flex: 1 1 auto; width: 100%; min-height: 0; --frame: 0px; padding: 0; border-radius: 0; box-shadow: none; }
   body:not(.gl-on) .board-wrap { aspect-ratio: 1 / 1; flex: 0 1 auto; margin: auto; max-height: 100%; }
   body.gl-on .board-wrap { aspect-ratio: auto; }
-  .rotate-hint { flex: 0 0 auto; margin: 6px auto 2px; padding: 5px 10px; font-size: 11px; animation: none; }
   .rail-top { order: 2; flex: 0 1 auto; max-height: 30dvh; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
   .rail-top > .caption { display: none; }
   .walletbar { order: 3; position: static; flex: 0 0 auto; width: 100%; padding: 8px var(--sp-3) calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 18px rgba(43, 32, 24, 0.07); }
@@ -1008,18 +1009,16 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
 }
 
 /* Narrow phones: the mode pill and the graphics tier leave the top bar.
-   The mode still reads in the rail mode bar and the lobby mode line, and
-   the room code never truncates. Utility icons drop, labels stay. */
+   The mode still reads in the lobby mode line, and the room code (now
+   carrying the match clock) never truncates. */
 @media (max-width: 520px) {
   #modePill, #tierBtn { display: none; }
-  #secondaryBar .btn .ic { display: none; }
 }
 
 /* Landscape rail: the note fan trims to three so cash plus fan fit the
-   rail, and utility buttons go text only at this width. */
+   rail. */
 @media (orientation: landscape) and (min-width: 700px) and (max-width: 940px) {
   .denom:nth-child(n+4) { display: none; }
-  #secondaryBar .btn .ic { display: none; }
 }
 
 /* Short landscape: the lobby stays a plain scrolling page (the pinned

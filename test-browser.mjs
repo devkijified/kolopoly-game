@@ -613,7 +613,7 @@ try {
   check('the bot completes its first turn unaided and the board state advances', botMoved);
   await BP.close();
 
-  console.log('B9: KP8 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact');
+  console.log('B9: KP8/KP9 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact, no rotate hint or Classic bar, match clock in the header chip, full-bleed stage, icon utility bar');
   const overflowOf = (page) => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
   for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844]]) {
     const MP = await newPage(tag);
@@ -663,6 +663,43 @@ try {
     check(tag + ' game: the primary action is 40 to 46px tall', prim >= 40 && prim <= 46, 'h=' + prim);
     const bw = await MP.evaluate(() => ({ wrap: document.getElementById('boardWrap').clientWidth, iw: window.innerWidth }));
     check(tag + ' game: the board stage runs edge to edge', bw.wrap >= bw.iw - 16, JSON.stringify(bw));
+    // KP9: the rotate hint and the Classic bar are gone for good.
+    check(tag + ' game: no rotate hint element exists', await MP.evaluate(() => !document.getElementById('rotateHint')));
+    check(tag + ' game: no Classic bar element exists', await MP.evaluate(() => !document.getElementById('classicBar')));
+    // KP9: the timed Classic match clock ticks inside the header room chip.
+    const chipCode = (await S(MP)).code;
+    const chipTxt = await MP.evaluate(() => document.getElementById('roomChip').textContent.replace(/\s+/g, ' ').trim());
+    check(tag + ' game: the header chip carries the running match time', new RegExp('^Room ' + chipCode + ' · \\d{1,2}:\\d{2}$').test(chipTxt), chipTxt);
+    // KP9: the utility bar is icons over 11px labels, not text buttons.
+    const ubar = await MP.evaluate(() => [...document.querySelectorAll('#secondaryBar .ubtn')].map((b) => ({
+      svg: !!b.querySelector('svg'),
+      lb: b.querySelector('.u-lb') ? getComputedStyle(b.querySelector('.u-lb')).fontSize : ''
+    })));
+    check(tag + ' game: every utility button carries an inline icon and an 11px label', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px'), JSON.stringify(ubar));
+    // KP9: the reclaimed rows belong to the board: measure the stage share.
+    const share = await MP.evaluate(() => document.querySelector('.game-stage').clientHeight / window.innerHeight);
+    console.log('    ' + tag + ' stage share: ' + share.toFixed(3));
+    if (W === 390) check('390 game: the stage takes at least 62 percent of the viewport height', share >= 0.62, share.toFixed(3));
+    // KP9: full board fits the BOARD. Flip to full, then poll the rim's
+    // projected pixel width off the live 3D camera until the glide
+    // settles (two reads within 3px): the rig's software GL runs the
+    // camera damping in capped steps, so a fixed sleep reads mid-glide
+    // and the board is still cropped on its way out.
+    await MP.click('#fullBoardBtn');
+    let probe = null;
+    {
+      let prevW = -1;
+      const end = Date.now() + 25000;
+      while (Date.now() < end) {
+        probe = await MP.evaluate(() => window.KP3D && window.KP3D.boardProbePx ? window.KP3D.boardProbePx() : null);
+        if (probe && probe.full && Math.abs(probe.rimWidthPx - prevW) <= 3) break;
+        if (probe) prevW = probe.rimWidthPx;
+        await sleep(700);
+      }
+    }
+    console.log('    ' + tag + ' board probe (settled): ' + JSON.stringify(probe));
+    if (W === 390) check('390 game: the full-board rim renders at least 355px wide', !!probe && probe.full && probe.rimWidthPx >= 355, JSON.stringify(probe));
+    if (W === 360) check('360 game: the full-board rim renders at least 345px wide', !!probe && probe.full && probe.rimWidthPx >= 345, JSON.stringify(probe));
     await MP.close();
   }
 } catch (err) {

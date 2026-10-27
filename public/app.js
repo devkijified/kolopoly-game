@@ -2,6 +2,26 @@
 // KOLOPOLY client. Sends intents only; the server owns dice, money and deeds.
 // Test hooks: window.__kolopolyState() and window.__kolopolySend(type, obj).
 const $ = (id) => document.getElementById(id);
+// KP9: the header carries ONE meta chip. The room chip also carries the
+// running match clock while a timed game plays ("Room NKNZ · 59:52"), so
+// the old full-width Classic bar is gone and its space went to the board.
+// Under 60 seconds left the time turns urgent red.
+let roomChipShown = '';
+function fmtMatchClock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function updateRoomChip(room) {
+  const chip = $('roomChip');
+  if (!room || !room.code) { chip.classList.add('hidden'); roomChipShown = ''; return; }
+  chip.classList.remove('hidden');
+  const timed = !!room.gameEndsAt && (room.status === 'playing' || room.status === 'countdown');
+  const left = timed ? room.gameEndsAt - Date.now() : 0;
+  const key = room.code + '|' + (timed ? fmtMatchClock(left) : '') + '|' + (timed && left < 60000 ? 'u' : '');
+  if (key === roomChipShown) return;
+  roomChipShown = key;
+  chip.innerHTML = 'Room ' + esc(room.code) + (timed ? ' · <span class="chip-time' + (left < 60000 ? ' urgent' : '') + '">' + fmtMatchClock(left) + '</span>' : '');
+}
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 window.KPesc = esc;
 // fmtN is a global function declared by game-data.js; redeclaring it here
@@ -585,8 +605,7 @@ function onState(room) {
       }
     }
   }
-  $('roomChip').classList.toggle('hidden', !room.code);
-  $('roomChip').textContent = room.code ? 'Room ' + room.code : '';
+  updateRoomChip(room);
   // Lesson 10: which game am I in, always on screen.
   const mp = $('modePill');
   if (room.code) {
@@ -842,7 +861,6 @@ $('fullBoardBtn').addEventListener('pointerdown', () => {
 });
 syncViewBtn();
 window.addEventListener('resize', syncViewBtn);
-$('rotateHint').innerHTML = window.icon('rotate', 15) + ' Wider view? Turn your phone sideways.';
 $('denomRow').innerHTML = window.KP_DATA.DENOMS.map((d) => '<span class="denom">' + fmtN(d) + '</span>').join('');
 
 function onSpaceTap(i) {
@@ -901,17 +919,8 @@ function renderPause(room) {
 }
 
 function renderGame(room) {
-  // Classic match clock (Lesson 10): the same rail slot the phase bar
-  // occupies in Inflation, so remaining time is always visible.
-  const classicBar = $('classicBar');
-  if (!room.inf && room.status === 'playing') {
-    classicBar.classList.remove('hidden');
-    classicBar.innerHTML = '<span class="ph">Classic</span>' +
-      '<span>' + (room.gameEndsAt ? 'Richest landlord when the horn blow wins' : 'Last landlord standing wins') + '</span>' +
-      '<span class="clk" id="classicClock"></span>';
-  } else {
-    classicBar.classList.add('hidden');
-  }
+  // KP9: no Classic bar. The Classic match clock lives in the header room
+  // chip (updateRoomChip); Inflation keeps its phase strip below.
   // Inflation bar
   const infBar = $('infBar');
   if (room.inf) {
@@ -1075,16 +1084,23 @@ function renderActionBar(room) {
     bankruptArmed = false;
     sendAs('declare_bankruptcy', {});
   });
-  // Secondary row: deeds, trade, gist
-  let secHtml = '<button class="btn small ghost" id="sbDeeds">' + window.icon('book', 16) + ' Deeds</button>';
-  if (!spectator) secHtml += '<button class="btn small ghost" id="sbTrade">' + window.icon('swap', 16) + ' ' + (room.inf ? 'Swap' : 'Trade') + '</button>';
-  if (room.inf && !spectator) secHtml += '<button class="btn small ghost" id="sbContracts">' + window.icon('card', 16) + ' Contracts</button>';
-  secHtml += '<button class="btn small ghost" id="sbGist">' + window.icon('eye', 16) + ' Gist</button>';
+  // Secondary row (KP9): a bottom-nav icon bar. IconSax glyphs (vendored
+  // under public/icons/, mapped through the icons.js helper) over 11px
+  // labels. Ids, wiring and the two-tap armed states are exactly the ones
+  // the old text buttons carried.
+  const ubtn = (id, ic, label, armed) =>
+    '<button class="ubtn' + (armed ? ' armed' : '') + '" id="' + id + '">' +
+    '<span class="u-ic">' + window.icon(ic, 21) + '</span>' +
+    '<span class="u-lb">' + label + '</span></button>';
+  let secHtml = ubtn('sbDeeds', 'docText', 'Deeds');
+  if (!spectator) secHtml += ubtn('sbTrade', 'swapH', room.inf ? 'Swap' : 'Trade');
+  if (room.inf && !spectator) secHtml += ubtn('sbContracts', 'card', 'Contracts');
+  secHtml += ubtn('sbGist', 'messages', 'Gist');
   // Lesson 11: a way out, with an honest two tap confirm. The host also
   // carries the room ending option.
   if (!spectator && me && !me.bankrupt && room.status === 'playing') {
-    secHtml += '<button class="btn small ghost" id="sbLeave">' + window.icon('leave', 16) + ' ' + (leaveArmed ? 'Sure?' : 'Leave') + '</button>';
-    if (myId === room.hostId) secHtml += '<button class="btn small ghost" id="sbEndRoom">' + (endRoomArmed ? 'Sure?' : 'End') + '</button>';
+    secHtml += ubtn('sbLeave', 'logout', leaveArmed ? 'Sure?' : 'Leave', leaveArmed);
+    if (myId === room.hostId) secHtml += ubtn('sbEndRoom', 'tickCircle', endRoomArmed ? 'Sure?' : 'End', endRoomArmed);
   }
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
@@ -1698,13 +1714,8 @@ setInterval(() => {
       clk.textContent = 'Horn in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     } else clk.textContent = 'Phase open';
   }
-  const cc = $('classicClock');
-  if (cc && state) {
-    if (state.gameEndsAt) {
-      const s = Math.max(0, Math.floor((state.gameEndsAt - Date.now()) / 1000));
-      cc.textContent = 'Game ends ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-    } else cc.textContent = 'Untimed';
-  }
+  // KP9: the match clock ticks inside the header room chip.
+  if (state) updateRoomChip(state);
   const pe = $('pauseElapsed');
   if (pe && state && state.pausedSince) {
     const s = Math.max(0, Math.floor((Date.now() - state.pausedSince) / 1000));
