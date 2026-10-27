@@ -1,0 +1,16 @@
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 6-23 * * *"
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Kolopoly
+        run: |
+          curl -fsS --retry 3 --retry-delay 15 --max-time 240 https://kolopoly-game.onrender.com/ -o /dev/null
+          echo "Kolopoly answered."
