@@ -844,7 +844,8 @@ $('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); clearSea
 // ---------------------------------------------------------------------------
 window.KPBoard.build($('board'));
 window.KPBoard.onSpaceTap = (i) => onSpaceTap(i);
-$('denomRow').innerHTML = window.KP_DATA.DENOMS.map((d) => '<span class="denom">' + fmtN(d) + '</span>').join('');
+// KP12: the note fan is gone; one banknote glyph badges the cash segment.
+{ const cb = $('cashBadge'); if (cb) cb.innerHTML = window.icon('bill', 17); }
 
 function onSpaceTap(i) {
   if (!state || state.status !== 'playing') return;
@@ -936,7 +937,7 @@ function renderGame(room) {
     const loanMark = room.inf && room.inf.contracts.some((c) => c.type === 'loan' && c.borrower === p.id) ? ' · loan' : '';
     return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '">' +
       '<span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 15) + '</span>' +
-      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span><br>' +
+      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span> ' +
       '<span class="cash">' + fmtN(p.cash) + '</span><span class="meta"> · ' + p.deeds + ' deeds' + loanMark + '</span></span></div>';
   }).join('');
   // Board legal highlights for build placement
@@ -993,11 +994,18 @@ function renderWallet(room) {
 }
 
 // Lesson 4: primary action labels never mutate. The countdown lives in
-// its own chip beside the button, never inside the label.
+// its own control beside the button, never inside the label. KP12: that
+// control is a progress ring badge overlapping the pill's right end. The
+// number span keeps the data-deadline contract the ticker text sweep and
+// the beep pulses already speak; the ring itself depletes in the ticker.
+const RING_CIRC = 116.24; // 2 * pi * 18.5, the badge's ring radius
 function clockChip(deadline) {
   if (!deadline) return '';
   const s = Math.max(0, Math.round((deadline - Date.now()) / 1000));
-  return '<span class="clock-chip" data-deadline="' + deadline + '">' + s + 's</span>';
+  return '<span class="timer-ring" data-ring-deadline="' + deadline + '" role="timer" aria-label="' + s + ' seconds left">' +
+    '<svg viewBox="0 0 42 42" aria-hidden="true"><circle class="ring-bg" cx="21" cy="21" r="18.5"></circle>' +
+    '<circle class="ring-fg" cx="21" cy="21" r="18.5"></circle></svg>' +
+    '<span class="ring-num" data-deadline="' + deadline + '">' + s + 's</span></span>';
 }
 function renderActionBar(room) {
   const bar = $('actionBar');
@@ -1648,6 +1656,14 @@ function pulseDeadline(endsAt) {
       void el.offsetWidth;
       el.classList.add('pulse');
       setTimeout(() => el.classList.remove('pulse'), 340);
+      // KP12: the whole ring badge pulses, not just its number.
+      const ring = el.closest('.timer-ring');
+      if (ring) {
+        ring.classList.remove('pulse');
+        void ring.offsetWidth;
+        ring.classList.add('pulse');
+        setTimeout(() => ring.classList.remove('pulse'), 340);
+      }
     }
   });
 }
@@ -1686,6 +1702,14 @@ setInterval(() => {
   document.querySelectorAll('[data-deadline]').forEach((el) => {
     const left = Math.max(0, Math.round((Number(el.dataset.deadline) - Date.now()) / 1000));
     el.textContent = left + 's';
+  });
+  // KP12: the turn ring depletes against the room's turn timer length.
+  document.querySelectorAll('.timer-ring').forEach((rg) => {
+    const dl = Number(rg.getAttribute('data-ring-deadline'));
+    const total = Math.max(1, (state && state.settings && state.settings.turnTimerSec) || 60);
+    const leftS = Math.max(0, (dl - Date.now()) / 1000);
+    const fg = rg.querySelector('.ring-fg');
+    if (fg) fg.style.strokeDashoffset = (RING_CIRC * (1 - Math.min(1, leftS / total))).toFixed(1);
   });
   const clk = $('infClock');
   if (clk && state && state.inf) {

@@ -173,14 +173,37 @@ function lum(hex) {
   const n = parseInt(hex.slice(1), 16);
   return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
 }
-const INK = '#2b2018', CREAM = '#fdf6df', GOLD = '#e8a90c';
+// KP12: band hues deepen a touch (saturation up, lightness down) so the
+// band and the bold name on it read as one strong header.
+function deepenBand(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return hex;
+  const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let h = 0;
+  if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (mx === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  const s2 = Math.min(1, s * 1.22), l2 = Math.max(0, l * 0.93);
+  const c = (1 - Math.abs(2 * l2 - 1)) * s2, xx = c * (1 - Math.abs((h * 6) % 2 - 1)), m = l2 - c / 2;
+  let r2, g2, b2;
+  if (h < 1 / 6) { r2 = c; g2 = xx; b2 = 0; } else if (h < 2 / 6) { r2 = xx; g2 = c; b2 = 0; }
+  else if (h < 3 / 6) { r2 = 0; g2 = c; b2 = xx; } else if (h < 4 / 6) { r2 = 0; g2 = xx; b2 = c; }
+  else if (h < 5 / 6) { r2 = xx; g2 = 0; b2 = c; } else { r2 = c; g2 = 0; b2 = xx; }
+  const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return '#' + to(r2) + to(g2) + to(b2);
+}
+// KP12: the ink deepens to a near-black brown across every generated
+// face, so names, prices and glyph strokes survive a screenshot.
+const INK = '#1e1409', CREAM = '#fdf6df', GOLD = '#e8a90c';
 
 // ---------------------------------------------------------------------------
 // Emblem painters: tiny original scenes, drawn in a box centred (cx, cy)
 // ---------------------------------------------------------------------------
 function emblem(x, id, cx, cy, s, accent) {
   const u = s / 100; // unit
-  x.save(); x.translate(cx, cy); x.lineWidth = 3.4 * u; x.lineJoin = 'round'; x.lineCap = 'round';
+  x.save(); x.translate(cx, cy); x.lineWidth = 4.4 * u; x.lineJoin = 'round'; x.lineCap = 'round';
   const box = (a, b, w, h, fill) => { x.fillStyle = fill; x.fillRect(a * u, b * u, w * u, h * u); };
   const circ = (a, b, r, fill) => { x.fillStyle = fill; x.beginPath(); x.arc(a * u, b * u, r * u, 0, 7); x.fill(); };
   const line = (a, b, c2, d, col, w) => { x.strokeStyle = col; x.lineWidth = (w || 4) * u; x.beginPath(); x.moveTo(a * u, b * u); x.lineTo(c2 * u, d * u); x.stroke(); };
@@ -215,14 +238,14 @@ function emblem(x, id, cx, cy, s, accent) {
       x.fillStyle = '#bfe3ff'; x.beginPath(); x.moveTo(24 * u, 8 * u); x.quadraticCurveTo(31 * u, 20 * u, 24 * u, 26 * u); x.quadraticCurveTo(17 * u, 20 * u, 24 * u, 8 * u); x.fill(); break;
     }
     case 'taxdoc': {
-      rr(x, -22 * u, -32 * u, 44 * u, 62 * u, 4 * u); x.fillStyle = '#fffdf4'; x.fill(); x.strokeStyle = INK; x.lineWidth = 3 * u; x.stroke();
-      x.fillStyle = '#b02e2e'; x.font = '900 ' + 21 * u + 'px "Aeonik Pro", sans-serif'; x.textAlign = 'center'; x.fillText('₦', 0, -8 * u);
+      rr(x, -22 * u, -32 * u, 44 * u, 62 * u, 4 * u); x.fillStyle = '#fffdf4'; x.fill(); x.strokeStyle = INK; x.lineWidth = 3.8 * u; x.stroke();
+      x.fillStyle = '#b02e2e'; x.font = '900 ' + 24 * u + 'px "Aeonik Pro", sans-serif'; x.textAlign = 'center'; x.fillText('₦', 0, -8 * u);
       x.fillStyle = '#9a8a76'; for (let k = 0; k < 3; k++) x.fillRect(-14 * u, (4 + k * 9) * u, 28 * u, 3.4 * u); break;
     }
     case 'cards': {
-      x.save(); x.rotate(-0.22); rr(x, -30 * u, -24 * u, 42 * u, 56 * u, 5 * u); x.fillStyle = '#fffdf4'; x.fill(); x.strokeStyle = INK; x.lineWidth = 3 * u; x.stroke(); x.restore();
+      x.save(); x.rotate(-0.22); rr(x, -30 * u, -24 * u, 42 * u, 56 * u, 5 * u); x.fillStyle = '#fffdf4'; x.fill(); x.strokeStyle = INK; x.lineWidth = 3.8 * u; x.stroke(); x.restore();
       x.save(); x.rotate(0.2); rr(x, -12 * u, -26 * u, 42 * u, 56 * u, 5 * u); x.fillStyle = accent || '#d64545'; x.fill(); x.strokeStyle = INK; x.stroke();
-      x.fillStyle = '#fff'; x.font = '900 ' + 30 * u + 'px "Aeonik Pro", sans-serif'; x.textAlign = 'center'; x.fillText('?', 9 * u, 12 * u); x.restore(); break;
+      x.fillStyle = '#fff'; x.font = '900 ' + 34 * u + 'px "Aeonik Pro", sans-serif'; x.textAlign = 'center'; x.fillText('?', 9 * u, 12 * u); x.restore(); break;
     }
     case 'bars': {
       x.fillStyle = '#6b6f76'; for (let k = 0; k < 5; k++) x.fillRect((-30 + k * 15) * u, -32 * u, 6 * u, 64 * u);
@@ -231,7 +254,7 @@ function emblem(x, id, cx, cy, s, accent) {
     }
     case 'party': {
       x.beginPath(); x.moveTo(-38 * u, -8 * u); x.quadraticCurveTo(0, -34 * u, 38 * u, -8 * u); x.closePath();
-      x.fillStyle = '#d94f9e'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 3 * u;
+      x.fillStyle = '#d94f9e'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 3.6 * u;
       for (let k = -2; k <= 2; k++) { x.beginPath(); x.moveTo(k * 14 * u, -20 * u + Math.abs(k) * 3 * u); x.lineTo(k * 14 * u, -6 * u); x.stroke(); }
       x.fillStyle = '#1d9e6c'; const notes = [[-24, 14], [-4, 20], [16, 12], [4, 28], [-16, 29]];
       for (const [a, b] of notes) { x.save(); x.translate(a * u, b * u); x.rotate(0.4); x.fillRect(-9 * u, -4 * u, 18 * u, 8 * u); x.restore(); } break;
@@ -239,20 +262,20 @@ function emblem(x, id, cx, cy, s, accent) {
     case 'payday': {
       x.beginPath(); x.moveTo(-34 * u, 30 * u); x.lineTo(-34 * u, -6 * u); x.quadraticCurveTo(0, -38 * u, 34 * u, -6 * u); x.lineTo(34 * u, 30 * u); x.lineTo(22 * u, 30 * u); x.lineTo(22 * u, -4 * u); x.quadraticCurveTo(0, -24 * u, -22 * u, -4 * u); x.lineTo(-22 * u, 30 * u); x.closePath();
       x.fillStyle = GOLD; x.fill();
-      x.fillStyle = INK; x.font = '900 ' + 30 * u + 'px "Aeonik Pro", sans-serif'; x.textAlign = 'center'; x.fillText('₦', 0, 24 * u); break;
+      x.fillStyle = INK; x.font = '900 ' + 34 * u + 'px "Aeonik Pro", sans-serif'; x.textAlign = 'center'; x.fillText('₦', 0, 24 * u); break;
     }
     case 'stilts': {
       line(-26, -2, -26, 30, '#7a4a22', 5); line(0, -2, 0, 32, '#7a4a22', 5); line(26, -2, 26, 30, '#7a4a22', 5);
       box(-30, -24, 60, 22, '#b9793f'); x.beginPath(); x.moveTo(-36 * u, -24 * u); x.lineTo(0, -40 * u); x.lineTo(36 * u, -24 * u); x.closePath(); x.fillStyle = '#7a1f1f'; x.fill();
-      x.strokeStyle = '#3f7fbf'; x.lineWidth = 3 * u; x.beginPath(); x.moveTo(-38 * u, 34 * u); x.quadraticCurveTo(-19 * u, 28 * u, 0, 34 * u); x.quadraticCurveTo(19 * u, 40 * u, 38 * u, 34 * u); x.stroke(); break;
+      x.strokeStyle = '#3f7fbf'; x.lineWidth = 3.6 * u; x.beginPath(); x.moveTo(-38 * u, 34 * u); x.quadraticCurveTo(-19 * u, 28 * u, 0, 34 * u); x.quadraticCurveTo(19 * u, 40 * u, 38 * u, 34 * u); x.stroke(); break;
     }
     case 'ball': {
-      circ(0, 0, 27, '#fffdf4'); x.strokeStyle = INK; x.lineWidth = 3 * u; x.beginPath(); x.arc(0, 0, 27 * u, 0, 7); x.stroke();
+      circ(0, 0, 27, '#fffdf4'); x.strokeStyle = INK; x.lineWidth = 3.8 * u; x.beginPath(); x.arc(0, 0, 27 * u, 0, 7); x.stroke();
       x.fillStyle = INK; x.beginPath(); for (let k = 0; k < 5; k++) { const a = -Math.PI / 2 + k * 2 * Math.PI / 5; const px = Math.cos(a) * 10 * u, py = Math.sin(a) * 10 * u; k ? x.lineTo(px, py) : x.moveTo(px, py); } x.closePath(); x.fill();
       line(-24, -18, -12, -8, INK, 2.4); line(24, -18, 12, -8, INK, 2.4); line(0, 27, 0, 12, INK, 2.4); break;
     }
     case 'bread': {
-      x.beginPath(); x.ellipse(0, 4 * u, 32 * u, 19 * u, 0, 0, 7); x.fillStyle = '#d99a4e'; x.fill(); x.strokeStyle = '#a86f2c'; x.lineWidth = 3 * u; x.stroke();
+      x.beginPath(); x.ellipse(0, 4 * u, 32 * u, 19 * u, 0, 0, 7); x.fillStyle = '#d99a4e'; x.fill(); x.strokeStyle = '#a86f2c'; x.lineWidth = 3.6 * u; x.stroke();
       x.strokeStyle = '#f3d9ae'; for (let k = -1; k <= 1; k++) { x.beginPath(); x.moveTo(k * 13 * u - 5 * u, -6 * u); x.lineTo(k * 13 * u + 3 * u, 2 * u); x.stroke(); } break;
     }
     case 'stalls': {
@@ -262,7 +285,7 @@ function emblem(x, id, cx, cy, s, accent) {
     }
     case 'tech': {
       rr(x, -22 * u, -22 * u, 44 * u, 44 * u, 6 * u); x.fillStyle = '#274b63'; x.fill();
-      x.strokeStyle = GOLD; x.lineWidth = 3 * u; for (let k = -1; k <= 1; k++) { line(k * 14, -30, k * 14, -22, GOLD, 3); line(k * 14, 22, k * 14, 30, GOLD, 3); line(-30, k * 14, -22, k * 14, GOLD, 3); line(22, k * 14, 30, k * 14, GOLD, 3); }
+      x.strokeStyle = GOLD; x.lineWidth = 3.8 * u; for (let k = -1; k <= 1; k++) { line(k * 14, -30, k * 14, -22, GOLD, 3); line(k * 14, 22, k * 14, 30, GOLD, 3); line(-30, k * 14, -22, k * 14, GOLD, 3); line(22, k * 14, 30, k * 14, GOLD, 3); }
       circ(0, 0, 8, GOLD); break;
     }
     case 'stadium': {
@@ -291,7 +314,7 @@ function emblem(x, id, cx, cy, s, accent) {
     }
     case 'gate': {
       box(-36, -28, 10, 56, '#6b4a2f'); box(26, -28, 10, 56, '#6b4a2f');
-      x.strokeStyle = '#3d3d3d'; x.lineWidth = 3.4 * u; for (let k = 0; k < 4; k++) { x.beginPath(); x.moveTo(-26 * u, (-18 + k * 13) * u); x.lineTo(26 * u, (-18 + k * 13) * u); x.stroke(); }
+      x.strokeStyle = '#3d3d3d'; x.lineWidth = 4.2 * u; for (let k = 0; k < 4; k++) { x.beginPath(); x.moveTo(-26 * u, (-18 + k * 13) * u); x.lineTo(26 * u, (-18 + k * 13) * u); x.stroke(); }
       box(-40, -34, 80, 8, GOLD); break;
     }
     case 'towers': case 'house': case 'mansion': {
@@ -329,7 +352,7 @@ function tileTexture(i, mortgaged, wPx) {
   const key = i + (mortgaged ? 'm' : '') + 'w' + W;
   if (tileTexCache[key]) return tileTexCache[key];
   const [c, x] = cnvS(W, H, TIER.texScale);
-  const band = bandColorFor(i, sp);
+  const band = deepenBand(bandColorFor(i, sp));
   const art = artFor(i, sp);
   const g = x.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#fffdf4'); g.addColorStop(1, '#f6e9cd');
@@ -341,39 +364,39 @@ function tileTexture(i, mortgaged, wPx) {
     x.fillStyle = sp.deck === 'wahala' ? '#f9ded8' : '#dcecfb'; x.fillRect(6, 6, W - 12, H - 12);
     emblem(x, 'cards', W / 2, H * 0.40, corner ? 150 : 118, band);
     x.fillStyle = band; x.fillRect(6, H * 0.70, W - 12, H * 0.24);
-    x.fillStyle = '#fff'; fitFont(x, name.toUpperCase(), W - 24, 30, '900', '"Aeonik Pro", sans-serif');
+    x.fillStyle = '#fff'; fitFont(x, name.toUpperCase(), W - 24, 36, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.86);
   } else if (corner) {
     emblem(x, art, W / 2, H * 0.40, 168, band);
     x.fillStyle = band; x.fillRect(6, H * 0.70, W - 12, H * 0.24);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
-    fitFont(x, name.toUpperCase(), W - 26, 36, '900', '"Aeonik Pro", sans-serif');
+    fitFont(x, name.toUpperCase(), W - 26, 42, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.865);
-    if (i === 0) { x.fillStyle = INK; x.font = '700 21px "Figtree", sans-serif'; x.fillText('Collect ' + D.fmtN(D.START_PAY) + ' salary', W / 2, H * 0.66); }
-    if (i === 20) { x.fillStyle = '#8a6d1d'; x.font = '700 21px "Figtree", sans-serif'; x.fillText('Land here, collect the pot', W / 2, H * 0.66); }
+    if (i === 0) { x.fillStyle = INK; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Collect ' + D.fmtN(D.START_PAY) + ' salary', W / 2, H * 0.66); }
+    if (i === 20) { x.fillStyle = '#6e5510'; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Land here, collect the pot', W / 2, H * 0.66); }
   } else if (sp.type === 'street') {
     x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.25);
     x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(6, H * 0.25 + 3, W - 12, 4);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
     const words = name.split(' ');
     let lines = [name];
-    if (x.measureText(name).width > 0 && fitFont(x, name.toUpperCase(), W - 20, 30, '900', '"Aeonik Pro", sans-serif') <= 17 && words.length > 1) {
+    if (x.measureText(name).width > 0 && fitFont(x, name.toUpperCase(), W - 20, 36, '900', '"Aeonik Pro", sans-serif') <= 21 && words.length > 1) {
       const mid = Math.ceil(words.length / 2);
       lines = [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
     }
-    x.font = '900 ' + Math.min(30, fitFont(x, lines[0].toUpperCase(), W - 20, 30, '900', '"Aeonik Pro", sans-serif')) + 'px "Aeonik Pro", sans-serif';
+    x.font = '900 ' + Math.min(36, fitFont(x, lines[0].toUpperCase(), W - 20, 36, '900', '"Aeonik Pro", sans-serif')) + 'px "Aeonik Pro", sans-serif';
     lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.115 + k * H * 0.085));
     emblem(x, art, W / 2, H * 0.55, 104, band);
-    x.fillStyle = INK; x.font = '700 25px "Aeonik Pro", sans-serif';
+    x.fillStyle = INK; x.font = '900 30px "Aeonik Pro", sans-serif';
     x.fillText(D.fmtN(sp.price), W / 2, H * 0.945);
   } else {
     x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.075);
     x.fillStyle = INK;
-    fitFont(x, name.toUpperCase(), W - 18, 25, '900', '"Aeonik Pro", sans-serif');
+    fitFont(x, name.toUpperCase(), W - 18, 30, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.20);
     emblem(x, art, W / 2, H * 0.52, 112, band);
-    if (sp.price) { x.font = '700 25px "Aeonik Pro", sans-serif'; x.fillText(D.fmtN(sp.price), W / 2, H * 0.945); }
-    else if (sp.amount) { x.font = '700 23px "Aeonik Pro", sans-serif'; x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.945); }
+    if (sp.price) { x.font = '900 30px "Aeonik Pro", sans-serif'; x.fillText(D.fmtN(sp.price), W / 2, H * 0.945); }
+    else if (sp.amount) { x.font = '800 27px "Aeonik Pro", sans-serif'; x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.945); }
   }
   if (mortgaged) {
     x.fillStyle = 'rgba(60,60,66,0.45)'; x.fillRect(0, 0, W, H);
@@ -925,8 +948,12 @@ function centreTexture(innerW, innerD) {
   x.fillStyle = '#b57f10';
   const wHalf = x.measureText('KOLO').width;
   x.textAlign = 'left'; x.fillText('POLY', px(-1.05) + wHalf + 6, pz(0.55));
-  x.fillStyle = 'rgba(43,32,24,0.55)'; x.font = '700 30px "Figtree", sans-serif'; x.textAlign = 'center';
-  x.fillText('LAGOS · ABUJA · PORT HARCOURT', px(0), pz(1.35));
+  // The slogan takes the old cities subline's slot, set bold and tracked
+  // so it reads at frame size.
+  x.fillStyle = 'rgba(30,20,9,0.85)'; x.font = '700 33px "Aeonik Pro", sans-serif'; x.textAlign = 'center';
+  try { x.letterSpacing = '1.5px'; } catch (e) { /* older canvas: untracked is fine */ }
+  x.fillText('Break your kolo, buy the street.', px(0), pz(1.35));
+  try { x.letterSpacing = '0px'; } catch (e) { /* noop */ }
   x.fillStyle = 'rgba(138,109,29,0.9)'; x.font = '900 30px "Aeonik Pro", sans-serif';
   x.fillText('OWAMBE POT', px(0), pz(3.35));
   x.fillStyle = 'rgba(43,32,24,0.5)'; x.font = '700 24px "Figtree", sans-serif';

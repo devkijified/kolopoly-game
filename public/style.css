@@ -211,9 +211,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .bot-prompt .bp-title { font-family: 'Aeonik Pro', sans-serif; font-weight: 700; font-size: var(--fs-lead); margin-bottom: 4px; }
 .bot-prompt .btnrow { margin-top: 10px; }
 .bot-tag {
-  display: inline-block; padding: 1px 6px; border-radius: 999px;
+  display: inline-block; padding: 0 5px; border-radius: 999px;
   background: var(--ink); color: var(--gold);
-  font-size: var(--fs-meta); font-weight: 800; letter-spacing: 0.6px; vertical-align: 2px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.6px; vertical-align: 1px;
 }
 .slot {
   display: flex; align-items: center; gap: 10px; padding: 11px 12px;
@@ -229,24 +229,26 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 
 /* Game layout: portrait stacks stage over rail; landscape is stage + rail */
 .game-stage { padding: 8px 8px 0; }
-.game-rail { display: flex; flex-direction: column; padding-bottom: calc(var(--wallet-h, 190px) + 16px); }
+.game-rail { display: flex; flex-direction: column; padding-bottom: calc(var(--wallet-h, 190px) + 36px); }
 .rail-top { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 4px; min-height: 0; }
 .msgbar {
-  background: linear-gradient(180deg, #3d2d1e, var(--ink)); color: var(--cream); border-radius: 13px;
+  background: linear-gradient(180deg, #3d2d1e, var(--ink)); color: var(--cream); border-radius: 16px;
   padding: 9px 13px; font-weight: 600; min-height: 38px; display: flex; align-items: center; gap: 8px;
   box-shadow: 0 4px 10px rgba(43, 32, 24, 0.18);
 }
 .players-strip { display: flex; gap: 7px; flex-wrap: wrap; padding: 1px; }
+/* KP12: the player pill compacts to one line (name, then exact cash):
+   a 22px avatar disc, 13px name, 13px bold cash, about 34px all in. */
 .pchip {
-  flex: 1 1 138px; display: flex; align-items: center; gap: 7px;
-  background: var(--card); border: 1.5px solid var(--line); border-radius: 999px; padding: 5px 11px 5px 6px;
-  box-shadow: 0 2px 6px rgba(43, 32, 24, 0.07);
+  flex: 1 1 128px; display: flex; align-items: center; gap: 6px;
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 999px; padding: 4px 10px 4px 5px;
+  box-shadow: 0 2px 6px rgba(43, 32, 24, 0.07); min-height: 34px;
 }
 .pchip.turn { border-color: var(--gold-deep); box-shadow: 0 0 0 2px var(--gold); }
 .pchip.bankrupt { opacity: 0.45; }
-.pchip .avatar { width: 26px; height: 26px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2); }
-.pchip .nm { font-weight: 800; font-size: var(--fs-caption); }
-.pchip .cash { font-weight: 800; font-size: var(--fs-caption); color: var(--green-deep); }
+.pchip .avatar { width: 22px; height: 22px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2); }
+.pchip .nm { font-weight: 700; font-size: 13px; }
+.pchip .cash { font-weight: 800; font-size: 13px; color: var(--green-deep); }
 .pchip.jailed .nm::after { content: ' · Kirikiri'; color: var(--red-deep); }
 
 /* Board */
@@ -401,57 +403,51 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .deck-pile.family { background: linear-gradient(160deg, #5b97d6, #3f7fbf); }
 
 
-/* Wallet and action bar */
+/* Wallet and action bar. KP12: this is now ONE floating glass dock.
+   A deep brown-green frosted bar (blur, translucent tint pulled from
+   the game's own palette) with layered soft shadows and inset
+   hairline highlights instead of borders; cash, the primary pill with
+   its timer ring, the ghost utilities and the state panels all live
+   inside it. The detailed dock language sits in the KP12 section at
+   the end of this file. */
 .walletbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-  background: rgba(255, 250, 240, 0.97); backdrop-filter: blur(9px);
-  border-top: 1px solid var(--line); padding: 9px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  position: fixed; left: 12px; right: 12px; bottom: 10px; z-index: 45;
+  background: linear-gradient(180deg, rgba(44, 37, 22, 0.88), rgba(25, 22, 14, 0.93));
+  backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: none; border-radius: 22px;
+  box-shadow: 0 22px 44px rgba(20, 14, 5, 0.35), 0 4px 14px rgba(20, 14, 5, 0.22),
+    inset 0 1px 0 rgba(255, 248, 232, 0.13), inset 0 0 0 1px rgba(255, 248, 232, 0.05);
+  padding: 11px 12px calc(11px + env(safe-area-inset-bottom));
+  color: var(--cream);
 }
 .wallet-inner { max-width: 620px; margin: 0 auto; }
-.wallet-top { display: flex; align-items: center; gap: 10px; }
-.wallet-cash { font-family: 'Aeonik Pro', sans-serif; font-size: 23px; }
-.wallet-cash small { font-size: var(--fs-caption); color: var(--ink-soft); font-family: 'Figtree', sans-serif; font-weight: 700; display: block; line-height: 1; }
-.denoms { display: flex; gap: 0; margin-left: auto; align-items: center; padding-left: 8px; }
-.denom {
-  font-size: 9.5px; font-weight: 900; padding: 4px 6px; border-radius: 4px; color: #fff;
-  background: var(--board-green); margin-left: -14px;
-  border: 1px solid rgba(0, 0, 0, 0.28); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.22);
-  transform: rotate(-4deg);
-}
-.denom:first-child { margin-left: 0; }
-.denom:nth-child(1) { background: #a67c1a; transform: rotate(-5deg); }
-.denom:nth-child(2) { background: #7a4fa3; transform: rotate(3deg); }
-.denom:nth-child(3) { background: #3f7fbf; transform: rotate(-2deg); }
-.denom:nth-child(4) { background: #2e9e5b; transform: rotate(4deg); }
-.denom:nth-child(5) { background: #b0653a; transform: rotate(-3deg); }
-.denom:nth-child(6) { background: #2b8a8f; transform: rotate(2deg); }
-.denom:nth-child(7) { background: #5c6b7a; transform: rotate(-4deg); }
-.actionbar { display: flex; gap: 8px; margin-top: 9px; }
+.wallet-top { display: flex; align-items: center; gap: 9px; }
+.actionbar { display: flex; gap: 8px; margin-top: 9px; align-items: center; }
 .actionbar .btn { flex: 1; }
-/* KP9 utility bar: bottom-nav pattern. An IconSax glyph (about 21px) over
-   an 11px label, the whole bar about 48px tall. The armed two-tap state
-   (Leave, End) tints red and swaps its label to "Sure?". */
+/* Utility bar: KP9 made it a bottom-nav icon bar; KP12 makes the items
+   ghosts inside the glass dock. No boxes, no borders: an icon over an
+   11px label on the glass itself, hairline dividers between items, and
+   the armed two-tap state (Leave, End) fills a soft red capsule behind
+   the item and swaps its label to "Sure?". */
 .ubtn {
   flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  min-height: 48px; padding: 5px 2px 4px;
-  background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  min-height: 46px; padding: 5px 2px 4px;
+  background: transparent; color: rgba(245, 239, 226, 0.88); border: none; border-radius: 999px;
   font-family: inherit; cursor: pointer; touch-action: manipulation;
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
-.ubtn:active { transform: translateY(1px); }
+.ubtn + .ubtn { box-shadow: inset 1px 0 0 rgba(255, 248, 232, 0.09); }
+.ubtn:active { transform: translateY(1px); background: rgba(255, 248, 232, 0.08); }
 .ubtn .u-ic { display: flex; line-height: 0; }
 .ubtn .u-lb { font-size: 11px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
-.ubtn.armed { color: var(--red-deep); border-color: var(--red); background: #fdf0ec; }
+.ubtn.armed { color: #ffb4a6; background: rgba(208, 69, 69, 0.22); box-shadow: inset 0 0 0 1px rgba(255, 130, 115, 0.35); animation: ubtnIn 0.18s ease; }
+@keyframes ubtnIn { from { opacity: 0.35; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .actionbar .btn.fixed { flex: none; }
 .turn-timer { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--red-deep); }
-/* Countdowns live in their own chips beside frozen primary labels
-   (Lesson 4), and the chip pulses with each beep in the last 10s (Lesson 7). */
-.clock-chip {
-  display: inline-flex; align-items: center; justify-content: center; flex: none;
-  min-height: 34px; min-width: 46px; padding: 4px 9px; border-radius: 999px;
-  background: var(--ink); color: var(--cream);
-  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 13px;
-}
-.turn-timer.pulse, .clock-chip.pulse { animation: clockpulse 0.32s ease; }
+/* Countdowns live in their own control beside frozen primary labels
+   (Lesson 4). KP12: that control is the timer ring badge; it pulses
+   with each beep in the last 10s (Lesson 7), like the chip did. */
+.turn-timer.pulse { animation: clockpulse 0.32s ease; }
 @keyframes clockpulse { 0% { transform: scale(1); } 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
 
 /* Smart auto-end countdown on the End turn button */
@@ -572,7 +568,14 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 
 /* Auction panel */
-.auction-card { border: 2px solid var(--gold-deep); background: #fff8e6; border-radius: 18px; padding: 13px; margin-bottom: 9px; box-shadow: 0 6px 16px rgba(232, 169, 12, 0.2); }
+/* KP12: state panels inside the dock speak the same glass language:
+   frosted light glass, layered soft shadow, inset highlights, no hard
+   border. */
+.auction-card {
+  background: linear-gradient(180deg, rgba(255, 249, 233, 0.97), rgba(255, 241, 208, 0.94));
+  border: none; border-radius: 18px; padding: 13px; margin-bottom: 10px; color: var(--ink);
+  box-shadow: 0 12px 26px rgba(10, 6, 2, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(232, 169, 12, 0.35);
+}
 .bid-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 9px; }
 
 /* Feed sheet list */
@@ -653,11 +656,15 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 #infBar .clk { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
 #infBar button { background: rgba(255, 250, 240, 0.14); color: #ffe9c9; border: 1px solid rgba(255, 233, 201, 0.4); border-radius: 9px; padding: 6px 10px; min-height: 36px; font-weight: 700; font-size: 13px; }
 .sapa-warn {
-  margin-top: 7px; background: #fff0d6; border: 1px solid var(--gold-deep); color: #7a5200;
-  border-radius: 11px; padding: 8px 11px; font-weight: 700; font-size: var(--fs-caption);
+  margin-top: 8px; background: rgba(255, 240, 214, 0.95); border: none; color: #7a5200;
+  border-radius: 14px; padding: 9px 12px; font-weight: 700; font-size: var(--fs-caption);
+  box-shadow: 0 8px 18px rgba(10, 6, 2, 0.22), inset 0 0 0 1px rgba(232, 169, 12, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6);
   animation: sapapulse 1.6s ease infinite;
 }
-@keyframes sapapulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 169, 12, 0); } 50% { box-shadow: 0 0 0 4px rgba(232, 169, 12, 0.25); } }
+@keyframes sapapulse {
+  0%, 100% { box-shadow: 0 8px 18px rgba(10, 6, 2, 0.22), inset 0 0 0 1px rgba(232, 169, 12, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 0 0 rgba(232, 169, 12, 0); }
+  50% { box-shadow: 0 8px 18px rgba(10, 6, 2, 0.22), inset 0 0 0 1px rgba(232, 169, 12, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 0 5px rgba(232, 169, 12, 0.22); }
+}
 .contract-row {
   display: flex; gap: 9px; align-items: flex-start; padding: 10px; border: 1px solid var(--line);
   border-radius: 13px; background: var(--paper); margin-bottom: 8px;
@@ -730,9 +737,8 @@ select.textin { appearance: none; }
   #infBar .infbar-note { display: none; }
   .walletbar {
     position: static; flex: none;
-    border-top: 1.5px solid var(--line);
-    box-shadow: 0 -6px 18px rgba(43, 32, 24, 0.08);
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    margin: 8px 10px calc(10px + env(safe-area-inset-bottom));
+    padding: 11px 12px;
   }
   .wallet-inner { max-width: none; }
   .alerts { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; width: min(330px, calc(var(--rail-w) - 14px)); }
@@ -771,10 +777,8 @@ select.textin { appearance: none; }
   .infbar-note { line-height: 1.35; }
   .msgbar { padding: 8px 11px; min-height: 36px; }
   .players-strip { gap: 6px; }
-  .pchip { flex-basis: 118px; padding: 6px 8px; }
+  .pchip { flex-basis: 112px; padding: 4px 8px; }
   .wallet-top { gap: 8px; }
-  .wallet-cash { font-size: 20px; }
-  .denom { font-size: 8.5px; padding: 4px 5px; margin-left: -9px; }
   .action-row .btn { padding: 12px 10px; }
   .alerts { top: calc(8px + env(safe-area-inset-top)); }
 }
@@ -883,7 +887,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   #infBar > span:not(.ph):not(.idx):not(.water-chip):not(.clk) { display: none; }
   #infBar .idx, #infBar .water-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 8px; font-size: 11px; border-radius: 999px; }
   #infBar button { min-height: 26px; padding: 3px 8px; font-size: 11px; }
-  .msgbar { padding: 7px 10px; min-height: 34px; border-radius: 12px; }
+  .msgbar { padding: 7px 10px; min-height: 34px; border-radius: 16px; }
   /* The rail is a scroll column: children keep their natural height and
      the column scrolls, instead of flex shrinking a bar and its text
      spilling out of its background (seen on the landscape message bar). */
@@ -892,19 +896,14 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .players-strip { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; gap: 6px; padding-bottom: 2px; scrollbar-width: none; }
   .players-strip::-webkit-scrollbar { display: none; }
   .players-strip .pchip { flex: 0 0 auto; scroll-snap-align: start; padding: 4px 10px 4px 5px; gap: 6px; }
-  .players-strip .pchip .avatar { width: 24px; height: 24px; }
+  .players-strip .pchip .avatar { width: 22px; height: 22px; }
   .players-strip .pchip .meta { display: none; }
-  /* Dock internals at the compact scale. The note fan is decoration: at
-     phone widths it shows the five biggest notes and no more, because
-     seven notes plus the cash figure outgrew the row and stretched the
-     whole page sideways (measured: a 402px layout demand on a 390px
-     phone). The cash figure itself always stays exact and complete. */
-  .denom:nth-child(n+6) { display: none; }
-  .wallet-cash { font-size: 19px; }
-  .actionbar { gap: 6px; margin-top: 6px; }
+  /* Dock internals at the compact scale (KP12 glass rules live in the
+     KP12 section; these are the phone-size metrics). */
+  .actionbar { gap: 6px; margin-top: 7px; }
   .actionbar .btn { min-height: var(--btn-h); height: var(--btn-h); padding: 0 14px; font-size: 15px; border-radius: 12px; }
-  #secondaryBar { gap: 6px; margin-top: 6px !important; }
-  .auction-card { padding: 10px 12px; border-radius: 14px; }
+  #secondaryBar { gap: 2px; margin-top: 3px !important; }
+  .auction-card { padding: 10px 12px; border-radius: 16px; }
 }
 
 /* Portrait phones: the whole layout system. */
@@ -934,7 +933,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .board { border-radius: 0; }
   .rail-top { order: 2; flex: 0 1 auto; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
   .rail-top > .caption { display: none; }
-  .walletbar { order: 3; position: static; flex: 0 0 auto; width: 100%; padding: 8px var(--sp-3) calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 18px rgba(43, 32, 24, 0.07); }
+  .walletbar { order: 3; position: static; flex: 0 0 auto; width: auto; margin: 4px 10px calc(10px + env(safe-area-inset-bottom)); padding: 10px 11px 11px; }
   .wallet-inner { max-width: none; }
   .toast { bottom: calc(156px + env(safe-area-inset-bottom)); }
 
@@ -1005,11 +1004,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   #modePill, #tierBtn { display: none; }
 }
 
-/* Landscape rail: the note fan trims to three so cash plus fan fit the
-   rail. */
-@media (orientation: landscape) and (min-width: 700px) and (max-width: 940px) {
-  .denom:nth-child(n+4) { display: none; }
-}
+
 
 /* Short landscape: the lobby stays a plain scrolling page (the pinned
    column is a portrait system), just with the compact pieces. */
@@ -1020,3 +1015,87 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .bot-prompt { padding: 8px var(--sp-3); }
   .bot-prompt .btn { min-height: var(--btn-h-s); font-size: 13px; padding: 7px 10px; }
 }
+
+/* ================= KP12 GLASS DOCK =================
+   The bottom control zone stops looking like web buttons. One floating
+   frosted dock (the .walletbar base rule above carries the glass:
+   translucent brown-green tint from the game's own palette, backdrop
+   blur, layered soft shadows, inset hairline highlights, no borders),
+   a quiet cash segment badged with a single banknote glyph, the
+   primary action as a glossed gradient pill with the countdown as a
+   depleting progress ring overlapping its right end, and the utilities
+   as ghosts on the glass. Radius family: 22px dock, 18px panels,
+   full-round pills, chips and badges. */
+/* A warm wash behind the game column, so the dock's translucent tint
+   and shadow read as a layer over the page, not a flat bar. */
+#view-game { background: linear-gradient(180deg, var(--cream) 0%, #f3ead6 76%, #ecdfc2 100%); }
+
+/* Cash segment: quiet, badged, exact. The amount still counts up and
+   down through renderWallet's existing animation. */
+.walletbar .cash-badge {
+  width: 30px; height: 30px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 200, 87, 0.16); color: var(--gold);
+  box-shadow: inset 0 0 0 1px rgba(255, 200, 87, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.walletbar .wallet-cash {
+  font-family: 'Aeonik Pro', sans-serif; font-size: 20px; line-height: 1.05;
+  color: #fff8ea; letter-spacing: -0.2px;
+}
+.walletbar .wallet-cash small {
+  display: block; line-height: 1; margin-bottom: 2px;
+  font-family: 'Figtree', sans-serif; font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; color: rgba(245, 239, 226, 0.58);
+}
+.walletbar .caption { color: rgba(245, 239, 226, 0.75); font-weight: 600; }
+
+/* The primary pill: gradient with a gloss sweep on top, soft layered
+   shadow, and a springy scale press. Contextual colours ride the same
+   gloss. Muted glass when the dock only carries a waiting line. */
+.walletbar .actionbar .btn {
+  border-radius: 999px; min-height: 44px; height: 44px; padding: 0 18px; font-size: 15px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 46%), linear-gradient(180deg, #ffd97a, var(--gold));
+  box-shadow: 0 10px 22px rgba(10, 6, 2, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -2px 6px rgba(0, 0, 0, 0.12);
+  transition: transform 0.13s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.13s ease, filter 0.13s ease;
+}
+.walletbar .actionbar .btn.green { background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 46%), linear-gradient(180deg, #2bbd84, var(--green)); box-shadow: 0 10px 22px rgba(6, 40, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -2px 6px rgba(0, 0, 0, 0.14); }
+.walletbar .actionbar .btn.red { background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 46%), linear-gradient(180deg, #e86a6a, var(--red)); box-shadow: 0 10px 22px rgba(60, 10, 10, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -2px 6px rgba(0, 0, 0, 0.14); }
+.walletbar .actionbar .btn.dark { background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 46%), linear-gradient(180deg, #4a3826, var(--ink)); box-shadow: 0 10px 22px rgba(10, 6, 2, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -2px 6px rgba(0, 0, 0, 0.25); }
+.walletbar .actionbar .btn.ghost {
+  background: rgba(255, 250, 240, 0.10); color: var(--cream); border: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 250, 240, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.walletbar .actionbar .btn:active { transform: scale(0.98); }
+.walletbar .actionbar .btn:disabled { opacity: 0.45; box-shadow: none; transform: none; }
+/* Small buttons inside dock panels (auction bids) join the pill family. */
+.walletbar .btn.small {
+  border-radius: 999px;
+  box-shadow: 0 6px 14px rgba(10, 6, 2, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: transform 0.13s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.walletbar .btn.small:active { transform: scale(0.97); }
+.walletbar .btn.small.ghost { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+
+/* The timer ring: a circular badge overlapping the pill's right end.
+   The SVG progress circle depletes against the turn length (ticker in
+   app.js), smoothed by the transition so it glides, never steps. The
+   number rides the existing data-deadline text sweep. */
+.timer-ring {
+  position: relative; flex: none; width: 42px; height: 42px; margin-left: -16px; z-index: 2;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #43331f, #241a10);
+  box-shadow: 0 8px 18px rgba(10, 6, 2, 0.35), inset 0 1px 0 rgba(255, 248, 232, 0.22), inset 0 0 0 1px rgba(255, 248, 232, 0.10);
+}
+.timer-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.timer-ring circle { fill: none; stroke-width: 3.5; }
+.timer-ring .ring-bg { stroke: rgba(255, 248, 232, 0.20); }
+.timer-ring .ring-fg {
+  stroke: var(--gold); stroke-linecap: round;
+  stroke-dasharray: 116.24; stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.55s linear;
+}
+.timer-ring .ring-num {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: var(--cream); font-variant-numeric: tabular-nums;
+}
+.timer-ring.pulse { animation: clockpulse 0.32s ease; }

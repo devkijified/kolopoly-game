@@ -601,7 +601,7 @@ try {
   check('the bot completes its first turn unaided and the board state advances', botMoved);
   await BP.close();
 
-  console.log('B9: KP11 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact, no rotate hint, Classic bar or view toggle, match clock in the header chip, tall stage restored, frame assembly deleted, the tile ring filling its box at 100 percent on both axes, icon utility bar');
+  console.log('B9: KP12 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, one floating glass dock (blur, radius, no borders), cash badged with a banknote glyph, primary pill with a depleting timer ring and no separate timer chip, ghost utility items, compact one-line player pills, no rotate hint, Classic bar or view toggle, match clock in the header chip, tall stage, frame assembly deleted, the tile ring filling its box at 100 percent on both axes');
   const overflowOf = (page) => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
   for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844]]) {
     const MP = await newPage(tag);
@@ -632,18 +632,53 @@ try {
     await sleep(4000);
     ov = await overflowOf(MP);
     check(tag + ' game: scrollWidth never exceeds innerWidth', ov.sw <= ov.iw, JSON.stringify(ov));
+    // KP12: if the bot won the opening roll, wait out its turn (it plays
+    // unaided) so the dock checks read the page player's own live turn:
+    // pill in the action bar, ring on its end.
+    {
+      const end = Date.now() + 30000;
+      while (Date.now() < end) {
+        const ready = await MP.evaluate(() => !!document.querySelector('#actionBar .btn'));
+        if (ready) break;
+        await sleep(600);
+      }
+    }
     const dock = await MP.evaluate(() => {
       const r = document.querySelector('.walletbar').getBoundingClientRect();
       return { top: r.top, bottom: r.bottom, h: r.height, ih: window.innerHeight };
     });
     check(tag + ' game: the dock sits inside the viewport and stays compact', dock.top >= 0 && dock.bottom <= dock.ih + 1 && dock.h <= 160, JSON.stringify(dock));
+    // KP12: the dock is ONE frosted glass container (backdrop blur, the
+    // 18px+ radius family, no border), not a stack of bordered boxes.
+    const glass = await MP.evaluate(() => {
+      const cs = getComputedStyle(document.querySelector('.walletbar'));
+      return { bf: cs.backdropFilter || '', br: parseFloat(cs.borderTopLeftRadius) || 0, bw: cs.borderTopWidth };
+    });
+    check(tag + ' game: the dock is one glass container (blur, 18px+ radius, no border)', glass.bf.includes('blur') && glass.br >= 18 && glass.bw === '0px', JSON.stringify(glass));
+    // KP12: the countdown is a progress ring riding the primary pill;
+    // the old separate black timer chip element is gone for good.
+    check(tag + ' game: no separate timer chip element exists', await MP.evaluate(() => !document.querySelector('.clock-chip')));
+    const ring1 = await MP.evaluate(() => {
+      const rg = document.querySelector('.timer-ring');
+      if (!rg) return null;
+      const fg = rg.querySelector('.ring-fg');
+      return { num: rg.querySelector('.ring-num').textContent, off: fg ? parseFloat(fg.style.strokeDashoffset || '0') : -1 };
+    });
+    check(tag + ' game: the timer ring rides the primary pill with a live seconds number', !!ring1 && /^\d+s$/.test(ring1.num) && ring1.off >= 0, JSON.stringify(ring1));
+    await sleep(1700);
+    const ring2 = await MP.evaluate(() => {
+      const fg = document.querySelector('.timer-ring .ring-fg');
+      return fg ? parseFloat(fg.style.strokeDashoffset || '0') : -1;
+    });
+    check(tag + ' game: the timer ring depletes as the clock runs', ring1 !== null && ring2 > ring1.off + 0.4, 'off ' + (ring1 && ring1.off) + ' -> ' + ring2);
     const strip = await MP.evaluate(() => {
       const chips = [...document.querySelectorAll('#playersStrip .pchip')];
-      if (!chips.length) return { n: 0, spread: 999 };
+      if (!chips.length) return { n: 0, spread: 999, maxH: 999 };
       const tops = chips.map((c) => Math.round(c.getBoundingClientRect().top));
-      return { n: chips.length, spread: Math.max(...tops) - Math.min(...tops) };
+      return { n: chips.length, spread: Math.max(...tops) - Math.min(...tops), maxH: Math.max(...chips.map((c) => Math.round(c.getBoundingClientRect().height))) };
     });
     check(tag + ' game: player chips form one row, never a tower', strip.n >= 2 && strip.spread <= 2, JSON.stringify(strip));
+    check(tag + ' game: player pills are compact (36px tall or less)', strip.maxH <= 36, JSON.stringify(strip));
     const prim = await MP.evaluate(() => {
       const b = document.querySelector('#actionBar .btn');
       return b ? Math.round(b.getBoundingClientRect().height) : 0;
@@ -658,12 +693,17 @@ try {
     const chipCode = (await S(MP)).code;
     const chipTxt = await MP.evaluate(() => document.getElementById('roomChip').textContent.replace(/\s+/g, ' ').trim());
     check(tag + ' game: the header chip carries the running match time', new RegExp('^Room ' + chipCode + ' · \\d{1,2}:\\d{2}$').test(chipTxt), chipTxt);
-    // KP9: the utility bar is icons over 11px labels, not text buttons.
-    const ubar = await MP.evaluate(() => [...document.querySelectorAll('#secondaryBar .ubtn')].map((b) => ({
-      svg: !!b.querySelector('svg'),
-      lb: b.querySelector('.u-lb') ? getComputedStyle(b.querySelector('.u-lb')).fontSize : ''
-    })));
-    check(tag + ' game: every utility button carries an inline icon and an 11px label', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px'), JSON.stringify(ubar));
+    // KP9/KP12: the utility bar is icons over 11px labels, and KP12 makes
+    // each item a ghost on the glass: no border box, no background slab.
+    const ubar = await MP.evaluate(() => [...document.querySelectorAll('#secondaryBar .ubtn')].map((b) => {
+      const cs = getComputedStyle(b);
+      return {
+        svg: !!b.querySelector('svg'),
+        lb: b.querySelector('.u-lb') ? getComputedStyle(b.querySelector('.u-lb')).fontSize : '',
+        bw: cs.borderTopWidth, bg: cs.backgroundColor
+      };
+    }));
+    check(tag + ' game: every utility is a ghost item (inline icon, 11px label, no border box)', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px' && u.bw === '0px' && u.bg === 'rgba(0, 0, 0, 0)'), JSON.stringify(ubar));
     // KP11: the tall stage is restored (the KP10 square is gone), the
     // frame assembly (table, platform, rim) is deleted from the scene,
     // and the tile ring itself fills the box: the layout is built from
