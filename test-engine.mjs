@@ -814,6 +814,106 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
+  console.log('KP13-WS2a: lobby confirmed leave frees the seat at once; a host confirmed leave migrates the crown with no hostAway');
+  {
+    const host = new Client('LeaveHost');
+    await host.connect();
+    host.send('create_room', { name: 'LeaveHost', token: 'danfo', mode: 'online', settings: { timed: false, turnTimerSec: 0 }, clientId: 'leave-host-1' });
+    await host.waitFor((s) => s.status === 'lobby', 'leave host lobby');
+    const code = host.state.code;
+    const guest = new Client('LeaveGuest');
+    await guest.connect();
+    guest.send('join_room', { code, name: 'LeaveGuest', token: 'keke', clientId: 'leave-guest-1' });
+    await host.waitFor((s) => s.players.length === 2, 'leave guest joined');
+    guest.send('leave', {});
+    await host.waitFor((s) => s.players.length === 1, 'guest seat freed at once');
+    check('lobby confirmed leave frees the guest seat immediately', host.state.players.length === 1 && host.state.players[0].name === 'LeaveHost');
+    const guest2 = new Client('LeaveGuest2');
+    await guest2.connect();
+    guest2.send('join_room', { code, name: 'LeaveGuest2', token: 'okada', clientId: 'leave-guest-2' });
+    await host.waitFor((s) => s.players.length === 2, 'second guest joined');
+    const g2id = guest2.playerId;
+    host.send('leave', {});
+    await guest2.waitFor((s) => s.players.length === 1 && s.hostId === g2id, 'crown migrated on confirmed leave');
+    check('lobby host confirmed leave frees the seat and migrates the crown', guest2.state.players.length === 1 && guest2.state.hostId === g2id);
+    check('no hostAway after a confirmed host leave', guest2.state.hostAway === false);
+    check('the remaining player reads a leave line, never a disconnect', /don leave the room/.test(guest2.state.message) && !/disconnected/.test(guest2.state.message), guest2.state.message);
+    guest.ws.close(); guest2.ws.close();
+  }
+
+  console.log('KP13-WS2b: 2P confirmed leave ends the game at once, never paused, and the leaver closing their app never re-labels it a disconnect');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const seen = [];
+    g.host.ws.on('message', (raw) => { try { const m = JSON.parse(raw.toString()); if (m.type === 'state') seen.push(m.room); } catch (e) { } });
+    const [pa, pb] = g.S().players;
+    const loser = g.S().turnPlayerId === pa.id ? pb : pa;
+    const winner = loser.id === pa.id ? pb : pa;
+    g.byId(loser.id).send('resign', {});
+    await g.host.waitFor((s) => s.status === 'ended', 'confirmed leave ends the game at once');
+    check('the game ended on the confirmed leave', g.S().status === 'ended' && g.S().endReason === 'resignation');
+    check('the remaining player won by resignation', g.S().winner && g.S().winner.playerId === winner.id);
+    check('the room never entered a paused state during the leave', seen.every((r) => r.paused !== true), 'states=' + seen.length);
+    g.byId(loser.id).ws.close();
+    await sleep(700);
+    check('after the leaver closes their app, the winner still reads the finish line, not a disconnect', !/disconnected/.test(g.S().message || ''), g.S().message);
+    check('the ended game is not paused after the leaver socket closes', g.S().paused === false);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('KP13-WS2c: 3P current player confirms leave mid-turn: liquidated at once, turn advances, no pause, next player rolls right away');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
+    const seen = [];
+    g.host.ws.on('message', (raw) => { try { const m = JSON.parse(raw.toString()); if (m.type === 'state') seen.push(m.room); } catch (e) { } });
+    const turnId = g.S().turnPlayerId;
+    g.hook('test_give', { playerId: turnId, space: 5 });
+    await sleep(200);
+    g.byId(turnId).send('resign', {});
+    await g.host.waitFor((s) => s.players.find((p) => p.id === turnId).bankrupt === true, 'leaver liquidated at once');
+    check('the leaver seat is liquidated and flagged resigned', g.player(turnId).bankrupt === true && g.player(turnId).resigned === true);
+    check('their deed returned to the bank unowned', g.S().props[5].o === null);
+    check('the turn advanced off the leaver at once', g.S().turnPlayerId !== turnId);
+    check('the game was never paused during the leave', seen.every((r) => r.paused !== true) && g.S().paused === false, 'states=' + seen.length);
+    const nid = g.S().turnPlayerId;
+    g.hook('test_set_position', { playerId: nid, space: 17 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.byId(nid).send('roll', {});
+    await g.host.waitFor((s) => s.players.find((p) => p.id === nid).position === 20, 'next player rolled and moved');
+    check('the next player rolled right away and moved', g.player(nid).position === 20);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('KP13-WS2d: a bare leave message mid-game takes the resign path too, never the disconnect path');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const [pa, pb] = g.S().players;
+    const loser = g.S().turnPlayerId === pa.id ? pb : pa;
+    const winner = loser.id === pa.id ? pb : pa;
+    g.byId(loser.id).send('leave', {});
+    await g.host.waitFor((s) => s.status === 'ended', 'bare leave ends the game');
+    check('bare leave mid-game ends the game by resignation', g.S().status === 'ended' && g.S().endReason === 'resignation' && g.S().winner && g.S().winner.playerId === winner.id);
+    check('no disconnect line survives a confirmed leave', !/disconnected/.test(g.S().message || ''), g.S().message);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('KP13-WS4e: the state carries a structured banner (key + actor) at game start and on turn advance');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const b0 = g.S().banner;
+    check('the opener banner is structured', !!b0 && b0.key === 'opener' && b0.actorId === g.S().turnPlayerId && typeof b0.name === 'string' && b0.name.length > 0, JSON.stringify(b0));
+    const before = g.S().turnPlayerId;
+    g.hook('test_set_position', { playerId: before, space: 17 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.turn().send('roll', {});
+    await g.host.waitFor((s) => s.phase === 'end' && s.turnPlayerId === before, 'first move settles on Owambe');
+    g.turn().send('end_turn', {});
+    await g.host.waitFor((s) => s.turnPlayerId !== before, 'turn advanced');
+    const b1 = g.S().banner;
+    check('the turn banner is structured for the new actor', !!b1 && (b1.key === 'turn' || b1.key === 'turn_jail') && b1.actorId === g.S().turnPlayerId, JSON.stringify(b1));
+    for (const c of g.clients) c.ws.close();
+  }
+
   console.log('L1: lobby grace: the room survives the host tab closing, guests see hostAway, the host reclaims as host');
   {
     const host = new Client('GraceHost');

@@ -1002,6 +1002,12 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
    carrying the match clock) never truncates. */
 @media (max-width: 520px) {
   #modePill, #tierBtn { display: none; }
+  /* KP13: sharpness is the player's choice, so the tier control stays
+     reachable on phones where there is room for it: the landing and the
+     lobby. In game the topbar is full (wordmark, room chip, sound,
+     voice) and the button stays out of the way. */
+  body:has(#view-landing.active) #tierBtn,
+  body:has(#view-lobby.active) #tierBtn { display: inline-flex; }
 }
 
 
@@ -1099,3 +1105,109 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   font-size: 11px; font-weight: 800; color: var(--cream); font-variant-numeric: tabular-nums;
 }
 .timer-ring.pulse { animation: clockpulse 0.32s ease; }
+
+/* ================= KP13 GLASS SWEEP =================
+   One pass, every bar, pill and slab, the owner's order: no more
+   catching dated elements one at a time. The remaining flat slabs join
+   the KP12 dock's family: translucent frosted glass, radius 16+,
+   layered soft shadows, inset highlights, zero hard borders, no
+   dashed web-form boxes anywhere. Presentation only: no layout law,
+   ids, copy or board rules move. */
+
+/* The named one: the message bar. It was a fat opaque slab that wrapped
+   to two lines and ate stage height; now it is the dock's dark glass in
+   a slim bar: compact padding, one line first at 14px, with the acting
+   player's token disc as a cue at the left. */
+.msgbar {
+  background: linear-gradient(180deg, rgba(44, 37, 22, 0.88), rgba(25, 22, 14, 0.93));
+  backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  border: none; border-radius: 16px; padding: 8px 12px; min-height: 38px;
+  font-size: 14px; font-weight: 600; line-height: 1.3;
+  box-shadow: 0 10px 22px rgba(20, 14, 5, 0.20), inset 0 1px 0 rgba(255, 248, 232, 0.13), inset 0 0 0 1px rgba(255, 248, 232, 0.05);
+}
+.msg-cue {
+  width: 24px; height: 24px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 2px 6px rgba(10, 6, 2, 0.30);
+}
+
+/* The Inflation phase strip: the same dark glass language in a wine
+   tint (its identity), one slim row; its buttons become ghost items on
+   the glass instead of bordered boxes. */
+#infBar {
+  background: linear-gradient(180deg, rgba(74, 26, 32, 0.88), rgba(38, 16, 20, 0.93));
+  backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  border: none; border-radius: 16px;
+  box-shadow: 0 10px 22px rgba(20, 8, 5, 0.22), inset 0 1px 0 rgba(255, 233, 201, 0.14), inset 0 0 0 1px rgba(255, 233, 201, 0.06);
+}
+#infBar button {
+  background: rgba(255, 250, 240, 0.10); border: none; color: #ffe9c9;
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 201, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+/* Toasts and the pass banner: dark glass pills that arrive with a soft
+   slide and fade instead of blinking in. */
+.toast {
+  background: linear-gradient(180deg, rgba(44, 37, 22, 0.92), rgba(25, 22, 14, 0.95));
+  backdrop-filter: blur(12px) saturate(1.3); -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  border: none; border-radius: 999px;
+  box-shadow: 0 14px 30px rgba(20, 14, 5, 0.30), inset 0 1px 0 rgba(255, 248, 232, 0.13);
+}
+.toast.show { animation: toastin 0.25s ease; }
+@keyframes toastin { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
+.pass-banner {
+  background: linear-gradient(180deg, rgba(44, 37, 22, 0.92), rgba(25, 22, 14, 0.95));
+  backdrop-filter: blur(12px) saturate(1.3); -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  border: none;
+  box-shadow: 0 14px 30px rgba(20, 14, 5, 0.30), inset 0 1px 0 rgba(255, 248, 232, 0.13);
+}
+
+/* The bank alert card keeps its OPay identity; only its radius and
+   shadow join the family, and its receipt divider becomes a hairline. */
+.alert-card { border-radius: 18px; box-shadow: 0 18px 40px rgba(20, 14, 5, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.65); }
+.alert-card .bal { border-top: 1px solid rgba(227, 215, 195, 0.8); }
+
+/* Lobby: slot rows lose the dashed waiting boxes; the bot prompt and
+   the settings chips soften into the family. */
+.slot { border: 1px solid rgba(227, 215, 195, 0.75); box-shadow: 0 2px 8px rgba(43, 32, 24, 0.06); }
+.slot.empty { border-style: solid; background: rgba(255, 253, 247, 0.55); }
+.bot-prompt { background: rgba(255, 243, 209, 0.72); border: 1px solid rgba(232, 169, 12, 0.42); box-shadow: 0 6px 16px rgba(43, 32, 24, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
+.settings-chips .chip { background: rgba(255, 250, 240, 0.85); border-color: rgba(227, 215, 195, 0.7); }
+
+/* Landing: the form card, the invite banner and the toggle rows trade
+   hard and dashed lines for soft rings and hairlines. */
+.join-card { border-color: transparent; box-shadow: var(--shadow), inset 0 0 0 1px rgba(227, 215, 195, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+.banner { background: rgba(255, 243, 209, 0.78); border: 1px solid rgba(232, 169, 12, 0.45); }
+.toggle-row { border-bottom: 1px solid rgba(227, 215, 195, 0.65); }
+
+/* WS5 promotion: the MOST PLAYED badge rides the Inflation card as a
+   small gold pill above its title; the appeal line sits under the
+   card copy in a deep gold. */
+.mode-pick { position: relative; }
+.mode-badge {
+  display: inline-flex; align-items: center; margin-bottom: 5px;
+  background: linear-gradient(180deg, #ffd97a, var(--gold)); color: var(--ink);
+  font-size: 10px; font-weight: 900; letter-spacing: 1.1px;
+  padding: 2.5px 8px; border-radius: 999px;
+  box-shadow: 0 3px 8px rgba(232, 169, 12, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.mode-appeal { display: block; margin-top: 4px; font-size: 12px; font-weight: 800; color: #a87400; }
+
+/* Sheets and modals: softer lift, an inset highlight on the surface,
+   the grab handle kept. Explainer boxes (the .meaning pattern, this
+   game's HelpTip equivalent) lose their dashed border for a soft ring;
+   key-value and feed rows trade dashes for hairlines. */
+.sheet { box-shadow: 0 -14px 34px rgba(30, 21, 13, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+.modal-card { box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+.meaning { border: none; background: rgba(253, 243, 218, 0.85); box-shadow: inset 0 0 0 1px rgba(232, 169, 12, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.6); }
+.kv { border-bottom: 1px solid rgba(227, 215, 195, 0.7); }
+.feed-item { border-bottom: 1px solid rgba(227, 215, 195, 0.7); }
+.deed-check { border-color: rgba(227, 215, 195, 0.8); border-radius: 12px; background: rgba(255, 250, 240, 0.75); }
+.contract-row { border-color: rgba(227, 215, 195, 0.8); border-radius: 14px; background: rgba(255, 250, 240, 0.75); }
+
+/* The pause waiting card joins the glass family (light frost). */
+.pause-card {
+  background: linear-gradient(180deg, rgba(255, 253, 247, 0.97), rgba(250, 243, 228, 0.95));
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 22px 44px rgba(20, 14, 5, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}

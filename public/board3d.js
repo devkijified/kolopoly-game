@@ -16,50 +16,79 @@ const KP3D = { active: false };
 window.KP3D = KP3D;
 
 // ---------------------------------------------------------------------------
-// Quality tiers: one adaptive profile picked at boot from the hardware, so a
-// weak phone sheds pixel ratio, shadow cost and texture size before it sheds
-// frames. The tier owns pixels only, never game behaviour. Parameters are
-// relative to the shipped high tier (DPR cap 2, 1024px shadow maps, tile and
-// centre textures drawn in a 2x space). A manual pick beats the auto pick:
-// localStorage 'kolopolyTier' (high|mid|low), KP3D.setTier(), or the topbar
-// spark button, which cycles Auto, High, Mid, Low. Texture sizes are baked
-// when a texture is first drawn, so a mid-game tier change re-tunes pixel
-// ratio and shadows at once while textures keep their drawn size.
+// Quality tiers (KP13 sharpness round). The owner played the live build on
+// his real phone: the DOM was crisp, the board itself looked like "144p".
+// Root cause: the KP8 auto tier capped phones at Mid (pixel ratio 1.5,
+// textures at 0.75x) or Low (1.0 / 0.5x), so the canvas backing store and
+// the board textures were far below what a modern phone screen can show.
+//
+// KP13 law: sharp by default, adapt only under real load.
+// - Auto is now a pseudo-tier of its own: it starts at pixel ratio
+//   min(devicePixelRatio, 2.5) with FULL texture resolution (tiles x1.2,
+//   centre x1.5 over the old logical painter space, sized to stay at
+//   least ~1.5x the largest on-screen footprint at DPR 3) and trims ONLY
+//   shadow cost on weak hardware. An FPS stepper (below, beside the
+//   render loop) may walk the pixel ratio down 2.5 -> 2 -> 1.75 -> 1.5
+//   when frames stay expensive, never below 1.5 on a DPR 2+ device,
+//   never touching textures, and it recovers upward when frames are
+//   cheap again. Manual tiers are never adapted.
+// - High = min(dpr, 3), Mid = min(dpr, 2), Low = 1.25 (a deliberate
+//   weak-device choice, never a silent default).
+// - Texture sizes are baked when a texture is first drawn, so a mid-game
+//   tier change re-tunes pixel ratio and shadows at once while textures
+//   keep their drawn size.
+// - One-time settings migration (below): a phone that ever stored a
+//   pre-KP13 tier pick keeps it forever otherwise, so stored picks are
+//   cleared exactly once and every existing phone lands on the sharp
+//   Auto; picks made after the migration persist as before.
+// - The tier owns pixels only, never game behaviour. A manual pick beats
+//   Auto: localStorage 'kolopolyTier' (high|mid|low), KP3D.setTier(), or
+//   the topbar spark button, which cycles Auto, High, Mid, Low.
 // ---------------------------------------------------------------------------
 const TIER_PARAMS = {
-  high: { dprCap: 2, shadowSize: 1024, texScale: 1, aniso: 4, ambientOn: 1500, ambientOff: 750 },
-  mid: { dprCap: 1.5, shadowSize: 512, texScale: 0.75, aniso: 2, ambientOn: 1200, ambientOff: 1000 },
-  low: { dprCap: 1, shadowSize: 0, texScale: 0.5, aniso: 1, ambientOn: 700, ambientOff: 1600 }
+  high: { dprCap: 3, shadowSize: 1024, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1500, ambientOff: 750 },
+  mid: { dprCap: 2, shadowSize: 512, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1200, ambientOff: 1000 },
+  low: { dprCap: 1.25, shadowSize: 0, texScale: 0.9, centreScale: 1.05, aniso: 2, ambientOn: 700, ambientOff: 1600 },
+  auto: { dprCap: 2.5, shadowSize: 1024, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1500, ambientOff: 750 }
 };
-let TIER = { name: 'high', auto: true, ...TIER_PARAMS.high };
+let TIER = { name: 'auto', auto: true, ...TIER_PARAMS.auto };
 let glRendererName = '';
+// KP13 one-time migration: clear any tier stored before the sharp
+// defaults existed, exactly once (versioned by 'kolopolyTierVer').
+try {
+  if (localStorage.getItem('kolopolyTierVer') !== '2') {
+    localStorage.removeItem('kolopolyTier');
+    localStorage.setItem('kolopolyTierVer', '2');
+  }
+} catch (e) { /* storage off: every load simply lands on Auto */ }
 function tierOverride() {
   try { const v = localStorage.getItem('kolopolyTier'); return (v === 'high' || v === 'mid' || v === 'low') ? v : null; } catch (e) { return null; }
 }
-function autoTierName(rendererStr) {
+// Auto trims only shadow cost by hardware class; resolution stays sharp.
+function autoShadowSize(rendererStr) {
+  if (rendererStr && /swiftshader|llvmpipe|software rasterizer|paravirtual/i.test(rendererStr)) return 0;
   const cores = navigator.hardwareConcurrency || 4;
   const mem = navigator.deviceMemory || 0; // GB, Chromium only; 0 means unknown
-  const smallScreen = Math.min(window.screen.width || 9999, window.screen.height || 9999) <= 480;
-  if (rendererStr && /swiftshader|llvmpipe|software rasterizer|paravirtual/i.test(rendererStr)) return 'low';
-  if (cores <= 2 || (mem > 0 && mem <= 1)) return 'low';
-  // KP8: phone-class devices never auto-start at high. The 1024px shadow
-  // map plus DPR 2 is the frame rate killer on phone GPUs; mid holds the
-  // picture, low drops shadows entirely, and the manual pick still wins.
-  if (smallScreen) {
-    if (cores <= 4 || (mem > 0 && mem <= 2)) return 'low';
-    return 'mid';
-  }
-  if ((cores <= 4 && mem > 0 && mem <= 2) || (smallScreen && mem > 0 && mem <= 2)) return 'low';
-  if (cores >= 8 && (mem === 0 || mem >= 4)) return 'high';
-  if (cores >= 6 && mem === 0 && !smallScreen) return 'high';
-  return 'mid';
+  if (cores <= 2 || (mem > 0 && mem <= 1)) return 512;
+  return 1024;
 }
+// Auto FPS stepper state (the stepper itself sits beside the render
+// loop). Declared here because applyTier resets it, and applyTier runs
+// once at module load.
+let autoPrCap = TIER_PARAMS.auto.dprCap, autoWinStart = 0, autoWinFrames = 0;
+let autoSlowWins = 0, autoFastWins = 0, autoGraceUntil = 0;
+// The pixel ratio cap actually in force: Auto adapts, manual tiers do not.
+function prCap() { return TIER.auto ? autoPrCap : TIER.dprCap; }
 function applyTier(name, auto) {
-  TIER = { name, auto: !!auto, ...(TIER_PARAMS[name] || TIER_PARAMS.high) };
+  TIER = { name, auto: !!auto, ...(TIER_PARAMS[name] || TIER_PARAMS.auto) };
+  if (TIER.auto) TIER.shadowSize = autoShadowSize(glRendererName);
+  autoPrCap = TIER_PARAMS.auto.dprCap;
+  autoSlowWins = 0; autoFastWins = 0; autoWinStart = 0; autoWinFrames = 0;
+  autoGraceUntil = (typeof performance !== 'undefined' ? performance.now() : 0) + 6000;
   KP3D.tier = TIER.name;
   KP3D.tierAuto = TIER.auto;
 }
-applyTier(tierOverride() || autoTierName(null), !tierOverride()); // refined with the GL renderer string in initGL
+applyTier(tierOverride() || 'auto', !tierOverride()); // Auto shadow size is refined with the GL renderer string in initGL
 
 // ---------------------------------------------------------------------------
 // Layout maths, mirrored from board.js (same grid, same slots)
@@ -157,7 +186,13 @@ function cnvS(w, h, ts) {
   return [c, x];
 }
 function maxAniso() { try { return renderer ? renderer.capabilities.getMaxAnisotropy() : 4; } catch (e) { return 4; } }
-function texOf(c) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(TIER.aniso, maxAniso()); return t; }
+// Board textures (tiles, centre field) are read at grazing angles on the
+// tilted board, so they take the renderer's full anisotropy (capped at
+// 16, KP13) instead of the tier's small cap: that is what keeps tile
+// names and prices crisp on the far rows. Mipmaps stay at the Three r186
+// default (generateMipmaps true, LinearMipmapLinearFilter): WebGL2
+// handles these rectangular canvases natively.
+function texOf(c, board) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = board ? Math.min(16, maxAniso()) : Math.min(TIER.aniso, maxAniso()); return t; }
 function rr(x, a, b, w, h, r) {
   x.beginPath();
   x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r);
@@ -404,7 +439,7 @@ function tileTexture(i, mortgaged, wPx) {
     x.fillStyle = 'rgba(255,255,255,0.92)'; x.font = '900 30px "Aeonik Pro", sans-serif'; x.textAlign = 'center';
     x.fillText('MORTGAGED', 0, 10); x.restore();
   }
-  const t = texOf(c);
+  const t = texOf(c, true);
   tileTexCache[key] = t;
   return t;
 }
@@ -923,7 +958,10 @@ function textSprite(text, opts) {
 function centreTexture(innerW, innerD) {
   const K = 114;
   const W = Math.round(innerW * K), H = Math.round(innerD * K);
-  const [c, x] = cnvS(W, H, TIER.texScale);
+  // KP13: the centre field is the biggest surface on the tilted board and
+  // the most visibly soft surface in the owner's screenshot, so it draws
+  // at the centre scale (x1.5 over the painter space on Auto/High/Mid).
+  const [c, x] = cnvS(W, H, TIER.centreScale);
   const g = x.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, Math.max(W, H) * 0.72);
   g.addColorStop(0, '#fdf3d8'); g.addColorStop(1, '#f0dfba');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
@@ -959,7 +997,7 @@ function centreTexture(innerW, innerD) {
   x.fillStyle = 'rgba(43,32,24,0.5)'; x.font = '700 24px "Figtree", sans-serif';
   x.fillText('WAHALA', px(-2.95), pz(-0.28));
   x.fillText('FAMILY MEETING', px(2.95), pz(-0.28));
-  return texOf(c);
+  return texOf(c, true);
 }
 
 // Tile band colour, mirrored from board.js bandColorFor: the landing
@@ -2056,6 +2094,44 @@ function noteFrame(ts) {
   prevDrawTs = ts; statFrames += 1; statWinFrames += 1;
   if (ts - statWinStart >= 1000) { statFps = Math.round(statWinFrames * 1000 / Math.max(1, ts - statWinStart)); statWinFrames = 0; statWinStart = ts; }
 }
+// KP13 Auto FPS stepper: the only runtime adaptation, and Auto only.
+// It watches busy windows (frames actually drawn, counted in the loop)
+// in ~2s slices: two consecutive slow windows (under 24fps against the
+// ~30fps draw cap) step the pixel ratio down the ladder, three
+// consecutive fast ones (29fps+) step it back up. Floor: 1.5 on devices
+// whose DPR is 2+, else 1. It never touches texture resolution, and it
+// rests for 6s after boot, a scene switch or a tier change.
+const AUTO_LADDER = [2.5, 2, 1.75, 1.5];
+function applyAutoPr() {
+  if (!renderer) return;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, autoPrCap));
+  lastFitW = 0; lastFitH = 0; fitCanvas(true);
+}
+function autoAdapt(ts) {
+  if (!TIER.auto || !renderer) return;
+  if (!autoWinStart) { autoWinStart = ts; autoWinFrames = 0; return; }
+  if (ts - autoWinStart < 2000) return;
+  const fps = autoWinFrames * 1000 / Math.max(1, ts - autoWinStart);
+  autoWinStart = ts; autoWinFrames = 0;
+  if (ts < autoGraceUntil) { autoSlowWins = 0; autoFastWins = 0; return; }
+  const dpr = window.devicePixelRatio || 1;
+  const floor = dpr >= 2 ? 1.5 : 1;
+  if (fps < 24) {
+    autoFastWins = 0; autoSlowWins += 1;
+    if (autoSlowWins >= 2) {
+      autoSlowWins = 0;
+      const downs = AUTO_LADDER.filter((v) => v < autoPrCap - 0.001 && v >= floor);
+      if (downs.length) { autoPrCap = Math.max(...downs); applyAutoPr(); }
+    }
+  } else if (fps >= 29) {
+    autoSlowWins = 0; autoFastWins += 1;
+    if (autoFastWins >= 3) {
+      autoFastWins = 0;
+      const ups = AUTO_LADDER.filter((v) => v > autoPrCap + 0.001 && v <= TIER.dprCap);
+      if (ups.length) { autoPrCap = Math.min(...ups); applyAutoPr(); }
+    }
+  } else { autoSlowWins = 0; autoFastWins = 0; }
+}
 KP3D.motion = motion;
 // Render on demand: frames are drawn only inside animation windows (a token
 // hop, a dice tumble, a card flight, a camera glide, a fresh state push) or
@@ -2073,7 +2149,7 @@ function loop(ts) {
   // cost on phones and keeps software renderers (test rigs) responsive
   if (ts - lastRenderTs < 33) return;
   const want = currentView();
-  if (want !== activeName) { setScene(want); motion(2.5); }
+  if (want !== activeName) { setScene(want); motion(2.5); autoGraceUntil = ts + 6000; }
   if (ts - lastFitAt > 600) { lastFitAt = ts; fitCanvas(false); }
   const sc = SCENES[activeName];
   if (!sc) return;
@@ -2096,6 +2172,7 @@ function loop(ts) {
   if (sc.update) sc.update(dt, ts / 1000);
   renderer.render(sc.scene, sc.camera);
   noteFrame(ts);
+  autoWinFrames += 1; autoAdapt(ts);
 }
 
 // ---------------------------------------------------------------------------
@@ -2193,13 +2270,13 @@ function retuneShadowLight(l) {
 }
 function applyTierToRenderer() {
   if (!renderer) return;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TIER.dprCap));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, prCap()));
   renderer.shadowMap.enabled = TIER.shadowSize > 0;
   for (const n in SCENES) retuneShadowLight(SCENES[n] && SCENES[n].keyLight);
   lastFitW = 0; lastFitH = 0; fitCanvas(true); motion(1.2);
 }
 KP3D.setTier = function (name) {
-  if (name === 'auto') { try { localStorage.removeItem('kolopolyTier'); } catch (e) {} applyTier(autoTierName(glRendererName), true); }
+  if (name === 'auto') { try { localStorage.removeItem('kolopolyTier'); } catch (e) {} applyTier('auto', true); }
   else if (TIER_PARAMS[name]) { try { localStorage.setItem('kolopolyTier', name); } catch (e) {} applyTier(name, false); }
   applyTierToRenderer();
   return TIER.name;
@@ -2222,8 +2299,8 @@ function initGL() {
     const dbgExt = renderer.getContext().getExtension('WEBGL_debug_renderer_info');
     if (dbgExt) glRendererName = String(renderer.getContext().getParameter(dbgExt.UNMASKED_RENDERER_WEBGL) || '');
   } catch (e) { /* a masked renderer string is fine, the other signals carry the pick */ }
-  if (!tierOverride()) applyTier(autoTierName(glRendererName), true);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TIER.dprCap));
+  if (!tierOverride()) applyTier('auto', true);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, prCap()));
   renderer.shadowMap.enabled = TIER.shadowSize > 0;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2264,12 +2341,25 @@ function initGL() {
     // the count is structurally zero because the parts are never built.
     let frameMeshes = 0;
     g.scene.traverse((o) => { if (o.userData && o.userData.framePart) frameMeshes += 1; });
+    const tileMap = g.tiles && g.tiles[1] && g.tiles[1].topMat ? g.tiles[1].topMat.map : null;
+    const centreMap = g.floorMesh && g.floorMesh.material ? g.floorMesh.material.map : null;
     return {
       active: true, scene: activeName,
       frameMeshes,
       layout: g.layout ? { tw: Math.round(g.layout.TW * 100) / 100, td: Math.round(g.layout.TD * 100) / 100 } : null,
       tier: TIER.name, tierAuto: TIER.auto, glRenderer: glRendererName,
       dpr: renderer ? renderer.getPixelRatio() : 0, shadowSize: TIER.shadowSize, texScale: TIER.texScale,
+      // KP13 sharpness probe: what the screen actually gets. Canvas
+      // backing store vs CSS size, the drawn size of a street tile
+      // texture and of the centre field, anisotropy in force, mipmap
+      // state, and the Auto stepper's current pixel ratio cap.
+      pixelRatio: renderer ? renderer.getPixelRatio() : 0,
+      canvasBacking: renderer && renderer.domElement ? { w: renderer.domElement.width, h: renderer.domElement.height } : null,
+      tileTex: tileMap && tileMap.image ? { w: tileMap.image.width, h: tileMap.image.height } : null,
+      centreTex: centreMap && centreMap.image ? { w: centreMap.image.width, h: centreMap.image.height } : null,
+      aniso: { max: maxAniso(), tile: tileMap ? tileMap.anisotropy : 0, centre: centreMap ? centreMap.anisotropy : 0 },
+      mipmaps: tileMap ? { generate: tileMap.generateMipmaps, minFilter: tileMap.minFilter } : null,
+      autoPrCap,
       frames: statFrames, fps: statFps,
       deedVisible: g.deedCard.visible,
       deedY: Math.round(g.deedCard.position.y * 100) / 100,
@@ -2297,7 +2387,7 @@ function initGL() {
   const tierBtn = $('tierBtn');
   if (tierBtn) {
     tierBtn.classList.remove('hidden');
-    const tierLabel = () => (TIER.auto ? 'Auto · ' + TIER.name : TIER.name);
+    const tierLabel = () => (TIER.auto ? 'Auto' : TIER.name);
     const paintTierBtn = () => {
       tierBtn.innerHTML = window.icon ? window.icon('spark', 20) : 'Q';
       tierBtn.title = 'Graphics quality: ' + tierLabel();

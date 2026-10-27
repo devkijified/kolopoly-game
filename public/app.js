@@ -40,7 +40,14 @@ let selectedToken = (() => {
   } catch (e) { }
   return 'danfo';
 })();
-let selectedGameMode = 'classic';
+// KP13 WS5: Inflation is the landing default and the promoted mode. A
+// stored pick from an explicit earlier choice is respected; everyone
+// else lands on Inflation.
+let selectedGameMode = (() => { try { const v = localStorage.getItem('kolopolyGameMode'); return (v === 'classic' || v === 'inflation') ? v : 'inflation'; } catch (e) { return 'inflation'; } })();
+function paintGameMode() {
+  $('gameModeRow').querySelectorAll('[data-gmode]').forEach((x) => x.classList.toggle('sel', x.dataset.gmode === selectedGameMode));
+  $('presetRow').classList.toggle('hidden', selectedGameMode !== 'inflation');
+}
 let selectedRoomMode = 'online';
 let lastFeedSeq = 0;
 let feedPrimed = false;
@@ -432,10 +439,11 @@ function buildTokenPickers() {
 buildTokenPickers();
 $('nameIn').value = localStorage.getItem('kolopolyName') || '';
 $('nameIn').addEventListener('change', () => localStorage.setItem('kolopolyName', $('nameIn').value.trim()));
+paintGameMode();
 $('gameModeRow').querySelectorAll('[data-gmode]').forEach((b) => b.addEventListener('click', () => {
   selectedGameMode = b.dataset.gmode;
-  $('gameModeRow').querySelectorAll('[data-gmode]').forEach((x) => x.classList.toggle('sel', x === b));
-  $('presetRow').classList.toggle('hidden', selectedGameMode !== 'inflation');
+  try { localStorage.setItem('kolopolyGameMode', selectedGameMode); } catch (e) { }
+  paintGameMode();
 }));
 $('roomModeRow').querySelectorAll('[data-rmode]').forEach((b) => b.addEventListener('click', () => {
   selectedRoomMode = b.dataset.rmode;
@@ -467,7 +475,7 @@ $('quickBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
   clearSeat();
   entrySent = true;
-  send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID });
+  send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID, gameMode: selectedGameMode });
 });
 let joinSentFor = null;
 function tryJoin(code) {
@@ -902,6 +910,22 @@ function renderPause(room) {
   o.classList.add('show');
 }
 
+// KP13 WS4: per-seat banner copy. The server sends a key + actor +
+// params; each client picks the form for its own seat. Short enough to
+// stay one line in the slim message bar at 360px in the common cases.
+function bannerText(b, mine) {
+  const n = b.name || '';
+  switch (b.key) {
+    case 'opener': return mine ? 'Game don start. Na your turn, ' + n + '.' : 'Game don start. Na ' + n + ' turn.';
+    case 'turn': return mine ? 'Na your turn, ' + n + '. Roll the dice.' : 'Na ' + n + ' turn. E dey roll.';
+    case 'turn_jail': return mine ? 'Na your turn, ' + n + '. You dey Kirikiri.' : 'Na ' + n + ' turn. E dey Kirikiri.';
+    case 'doubles': return mine ? 'Double! Na you go roll again.' : n + ' throw double. E dey roll again.';
+    case 'roll_now': return mine ? 'You don free, ' + n + '. Roll the dice.' : n + ' don free. E dey roll now.';
+    case 'debt': return mine ? 'You owe ' + b.amount + ' (' + b.reason + '). Sell, mortgage, trade, or declare bankruptcy.' : n + ' owes ' + b.amount + ' (' + b.reason + '). E dey raise the money.';
+    case 'rescue': return mine ? 'You win the auction but money no complete. Rescue window: sell, mortgage or borrow. 45 seconds.' : n + ' win the auction but money no complete. Rescue window dey run.';
+    default: return '';
+  }
+}
 function renderGame(room) {
   // KP9: no Classic bar. The Classic match clock lives in the header room
   // chip (updateRoomChip); Inflation keeps its phase strip below.
@@ -922,16 +946,29 @@ function renderGame(room) {
   } else {
     infBar.classList.add('hidden');
   }
-  // Lesson 6b: second person turn copy renders only on the turn player's
-  // own client. Everybody else reads the third person form, wherever the
-  // line sits in the message (the plain turn banner and the opening
-  // announcement alike).
+  // KP13 WS4: addressee-directed lines render per seat from the
+  // server's structured banner (key + actor), never from one shared
+  // string: the actor reads the second person form, everyone else a
+  // third person report. Shared factual lines (room.message) stay
+  // identical everywhere, which is correct for them. On the shared
+  // pass-and-play phone the acting seat is the viewer.
   let msgOut = room.message || '';
-  if (room.mode !== 'pass' && room.turnPlayerId != null && room.turnPlayerId !== myId) {
-    const tp = room.players.find((p) => p.id === room.turnPlayerId);
-    if (tp) msgOut = msgOut.split('Na your turn, ' + tp.name).join('Na ' + tp.name + ' turn');
+  if (room.banner && room.status === 'playing') {
+    const mine = room.mode === 'pass' ? room.banner.actorId === actingId() : room.banner.actorId === myId;
+    msgOut = bannerText(room.banner, mine);
   }
   $('msgText').textContent = msgOut;
+  // WS3 actor cue: a small token disc in the acting player's colour at
+  // the left of the message bar.
+  const cueEl = $('msgCue');
+  if (cueEl) {
+    const cueP = room.players.find((p) => p.id === (room.banner && room.banner.actorId != null ? room.banner.actorId : room.turnPlayerId));
+    if (cueP && room.status === 'playing') {
+      cueEl.style.display = '';
+      cueEl.style.background = cueP.color;
+      cueEl.innerHTML = window.icon(cueP.token, 13);
+    } else cueEl.style.display = 'none';
+  }
   // Players strip
   $('playersStrip').innerHTML = room.players.map((p) => {
     const loanMark = room.inf && room.inf.contracts.some((c) => c.type === 'loan' && c.borrower === p.id) ? ' · loan' : '';
@@ -1102,6 +1139,11 @@ function renderActionBar(room) {
     if (!leaveArmed) { leaveArmed = true; renderActionBar(room); setTimeout(() => { leaveArmed = false; if (state) renderActionBar(state); }, 4000); return; }
     leaveArmed = false;
     sendAs('resign', {});
+    // KP13 WS2: a confirmed leave is final. The leaver's own client
+    // exits to the landing at once, the same way the lobby Leave flow
+    // already leaves; it never sits in the room as a ghost seat. In
+    // pass-and-play the phone is shared, so it stays with the game.
+    if (room.mode !== 'pass') { clearSeat(); setTimeout(() => location.reload(), 250); }
   });
   wire('sbEndRoom', () => {
     if (!endRoomArmed) { endRoomArmed = true; renderActionBar(room); setTimeout(() => { endRoomArmed = false; if (state) renderActionBar(state); }, 4000); return; }

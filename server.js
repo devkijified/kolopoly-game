@@ -54,7 +54,17 @@ function pushFeed(room, kind, text, extra) {
   if (room.feed.length > 40) room.feed.splice(0, room.feed.length - 40);
   return entry;
 }
-function setMessage(room, text) { room.message = text; room.messageSeq += 1; }
+function setMessage(room, text) { room.message = text; room.messageSeq += 1; room.banner = null; }
+// KP13 WS4: addressee-directed lines (turn prompts and the like) are no
+// longer one shared string. The server records a structured banner
+// (key + actor + params) beside the shared fallback text, and each
+// client renders the line from its own seat: second person for the
+// actor, a third person report for everyone else. setMessage clears
+// the banner, so any factual line replaces it wholesale.
+function setBanner(room, key, actor, params, fallback) {
+  setMessage(room, fallback);
+  room.banner = Object.assign({ key, actorId: actor ? actor.id : null, name: actor ? actor.name : '' }, params || {});
+}
 
 function trackMin(player) { if (player.cash < player.minCash) player.minCash = player.cash; }
 
@@ -326,7 +336,7 @@ function newRoom(code, isPublic, mode, settings) {
     trade: null, turnDeadline: null, gameEndsAt: null,
     bankInterest: 0, interestLine: null, dealOfGame: null, lastBuilderRoll: null,
     diceQueue: [], forcedCards: { wahala: null, family: null },
-    feed: [], feedSeq: 0, message: '', messageSeq: 0,
+    feed: [], feedSeq: 0, message: '', messageSeq: 0, banner: null,
     winner: null, endTable: null, startedAt: null,
     endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null
   };
@@ -372,6 +382,7 @@ function publicRoom(room) {
     } : null,
     turnDeadline: room.turnDeadline, gameEndsAt: room.gameEndsAt,
     message: room.message, messageSeq: room.messageSeq,
+    banner: room.banner || null,
     winner: room.winner, endTable: room.endTable,
     dealOfGame: room.dealOfGame || null,
     interestLine: room.interestLine || null,
@@ -479,15 +490,16 @@ function charge(room, player, amount, to, reason, resume, opts) {
     // The owner's Phase 3 set piece (spec 4.5): 45 seconds to sell, mortgage or borrow.
     room.debt.rescue = true;
     room.debt.rescueEndsAt = now() + (TEST ? 8000 : 45000);
-    setMessage(room, player.name + ' win the auction but the money never complete. Rescue Window: sell buildings, mortgage deeds, or broadcast a loan request. 45 seconds.');
+    setBanner(room, 'rescue', player, {}, player.name + ' win the auction but the money never complete. Rescue Window: sell buildings, mortgage deeds, or broadcast a loan request. 45 seconds.');
+  } else {
+    if (isInf(room) && room.activePhase === 3 && opts.stat === 'rent' && !player.sapaWindowUsed) {
+      // One automatic 60 second Sapa Window for the first big Phase 3 rent (spec 4.5).
+      player.sapaWindowUsed = true;
+      room.turnDeadline = now() + 60000;
+      pushFeed(room, 'info', 'Sapa Window: ' + player.name + ' get 60 seconds to raise ' + D.fmtN(amount) + ' for rent wey pass their cash.', { playerId: player.id, amount });
+    }
+    setBanner(room, 'debt', player, { amount: D.fmtN(amount), reason }, player.name + ' owes ' + D.fmtN(amount) + ' (' + reason + '). Sell duplexes, mortgage a deed, trade, or declare bankruptcy.');
   }
-  if (isInf(room) && room.activePhase === 3 && opts.stat === 'rent' && !player.sapaWindowUsed) {
-    // One automatic 60 second Sapa Window for the first big Phase 3 rent (spec 4.5).
-    player.sapaWindowUsed = true;
-    room.turnDeadline = now() + 60000;
-    pushFeed(room, 'info', 'Sapa Window: ' + player.name + ' get 60 seconds to raise ' + D.fmtN(amount) + ' for rent wey pass their cash.', { playerId: player.id, amount });
-  }
-  setMessage(room, player.name + ' owes ' + D.fmtN(amount) + ' (' + reason + '). Sell duplexes, mortgage a deed, trade, or declare bankruptcy.');
   checkAutoBankrupt(room);
   return false;
 }
@@ -501,7 +513,7 @@ function payNow(room, player, amount, to, reason, opts) {
 function afterCharge(room, resume, player) {
   if (!resume) return;
   if (resume === 'endPhase') { room.phase = 'end'; setDeadline(room); }
-  else if (resume === 'rollAgain') { room.phase = 'roll'; setDeadline(room); setMessage(room, player.name + ' rolled double. Roll again.'); }
+  else if (resume === 'rollAgain') { room.phase = 'roll'; setDeadline(room); setBanner(room, 'doubles', player, {}, player.name + ' rolled double. Roll again.'); }
   else if (resume === 'jailMove') {
     const sum = room.pendingJailMove || 0;
     room.pendingJailMove = null;
@@ -891,7 +903,7 @@ function endTurn(room) {
     next.doublesCount = 0;
     room.phase = next.inJail ? 'jail' : 'roll';
     setDeadline(room);
-    setMessage(room, 'Na your turn, ' + next.name + (next.inJail ? '. You dey Kirikiri.' : '. Roll the dice.'));
+    setBanner(room, next.inJail ? 'turn_jail' : 'turn', next, {}, 'Na your turn, ' + next.name + (next.inJail ? '. You dey Kirikiri.' : '. Roll the dice.'));
   }
   updatePause(room);
 }
@@ -1113,6 +1125,10 @@ function declareBankruptcy(room, player, opts) {
 // deeds return unowned to the bank auction queue) and the game continues.
 function doResign(room, player) {
   player.resigned = true;
+  // KP13 WS2: a resignation is a confirmed leave, a decision, not a
+  // dropped connection. The close handler reads this marker and never
+  // parks the seat in the away/pause path.
+  player.leftConfirmed = true;
   if (room.trade && (room.trade.from === player.id || room.trade.to === player.id)) {
     room.trade = null;
     pushFeed(room, 'info', player.name + ' don resign: the open trade don cancel.', { playerId: player.id });
@@ -1205,7 +1221,7 @@ function startGame(room) {
   room.gameEndsAt = room.settings.timed ? now() + 3600 * 1000 : null;  const first = curPlayer(room);
   room.phase = 'roll';
   setDeadline(room);
-  setMessage(room, 'Game don start. ' + first.name + ' rolled highest and opens. Na your turn, ' + first.name + '. Roll the dice.');
+  setBanner(room, 'opener', first, {}, 'Game don start. ' + first.name + ' rolled highest and opens. Na your turn, ' + first.name + '. Roll the dice.');
   updatePause(room);
 }
 
@@ -1925,7 +1941,11 @@ function handleConnection(ws) {
         if (conn >= 1 && r.players.length < MAX_PLAYERS) { target = r; break; }
       }
       if (!target) {
-        target = newRoom(makeCode(), true, 'online', sanitizeSettings(null, true));
+        // KP13 WS5: a fresh public room takes the mode the player picked
+        // on the landing (Inflation by default). Joining an existing
+        // room keeps that room's mode. sanitizeSettings refuses chaos in
+        // public rooms and forces the timed clock for Classic.
+        target = newRoom(makeCode(), true, 'online', sanitizeSettings({ gameMode: msg.gameMode }, true));
         rooms.set(target.code, target);
       }
       const quickClientId = cleanClientId(msg.clientId);
@@ -2060,7 +2080,36 @@ function handleConnection(ws) {
       broadcast(room);
       return;
     }
-    if (msg.type === 'leave') { ws.close(); return; }
+    // KP13 WS2: 'leave' is the confirmed leave intent (lobby Leave, end
+    // screen Leave). It resolves HERE, finally, before the socket
+    // closes: a lobby seat is freed at once (never parked as away), and
+    // in a running game it takes the resign path so the result is final
+    // before anyone's disconnect logic could see the closing socket.
+    if (msg.type === 'leave') {
+      const lr = ctx.room, lp = ctx.player;
+      if (lr && lp && !ctx.spectator) {
+        lp.leftConfirmed = true;
+        if (lr.mode === 'pass') {
+          rooms.delete(lr.code);
+        } else if (lr.status === 'lobby') {
+          const ix = lr.players.indexOf(lp);
+          if (ix >= 0) lr.players.splice(ix, 1);
+          if (!lr.players.some((p) => !p.bot)) {
+            for (const p of lr.players) { if (p.botBrain) p.botBrain.kill(); }
+            rooms.delete(lr.code);
+          } else {
+            if (lr.hostId === lp.id) lr.hostId = (lr.players.find((p) => !p.bot) || lr.players[0]).id;
+            setMessage(lr, lp.name + ' don leave the room.');
+            broadcast(lr);
+          }
+        } else if (lr.status === 'playing' && !lp.bankrupt) {
+          const blocked = lr.auction || (lr.buildPlace && lr.buildPlace.playerId !== lp.id) || (lr.debt && lr.debt.playerId !== lp.id);
+          if (!blocked) { doResign(lr, lp); broadcast(lr); }
+        }
+      }
+      ws.close();
+      return;
+    }
     if (ctx.spectator || !ctx.player) return fail('Spectators fit only watch.');
 
     const me = actorOf(msg);
@@ -2442,7 +2491,7 @@ function handleConnection(ws) {
       a.jailTurns = 0;
       room.phase = 'roll';
       setDeadline(room);
-      setMessage(room, a.name + ' don pay bail. Roll the dice.');
+      setBanner(room, 'roll_now', a, {}, a.name + ' don pay bail. Roll the dice.');
       broadcast(room);
       return;
     }
@@ -2457,7 +2506,7 @@ function handleConnection(ws) {
       a.jailTurns = 0;
       room.phase = 'roll';
       setDeadline(room);
-      setMessage(room, a.name + ' flash the senior officer card. Kirikiri don free am. Roll the dice.');
+      setBanner(room, 'roll_now', a, {}, a.name + ' flash the senior officer card. Kirikiri don free am. Roll the dice.');
       broadcast(room);
       return;
     }
@@ -2491,6 +2540,24 @@ function handleConnection(ws) {
     if (me.ws && me.ws !== ws) return; // a rejoined socket owns this seat now
     me.connected = false;
     me.ws = null;
+    // KP13 WS2: a seat resolved by a confirmed leave (resignation, or the
+    // lobby seat already freed in the leave handler) never enters the
+    // away/pause path and is never re-labelled a disconnect when the
+    // leaver's app closes afterwards. Housekeeping still runs: host
+    // crown, pause truth for any genuine drops, and the empty-room
+    // grace clock.
+    if (me.resigned || me.leftConfirmed) {
+      if (room.status !== 'lobby' && room.hostId === me.id) {
+        const next = room.players.find((p) => p.connected && !p.bot && !p.bankrupt)
+          || room.players.find((p) => p.connected && !p.bankrupt)
+          || room.players.find((p) => p.connected);
+        if (next) room.hostId = next.id;
+      }
+      updatePause(room);
+      if (!room.players.some((p) => p.connected && !p.bot)) room.emptyAt = now();
+      broadcast(room);
+      return;
+    }
     setMessage(room, me.name + ' disconnected.');
     // Lesson 1: in the lobby the host seat is held, not migrated: the room
     // is waiting for its host, and guests see the hostAway state.

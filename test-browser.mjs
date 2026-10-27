@@ -84,6 +84,10 @@ async function clickId(page, id) {
   throw new Error('clickId: #' + id + ' never appeared');
 }
 
+// KP13 WS5: Inflation is the landing default now. Scenarios written
+// against Classic pick it explicitly; the WS5 block proves the default.
+const pickClassic = (page) => page.click('#gameModeRow [data-gmode="classic"]');
+
 try {
   // ---------------------------------------------------------- scenario 1
   console.log('B1: create, join by invite code, countdown, start, buy with alert, salary credit alert, deed sheet, share card');
@@ -92,6 +96,7 @@ try {
   await A.screenshot({ path: SHOTS + 'kp-landing.png' });
   check('landing renders the join card', await A.evaluate(() => !!document.querySelector('#createBtn') && !!document.querySelector('#nameIn')));
   await typeName(A, 'Ada');
+  await pickClassic(A);
   await A.click('#createBtn');
   await waitState(A, (s) => s.status === 'lobby', 'A in lobby');
   const code = (await S(A)).code;
@@ -221,6 +226,7 @@ try {
   const C = await newPage('C');
   await C.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(C, 'Chidi');
+  await pickClassic(C);
   await C.click('#createBtn');
   await waitState(C, (s) => s.status === 'lobby', 'C lobby');
   const code2 = (await S(C)).code;
@@ -309,6 +315,7 @@ try {
   const G = await newPage('G');
   await G.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(G, 'Gbenga');
+  await pickClassic(G);
   await G.click('#createBtn');
   await waitState(G, (s) => s.status === 'lobby', 'G lobby');
   const code4 = (await S(G)).code;
@@ -369,6 +376,7 @@ try {
   const I = await newPage('I');
   await I.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(I, 'Ibrahim');
+  await pickClassic(I);
   await I.click('#createBtn');
   await waitState(I, (s) => s.status === 'lobby', 'I lobby');
   const code5 = (await S(I)).code;
@@ -460,6 +468,7 @@ try {
   const N = await newPage('N');
   await N.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(N, 'Ngozi');
+  await pickClassic(N);
   await clickId(N, 'createBtn');
   await waitState(N, (s) => s.status === 'lobby', 'N in lobby');
   const code7 = (await S(N)).code;
@@ -487,6 +496,8 @@ try {
   check('the opening banner speaks second person on the turn phone', openTurn.indexOf('Na your turn, ' + turnName7) >= 0, openTurn.slice(0, 70));
   const openOther = await op7.evaluate(() => document.querySelector('#msgText').textContent);
   check('the opening banner speaks third person on the other phone', openOther.indexOf('Na ' + turnName7 + ' turn') >= 0 && openOther.indexOf('Na your turn') === -1, openOther.slice(0, 70));
+  // KP13 WS4: the other phone must never be handed the imperative.
+  check('the other phone opener carries no imperative addressed at it', openOther.indexOf('Roll the dice') === -1 && openOther.indexOf('your turn') === -1, openOther.slice(0, 70));
   // Play the first turn through (buy Ajegunle, end) so the plain turn
   // banner takes over on the second turn.
   const tpIdOpen = (await S(tp7)).turnPlayerId;
@@ -512,6 +523,7 @@ try {
   check('the turn phone reads the second person banner', turnBanner.indexOf('Na your turn, ' + name2) === 0, turnBanner.slice(0, 60));
   const otherBanner = await op7b.evaluate(() => document.querySelector('#msgText').textContent);
   check('the other phone reads the third person banner', otherBanner.indexOf('Na ' + name2 + ' turn') === 0, otherBanner.slice(0, 60));
+  check('after the swap the other phone still gets no imperative', otherBanner.indexOf('Roll the dice') === -1 && otherBanner.indexOf('your turn') === -1, otherBanner.slice(0, 60));
   check('the mode pill names the game in the top bar', /Classic/.test(await N.evaluate(() => document.querySelector('#modePill').textContent)));
 
   // KP10: one view only, the full board. The owner deleted Follow ("if
@@ -565,6 +577,7 @@ try {
   const BP = await newPage('BP');
   await BP.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(BP, 'Bisi');
+  await pickClassic(BP);
   await BP.click('#createBtn');
   await waitState(BP, (s) => s.status === 'lobby', 'BP in lobby');
   await BP.waitForFunction(() => { const el = document.querySelector('#botPrompt'); return el && !el.classList.contains('hidden') && el.textContent.includes('Wanna play with bot?'); }, { timeout: 12000, polling: 200 }).catch(() => {});
@@ -613,6 +626,7 @@ try {
     let ov = await overflowOf(MP);
     check(tag + ' landing: scrollWidth never exceeds innerWidth', ov.sw <= ov.iw, JSON.stringify(ov));
     await typeName(MP, 'Mobi');
+    await pickClassic(MP);
     await MP.click('#createBtn');
     await waitState(MP, (s) => s.status === 'lobby', tag + ' in lobby');
     await sleep(800);
@@ -736,6 +750,115 @@ try {
     check(tag + ' game: the tile ring spans at least 99.5 percent of the box height (design target 100)', !!probe && probe.rimHPct >= 99.5, JSON.stringify(probe));
     await MP.close();
   }
+
+  console.log('B10: KP13 WS5: Inflation leads the landing with the MOST PLAYED badge and is the default; a default-created room is an Inflation room; a stored Classic pick still wins');
+  const L5 = await newPage('L5');
+  await L5.goto(BASE, { waitUntil: 'networkidle0' });
+  const land = await L5.evaluate(() => {
+    const picks = [...document.querySelectorAll('#gameModeRow .mode-pick')];
+    const inf = picks.find((p) => p.dataset.gmode === 'inflation');
+    const cla = picks.find((p) => p.dataset.gmode === 'classic');
+    const badge = inf ? inf.querySelector('.mode-badge') : null;
+    return {
+      first: picks.length ? picks[0].dataset.gmode : '',
+      badge: badge ? badge.textContent.trim() : '',
+      badgeVisible: badge ? badge.offsetParent !== null : false,
+      appeal: inf && inf.querySelector('.mode-appeal') ? inf.querySelector('.mode-appeal').textContent.trim() : '',
+      infSel: inf ? inf.classList.contains('sel') : false,
+      claSel: cla ? cla.classList.contains('sel') : true,
+      presetHidden: document.getElementById('presetRow').classList.contains('hidden')
+    };
+  });
+  check('the Inflation card is first on the landing', land.first === 'inflation', JSON.stringify(land));
+  check('the MOST PLAYED badge shows on the Inflation card', land.badge === 'MOST PLAYED' && land.badgeVisible, JSON.stringify(land));
+  check('the appeal line rides the Inflation card', land.appeal === 'Na this one everybody dey play.', land.appeal);
+  check('Inflation is the default selected mode and Classic is not', land.infSel && !land.claSel, JSON.stringify(land));
+  check('the preset row shows under the default Inflation pick', !land.presetHidden);
+  await L5.screenshot({ path: SHOTS + 'kp13-m390-landing2.png' });
+  await typeName(L5, 'Lima');
+  await L5.click('#createBtn');
+  await waitState(L5, (s) => s.status === 'lobby', 'L5 in lobby');
+  check('a room created from the untouched default is an Inflation room', (await S(L5)).settings.gameMode === 'inflation', (await S(L5)).settings.gameMode);
+  const slotStyles = await L5.evaluate(() => [...document.querySelectorAll('#slotBoard .slot')].map((el) => getComputedStyle(el).borderTopStyle));
+  check('WS3: lobby slot rows have no dashed border', slotStyles.length >= 1 && slotStyles.every((s) => s !== 'dashed'), JSON.stringify(slotStyles));
+  await L5.screenshot({ path: SHOTS + 'kp13-m390-lobby2.png' });
+  await clickId(L5, 'botAdd1');
+  await waitState(L5, (s) => s.players.length === 2, 'L5 bot seated');
+  await L5.click('#startBtn');
+  await waitState(L5, (s) => s.status === 'playing', 'L5 game playing', 15000);
+  await sleep(1200);
+  check('the default room plays as Inflation (phase strip present)', await L5.evaluate(() => { const b = document.getElementById('infBar'); const st = window.__kolopolyState(); return !!b && !b.classList.contains('hidden') && !!st && !!st.inf; }));
+  await L5.close();
+  const L6 = await newPage('L6');
+  await L6.goto(BASE, { waitUntil: 'networkidle0' });
+  await L6.evaluate(() => localStorage.setItem('kolopolyGameMode', 'classic'));
+  await L6.reload({ waitUntil: 'networkidle0' });
+  const stored = await L6.evaluate(() => ({
+    claSel: document.querySelector('#gameModeRow [data-gmode="classic"]').classList.contains('sel'),
+    infSel: document.querySelector('#gameModeRow [data-gmode="inflation"]').classList.contains('sel'),
+    presetHidden: document.getElementById('presetRow').classList.contains('hidden')
+  }));
+  check('a stored Classic pick still loads selected', stored.claSel && !stored.infSel && stored.presetHidden, JSON.stringify(stored));
+  await L6.close();
+
+  console.log('B11: KP13 sharpness: at DSF 2 the game canvas backs at least 1.9x its CSS width and the debug probe reports the KP13 floors');
+  const SH = await newPage('SH');
+  await SH.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+  await SH.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(SH, 'Shola');
+  await pickClassic(SH);
+  await SH.click('#createBtn');
+  await waitState(SH, (s) => s.status === 'lobby', 'SH in lobby');
+  await clickId(SH, 'botAdd1');
+  await waitState(SH, (s) => s.players.length === 2, 'SH bot seated');
+  await SH.click('#startBtn');
+  await waitState(SH, (s) => s.status === 'playing', 'SH game playing', 15000);
+  await sleep(2500);
+  const sharp = await SH.evaluate(() => {
+    const c = document.querySelector('#boardWrap canvas');
+    const d = window.KP3D && window.KP3D.debug ? window.KP3D.debug() : null;
+    return { cssW: c ? c.clientWidth : 0, backW: c ? c.width : 0, d };
+  });
+  check('the game canvas backs at least 1.9x its CSS width at DSF 2', sharp.cssW > 0 && sharp.backW >= 1.9 * sharp.cssW, 'css=' + sharp.cssW + ' backing=' + sharp.backW);
+  check('the renderer pixel ratio is at least 1.9 at DSF 2', !!sharp.d && sharp.d.pixelRatio >= 1.9, 'pr=' + (sharp.d && sharp.d.pixelRatio));
+  check('Auto is the tier in force', !!sharp.d && sharp.d.tier === 'auto' && sharp.d.tierAuto === true, JSON.stringify(sharp.d && { tier: sharp.d.tier, tierAuto: sharp.d.tierAuto }));
+  check('the street tile texture beats the old Mid size (156x252)', !!sharp.d && !!sharp.d.tileTex && sharp.d.tileTex.w >= 200 && sharp.d.tileTex.h >= 320, JSON.stringify(sharp.d && sharp.d.tileTex));
+  check('the centre texture beats the old Mid size (770x1189)', !!sharp.d && !!sharp.d.centreTex && sharp.d.centreTex.w >= 1200 && sharp.d.centreTex.h >= 1800, JSON.stringify(sharp.d && sharp.d.centreTex));
+  check('board textures run at full anisotropy', !!sharp.d && sharp.d.aniso.tile === Math.min(16, sharp.d.aniso.max) && sharp.d.aniso.centre === Math.min(16, sharp.d.aniso.max), JSON.stringify(sharp.d && sharp.d.aniso));
+  check('mipmaps are generated for the board textures', !!sharp.d && !!sharp.d.mipmaps && sharp.d.mipmaps.generate === true, JSON.stringify(sharp.d && sharp.d.mipmaps));
+  await SH.close();
+
+  console.log('B12: KP13 WS2 in the browser: a confirmed leave ends a 2P game at once, the leaver lands on the landing, the winner sees the final table, and the pause overlay never flashes');
+  const Y = await newPage('Y');
+  const Z = await newPage('Z');
+  await Y.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(Y, 'Yemi');
+  await pickClassic(Y);
+  await Y.click('#createBtn');
+  await waitState(Y, (s) => s.status === 'lobby', 'Y in lobby');
+  const code12 = (await S(Y)).code;
+  await Z.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(Z, 'Zainab');
+  await Z.type('#codeIn', code12);
+  await waitState(Z, (s) => s.status === 'lobby' && s.players.length === 2, 'Z joined');
+  await Y.click('#startBtn');
+  await waitState(Y, (s) => s.status === 'playing', 'B12 game playing', 15000);
+  await sleep(600);
+  const mb12 = await Y.evaluate(() => { const el = document.querySelector('.msgbar'); const cs = getComputedStyle(el); return { bw: cs.borderTopWidth, bf: cs.backdropFilter || '', h: Math.round(el.getBoundingClientRect().height) }; });
+  check('WS3: the message bar is borderless glass (no hard border, backdrop blur)', mb12.bw === '0px' && mb12.bf.includes('blur'), JSON.stringify(mb12));
+  check('WS3: the opening message bar stays one slim line (42px max)', mb12.h <= 42, JSON.stringify(mb12));
+  await Y.evaluate(() => { window.__pauseSeen = false; window.__pauseTimer = setInterval(() => { const el = document.querySelector('#pauseOverlay'); if (el && el.classList.contains('show')) window.__pauseSeen = true; }, 100); });
+  await clickId(Z, 'sbLeave');
+  await sleep(350);
+  await clickId(Z, 'sbLeave');
+  await waitState(Y, (s) => s.status === 'ended', 'the game ends on the confirmed leave', 15000);
+  check('the winner sees the final table after the confirmed leave', await Y.evaluate(() => { const el = document.querySelector('#endOverlay'); return !!el && el.classList.contains('show'); }));
+  check('the end reason is resignation', (await S(Y)).endReason === 'resignation', (await S(Y)).endReason);
+  const pauseSeen = await Y.evaluate(() => { clearInterval(window.__pauseTimer); return !!window.__pauseSeen; });
+  check('the pause overlay never appeared for the remaining player', !pauseSeen);
+  await Z.waitForFunction(() => { const v = document.querySelector('#view-landing'); return v && v.classList.contains('active'); }, { timeout: 12000, polling: 250 }).catch(() => {});
+  check('the leaver client exits to the landing at once', await Z.evaluate(() => document.querySelector('#view-landing').classList.contains('active')));
+  await Y.close(); await Z.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);
