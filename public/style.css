@@ -73,6 +73,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   background: var(--paper); border: 1px solid var(--line); border-radius: 999px;
   padding: 7px 12px; min-height: 36px; font-size: 13px; font-weight: 700;
 }
+
 .iconbtn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; border-radius: 12px;
@@ -389,10 +390,12 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .deck-pile.family { background: linear-gradient(160deg, #5b97d6, #3f7fbf); }
 .board-tools { position: absolute; right: 8px; bottom: 8px; z-index: 8; display: flex; gap: 7px; }
 .toolbtn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 40px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; min-height: 44px; min-width: 44px; border-radius: 999px;
   background: rgba(43, 32, 24, 0.88); color: var(--cream); border: none; font-weight: 700; font-size: 13px;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
 }
+/* The active view shows on the toggle itself (Lesson 12). */
+.toolbtn.active { background: var(--gold); color: var(--ink); box-shadow: 0 3px 8px rgba(232, 169, 12, 0.45); }
 
 /* Wallet and action bar */
 .walletbar {
@@ -423,6 +426,16 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .actionbar .btn { flex: 1; }
 .actionbar .btn.fixed { flex: none; }
 .turn-timer { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--red-deep); }
+/* Countdowns live in their own chips beside frozen primary labels
+   (Lesson 4), and the chip pulses with each beep in the last 10s (Lesson 7). */
+.clock-chip {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-height: 44px; min-width: 52px; padding: 6px 10px; border-radius: 999px;
+  background: var(--ink); color: var(--cream);
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-body);
+}
+.turn-timer.pulse, .clock-chip.pulse { animation: clockpulse 0.32s ease; }
+@keyframes clockpulse { 0% { transform: scale(1); } 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
 
 /* Smart auto-end countdown on the End turn button */
 #actionBar { flex-wrap: wrap; }
@@ -556,6 +569,15 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   background: rgba(30, 21, 13, 0.78); color: var(--cream); padding: 20px; text-align: center;
 }
 .overlay.show { display: flex; }
+/* Pause waiting card (Lesson 14): named, timed, and the controls beneath
+   it visibly disabled while it stands. */
+.pause-card {
+  background: var(--card); color: var(--ink); border-radius: 20px; padding: 22px;
+  max-width: 400px; width: 100%; text-align: left; box-shadow: var(--shadow);
+}
+.pause-card .caption { margin-top: 8px; }
+#view-game.is-paused .walletbar { opacity: 0.45; pointer-events: none; filter: saturate(0.6); }
+#view-game.is-paused .board-tools { opacity: 0.45; pointer-events: none; }
 .count-num { font-family: 'Aeonik Pro', sans-serif; font-size: 110px; color: var(--gold); animation: countpop 0.55s ease; }
 @keyframes countpop { from { transform: scale(1.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .end-table { width: 100%; max-width: 460px; border-collapse: collapse; margin: 14px 0; }
@@ -605,6 +627,13 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   font-size: 7px; font-weight: 900; letter-spacing: 0.4px; color: #fff;
   background: #7a4fa3; padding: 1px 4px; border-radius: 3px; pointer-events: none; z-index: 3;
 }
+#classicBar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: linear-gradient(90deg, #3d2d1e, var(--ink));
+  color: var(--cream); border-radius: 13px; padding: 8px 12px;
+}
+#classicBar .ph { font-family: 'Aeonik Pro', sans-serif; font-size: var(--fs-lead); }
+#classicBar .clk { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
 #infBar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   background: linear-gradient(90deg, #3a1428, #6e1f1f);
@@ -672,6 +701,14 @@ select.textin { appearance: none; }
 
 /* Landscape: the designed composition. Board left, rail right. */
 @media (orientation: landscape) and (min-width: 700px) {
+  /* Lesson 2: chrome slims in landscape so the stage grows: shorter top
+     bar, tighter message and phase bars. The layout math reads --topbar-h,
+     so shrinking it here grows the board area everywhere it matters. */
+  :root { --topbar-h: 47px; }
+  .topbar { padding-top: 5px; padding-bottom: 5px; }
+  .wordmark { font-size: 18px; }
+  .msgbar { padding: 6px 11px; min-height: 32px; }
+  #infBar, #classicBar { padding: 6px 10px; }
   #view-game.active {
     display: grid; grid-template-columns: minmax(0, 1fr) var(--rail-w);
     height: calc(100dvh - var(--topbar-h));
@@ -811,3 +848,15 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
 #bigMoment .bm-amt { font-family: 'Aeonik Pro', sans-serif; font-size: clamp(44px, 11vw, 84px); line-height: 1.05; margin: 8px 0 2px; text-shadow: 0 6px 0 rgba(0,0,0,0.25); }
 #bigMoment .bm-line { font-size: 17px; font-weight: 700; max-width: 520px; }
 @keyframes bigmoment-in { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: none; } }
+
+/* Phone widths: the top bar carries the wordmark, the room chip, the mode
+   pill (Lesson 10) and three icon buttons. Trimmed as one row they fit a
+   390px phone; left untrimmed the bar overflows the width, the page zooms
+   out to fit, and taps land off their targets. This block sits last so it
+   wins over the base .chip and .iconbtn rules. */
+@media (max-width: 520px) {
+  .topbar { gap: 4px; padding-left: 6px; padding-right: 6px; flex-wrap: nowrap; }
+  .wordmark { font-size: 16px; letter-spacing: 0; }
+  .chip { padding: 3px 6px; min-height: 30px; font-size: 11px; white-space: nowrap; }
+  .iconbtn { width: 30px; height: 30px; flex: none; }
+}

@@ -626,6 +626,156 @@ try {
     check('reclaimed player is connected again', back.state.players.find((p) => p.id === guestId).connected === true);
     host.ws.close(); back.ws.close();
   }
+
+  // ------------------------------------------------------ LESSONS ROUND ---
+  console.log('P1: parallel management: a non-turn player builds and mortgages; a foreign debt blocks them, the debtor raises and settles');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
+    const [pa, pb, pc] = g.S().players;
+    const aCli = g.byId(pa.id);
+    const bCli = g.byId(pb.id);
+    for (const sp of [11, 13, 14]) g.hook('test_give', { playerId: pb.id, space: sp }); // Bola: pink set
+    g.hook('test_give', { playerId: pb.id, space: 5 });   // Bola: Iddo
+    g.hook('test_give', { playerId: pb.id, space: 25 });  // Bola: Apapa Port
+    g.hook('test_give', { playerId: pc.id, space: 3 });   // Chidi: Ajegunle
+    let guard = 0;
+    while (g.S().turnPlayerId === pb.id && guard++ < 4) await nullTurn(g);
+    check('setup: Bola is not the turn player', g.S().turnPlayerId !== pb.id);
+    const bCash0 = g.player(pb.id).cash;
+    bCli.send('build', { space: 11, kind: 'duplex' });
+    await bCli.waitFor((s) => s.props[11].b === 1, 'non-turn build lands');
+    check('non-turn player built a duplex during another turn at the printed ₦100,000', g.player(pb.id).cash === bCash0 - 100000, 'cash=' + g.player(pb.id).cash);
+    bCli.send('mortgage', { space: 5 });
+    await bCli.waitFor((s) => s.props[5].m === 1, 'non-turn mortgage lands');
+    check('non-turn player mortgaged Iddo for ₦100,000', g.player(pb.id).cash === bCash0, 'cash=' + g.player(pb.id).cash);
+    // Debt collision: Ada (turn player) lands on Chidi's Ajegunle owing ₦4,000 with ₦3,000 cash.
+    guard = 0;
+    while (g.S().turnPlayerId !== pa.id && guard++ < 4) await nullTurn(g);
+    check('setup: the debtor to be holds the turn', g.S().turnPlayerId === pa.id);
+    g.hook('test_set_cash', { playerId: pa.id, amount: 3000 });
+    g.hook('test_give', { playerId: pa.id, space: 6 }); // Mushin: the debtor raise asset
+    await sleep(200);
+    g.hook('test_set_position', { playerId: pa.id, space: 0 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    aCli.send('roll', {});
+    await aCli.waitFor((s) => !!s.debt && s.debt.playerId === pa.id, 'rent debt opens for the turn player');
+    const bErr = bCli.errors.length;
+    bCli.send('mortgage', { space: 25 });
+    await sleep(400);
+    check('a non-debtor cannot manage while another player debt hangs', g.S().props[25].m === 0 && bCli.errors.length > bErr, 'err=' + bCli.errors.slice(-1));
+    const cCash0 = g.player(pc.id).cash;
+    aCli.send('mortgage', { space: 6 });
+    await aCli.waitFor((s) => !s.debt, 'debtor mortgage settles the debt');
+    check('the debtor mortgaged Mushin (+₦50,000) and the ₦4,000 rent settled to Chidi', g.player(pc.id).cash === cCash0 + 4000, 'c=' + g.player(pc.id).cash);
+    bCli.send('mortgage', { space: 25 });
+    await bCli.waitFor((s) => s.props[25].m === 1, 'management reopens after the debt settles');
+    check('parallel management reopens once the debt settles', g.S().props[25].m === 1);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('P2: the last duplex is contested: a parallel builder is refused, the turn player opens the auction, the flow resumes');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
+    const [pa, pb, pc] = g.S().players;
+    const aCli = g.byId(pa.id);
+    const bCli = g.byId(pb.id);
+    for (const sp of [11, 13, 14]) g.hook('test_give', { playerId: pb.id, space: sp }); // Bola pink
+    for (const sp of [16, 18, 19]) g.hook('test_give', { playerId: pc.id, space: sp }); // Chidi orange (a rival)
+    for (const sp of [1, 3]) g.hook('test_give', { playerId: pa.id, space: sp });       // Ada brown
+    g.hook('test_set_supply', { duplex: 1 });
+    await sleep(200);
+    let guard = 0;
+    while (g.S().turnPlayerId !== pa.id && guard++ < 4) await nullTurn(g);
+    const bErr = bCli.errors.length;
+    bCli.send('build', { space: 11, kind: 'duplex' });
+    await sleep(400);
+    check('parallel builder refused the contested last duplex with the reason stated', bCli.errors.length > bErr && /last duplex/.test(bCli.errors[bCli.errors.length - 1]) && !g.S().auction, 'err=' + bCli.errors.slice(-1));
+    aCli.send('build', { space: 1, kind: 'duplex' });
+    await aCli.waitFor((s) => !!s.auction && s.auction.kind === 'duplex', 'turn player build opens the last duplex auction');
+    check('turn player build on the last duplex opened the contest auction', !!g.S().auction);
+    await passAuction(g);
+    check('a no bid building auction hands the turn back at the roll phase', g.S().phase === 'roll' && g.S().turnPlayerId === pa.id, 'phase=' + g.S().phase);
+    aCli.send('build', { space: 1, kind: 'duplex' });
+    await aCli.waitFor((s) => !!s.auction, 'contest reopens');
+    aCli.send('bid', { amount: 5000 });
+    await aCli.waitFor((s) => s.auction && s.auction.highBid === 5000, 'bid registered');
+    for (const c of g.clients) if (c !== aCli) c.send('pass_bid', {});
+    await g.host.waitFor((s) => !!s.buildPlace && s.buildPlace.playerId === pa.id, 'winner placement pending');
+    aCli.send('build_place', { space: 1 });
+    await aCli.waitFor((s) => s.props[1].b === 1, 'duplex placed');
+    check('the auction winner placed the last duplex and the turn resumed at roll', g.S().props[1].b === 1 && g.S().phase === 'roll', 'phase=' + g.S().phase);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('R2: resign in a two player game is a concession: the other player wins by resignation');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const [pa, pb] = g.S().players;
+    const loser = g.S().turnPlayerId === pa.id ? pb : pa;
+    const winner = loser.id === pa.id ? pb : pa;
+    g.byId(loser.id).send('resign', {});
+    await g.host.waitFor((s) => s.status === 'ended', 'concession ends the game');
+    check('the game ended on the resignation', g.S().status === 'ended');
+    check('the other player won', g.S().winner && g.S().winner.playerId === winner.id);
+    check('the end reason records the resignation', g.S().endReason === 'resignation', 'endReason=' + g.S().endReason);
+    check('the final table flags the resigner', g.S().endTable.find((r) => r.playerId === loser.id).resigned === true);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('R3: resign in a four player game liquidates to the bank and the game continues');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi', 'Dara']);
+    const quitter = g.S().players[1];
+    g.hook('test_give', { playerId: quitter.id, space: 5 });
+    g.hook('test_give', { playerId: quitter.id, space: 13 });
+    await sleep(200);
+    g.byId(quitter.id).send('resign', {});
+    await g.host.waitFor((s) => s.players.find((p) => p.id === quitter.id).bankrupt === true, 'resignation settles');
+    check('the resigner is out, flagged resigned not just bankrupt', g.player(quitter.id).bankrupt === true && g.player(quitter.id).resigned === true);
+    check('their deeds returned to the bank unowned', g.S().props[5].o === null && g.S().props[13].o === null);
+    check('the game continues with three solvent players', g.S().status === 'playing' && g.S().players.filter((p) => !p.bankrupt).length === 3);
+    check('the turn does not sit on the resigned seat', g.S().turnPlayerId !== quitter.id);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('L1: lobby grace: the room survives the host tab closing, guests see hostAway, the host reclaims as host');
+  {
+    const host = new Client('GraceHost');
+    await host.connect();
+    host.send('create_room', { name: 'GraceHost', token: 'danfo', mode: 'online', settings: { timed: false, turnTimerSec: 0 }, clientId: 'grace-host-1' });
+    await host.waitFor((s) => s.status === 'lobby', 'grace host lobby');
+    const code = host.state.code;
+    const hostId = host.playerId;
+    const guest = new Client('GraceGuest');
+    await guest.connect();
+    guest.send('join_room', { code, name: 'GraceGuest', token: 'keke', clientId: 'grace-guest-1' });
+    await guest.waitFor((s) => s.players.length === 2, 'grace guest joined');
+    host.ws.close();
+    await guest.waitFor((s) => s.hostAway === true, 'guest sees the host away state', 6000);
+    check('the guest in the lobby sees hostAway while the host tab is closed', guest.state.hostAway === true);
+    check('the lobby kept both seats during grace', guest.state.players.length === 2);
+    const apiRes = await fetch('http://127.0.0.1:' + PORT + '/api/room/' + code + '?clientId=grace-guest-1');
+    const api = await apiRes.json();
+    check('/api/room treats the grace lobby as alive and names the guest seat', api.exists === true && !!api.yourSeat && api.yourSeat.name === 'GraceGuest', JSON.stringify(api));
+    const back = new Client('GraceHostBack');
+    await back.connect();
+    back.send('join_room', { code, name: 'GraceHost', token: 'danfo', clientId: 'grace-host-1' });
+    await back.waitFor((s) => s.status === 'lobby' && s.players.length === 2, 'host reclaimed the lobby');
+    check('the returning host reclaims the same seat and the host crown', back.playerId === hostId && back.state.hostId === hostId);
+    check('hostAway clears when the host returns', back.state.hostAway === false);
+    guest.ws.close(); back.ws.close();
+  }
+
+  console.log('A1: server auto actions confess in the feed with the (auto) tag and a reason');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 60 }, ['Ada', 'Bola']);
+    g.hook('test_deadline_in', { seconds: 1 });
+    await g.host.waitFor((s) => s.feed.some((e) => e.auto === true), 'an auto action lands in the feed', 9000);
+    const e = g.S().feed.find((x) => x.auto === true);
+    check('the timeout action carries the timeout kind', e.kind === 'timeout', 'kind=' + e.kind);
+    check('the auto entry names its reason', e.reason === 'turn timer', 'reason=' + e.reason);
+    for (const c of g.clients) c.ws.close();
+  }
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

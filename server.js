@@ -17,6 +17,10 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff' };
 const AUCTION_MS = TEST ? 4000 : 20000;
 const MAX_PLAYERS = 6;
+// Lesson 1: a room with nobody connected is not deleted on the spot. It
+// survives a grace window (the host closed a tab, a train entered a tunnel)
+// and only dies when the window passes with nobody back.
+const ROOM_GRACE_MS = TEST ? 3000 : 600000;
 
 const rooms = new Map();
 let nextPlayerId = 1;
@@ -187,7 +191,13 @@ function raiseCap(room, player) {
   return cap;
 }
 function contractWindowOpen(room, player) {
+  // Lesson 5 (players in parallel): the deal window is no longer tied to
+  // whose turn it is. Deals may be proposed at any time the table is not
+  // mid-resolution: no auction running, no other player's debt hanging, no
+  // pause, and no mortgaged deed choice waiting on the proposer. The server
+  // revalidates the terms against live state when the other side accepts.
   if (!isInf(room) || room.status !== 'playing' || player.bankrupt) return false;
+  if (room.mode !== 'pass' && room.paused) return false;
   if (room.auction) return false; // G8: no deals while a payment is unresolved
   if (room.debt) {
     // Rescue exception (spec 4.5): the winning bidder inside their Rescue
@@ -195,8 +205,7 @@ function contractWindowOpen(room, player) {
     return !!(room.debt.rescue && room.debt.playerId === player.id);
   }
   if ((room.pendingChoices[player.id] || []).length) return false;
-  if (room.dealBreak) return true;
-  return room.turnPlayerId === player.id && (room.phase === 'roll' || room.phase === 'jail');
+  return true;
 }
 // Sapa Meter (Extension 3): worst rent the player could owe on their next roll.
 function sapaFor(room, player) {
@@ -243,7 +252,10 @@ function sanitizeSettings(raw, isPublic) {
     firstLapNoBuy: !!s.firstLapNoBuy,
     chaos: isPublic ? false : !!s.chaos, // chaos is refused in quick play
     timed: gameMode === 'inflation' ? false : (isPublic ? true : (s.timed === undefined ? true : !!s.timed)),
-    turnTimerSec: turn
+    turnTimerSec: turn,
+    // Lesson 9: spoken payment announcements, host toggle, default on.
+    // Every player can still mute or switch voice off on their own phone.
+    voiceAlerts: s.voiceAlerts === undefined ? true : !!s.voiceAlerts
   };
 }
 function newPlayer(name, token, colorIdx) {
@@ -258,7 +270,8 @@ function newPlayer(name, token, colorIdx) {
     rentsReceived: 0, rentsPaid: 0, finesPaid: [], shield: false,
     chaosRole: null, firstRentForgiven: false, local: false,
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
-    peakCash: D.START_CASH, purchases: [], salaryNote2: false
+    peakCash: D.START_CASH, purchases: [], salaryNote2: false,
+    resigned: false
   };
 }
 // A persistent per-device id (localStorage UUID on the client). It lets a
@@ -277,8 +290,13 @@ function bindSeat(ctx, ws, room, player, send) {
   player.ws = ws;
   player.connected = true;
   ctx.room = room; ctx.player = player; ctx.spectator = false;
+  room.emptyAt = null;
+  // Lesson 1: while the room is still a lobby, the host seat is held in
+  // grace. A guest reconnecting must not inherit the host crown; the host
+  // reclaims the lobby as host when they return. Mid game, host migration
+  // to a connected player still applies.
   const hostP = room.players.find((p) => p.id === room.hostId);
-  if (!hostP || !hostP.connected) room.hostId = player.id;
+  if (room.status !== 'lobby' && (!hostP || !hostP.connected)) room.hostId = player.id;
   updatePause(room);
   send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken, rejoined: true });
   broadcast(room);
@@ -306,7 +324,8 @@ function newRoom(code, isPublic, mode, settings) {
     bankInterest: 0, interestLine: null, dealOfGame: null, lastBuilderRoll: null,
     diceQueue: [], forcedCards: { wahala: null, family: null },
     feed: [], feedSeq: 0, message: '', messageSeq: 0,
-    winner: null, endTable: null, startedAt: null
+    winner: null, endTable: null, startedAt: null,
+    endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null
   };
 }
 function connectedSolvent(room) {
@@ -321,9 +340,14 @@ function publicRoom(room) {
     const p = room.props[i];
     propsArr.push(p ? { o: p.owner, m: p.mortgaged ? 1 : 0, b: p.buildings, pl: p.pledged ? 1 : 0 } : null);
   }
+  const hostP = room.players.find((p) => p.id === room.hostId);
   return {
     code: room.code, isPublic: room.isPublic, mode: room.mode,
     status: room.status, paused: room.paused, hostId: room.hostId,
+    hostAway: room.status === 'lobby' && !!hostP && !hostP.connected,
+    pausedSince: room.pauseSince || null,
+    pauseClockMs: room.pauseClockMs != null ? room.pauseClockMs : null,
+    endReason: room.endReason || null,
     settings: room.settings,
     turnPlayerId: room.turnPlayerId, phase: room.phase,
     dice: room.dice, doublesCount: room.phase ? (curPlayer(room) ? curPlayer(room).doublesCount : 0) : 0,
@@ -370,7 +394,7 @@ function publicRoom(room) {
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
       isHost: p.id === room.hostId, cash: p.cash, position: p.position,
-      inJail: p.inJail, bankrupt: p.bankrupt, goojf: p.goojf.length,
+      inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
       sapa: room.inf ? sapaFor(room, p) : null,
       pendingChoice: (room.pendingChoices[p.id] || [])[0] !== undefined ? room.pendingChoices[p.id][0] : null,
@@ -513,7 +537,8 @@ function checkAutoBankrupt(room) {
   if (!d) return;
   const player = room.players.find((p) => p.id === d.playerId);
   if (player && !player.bankrupt && maxRaise(room, player) < d.amount) {
-    declareBankruptcy(room, player);
+    // Lesson 13: this bankruptcy is a server auto action; the feed says so.
+    declareBankruptcy(room, player, { auto: true });
   }
 }
 
@@ -868,8 +893,21 @@ function endTurn(room) {
   updatePause(room);
 }
 function updatePause(room) {
-  if (room.mode === 'pass') { room.paused = false; return; }
+  if (room.mode === 'pass') { room.paused = false; room.pauseSince = null; room.pauseClockMs = null; return; }
+  const was = room.paused;
   room.paused = room.status === 'playing' && connectedSolvent(room).length < 2;
+  if (room.paused && !was) {
+    // Lesson 14: the pause speaks. Record when it started and the frozen
+    // turn clock value so the waiting card can show both honestly.
+    room.pauseSince = now();
+    room.pauseClockMs = room.turnDeadline ? Math.max(0, room.turnDeadline - now()) : null;
+  } else if (!room.paused && was) {
+    // The turn clock was frozen for the whole pause: shift the deadline by
+    // the paused stretch so nobody returns to an already fired timeout.
+    if (room.turnDeadline && room.pauseSince) room.turnDeadline += now() - room.pauseSince;
+    room.pauseSince = null;
+    room.pauseClockMs = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -888,6 +926,10 @@ function startAuction(room, a) {
   setMessage(room, 'Auction don start for ' + label + '. Highest bidder carry am. No story.');
   pushFeed(room, 'auction', 'Auction open: ' + label + '.', {});
 }
+// A contested building auction that resolves with resume 'stay' must hand
+// the turn back to the phase the builder was in when they built: startAuction
+// clobbers room.phase, so the phase travels with the auction (resumePhase).
+function stayPhaseOf(a) { return ['roll', 'jail', 'end', 'tax'].includes(a && a.resumePhase) ? a.resumePhase : 'roll'; }
 function finishAuction(room) {
   const a = room.auction;
   if (!a) return;
@@ -909,7 +951,7 @@ function finishAuction(room) {
     if (winner && a.highBid > 0) {
       const label = a.kind === 'duplex' ? 'duplex' : 'mansion';
       if (a.kind === 'duplex') room.duplexSupply -= 1; else room.mansionSupply -= 1;
-      room.buildPlace = { playerId: winner.id, kind: a.kind, resume: a.resume || 'endPhase' };
+      room.buildPlace = { playerId: winner.id, kind: a.kind, resume: a.resume || 'endPhase', resumePhase: a.resumePhase || null };
       room.phase = 'buildPlace';
       room.turnDeadline = room.settings.turnTimerSec ? now() + room.settings.turnTimerSec * 1000 : null;
       setMessage(room, winner.name + ' won the last ' + label + ' for ' + D.fmtN(a.highBid) + '. Choose where e go land.');
@@ -917,7 +959,8 @@ function finishAuction(room) {
       if (room.debt) { /* debt flow takes over; placement waits in buildPlace */ }
     } else {
       setMessage(room, 'Nobody bid for the last building. E return to bank shelf.');
-      afterCharge(room, a.resume || 'endPhase', curPlayer(room));
+      if ((a.resume || 'endPhase') === 'stay') { room.phase = stayPhaseOf(a); setDeadline(room); }
+      else afterCharge(room, a.resume || 'endPhase', curPlayer(room));
     }
   }
   broadcast(room);
@@ -933,6 +976,7 @@ function titlesFor(room, player, winner) {
     if (player.minCash <= lowest) return 'Lapo wey don blow';
     return 'Real Landlord of Lagos';
   }
+  if (player.resigned) return 'Landlord wey resign';
   if (player.bankrupt) return 'Lapo (funds don finish)';
   if (player.kirikiriTrips >= 2) return 'Kirikiri Regular';
   const mostDeeds = Math.max(...room.players.map((p) => D.OWNABLE.filter((i) => room.props[i].owner === p.id).length));
@@ -944,7 +988,7 @@ function endGame(room, winner, why) {
   room.winner = { playerId: winner.id, name: winner.name };
   room.endTable = room.players.map((p) => ({
     playerId: p.id, name: p.name, token: p.token, color: p.color,
-    netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt,
+    netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt, resigned: !!p.resigned,
     title: titlesFor(room, p, winner)
   })).sort((a, b) => b.netWorth - a.netWorth);
   room.phase = 'end';
@@ -977,7 +1021,8 @@ function checkWinBySolvency(room) {
   }
   return false;
 }
-function declareBankruptcy(room, player) {
+function declareBankruptcy(room, player, opts) {
+  opts = opts || {};
   if (player.bankrupt) return;
   const debt = room.debt && room.debt.playerId === player.id ? room.debt : null;
   const creditor = debt && debt.to != null ? room.players.find((p) => p.id === debt.to) : null;
@@ -1041,11 +1086,46 @@ function declareBankruptcy(room, player) {
   player.bankrupt = true;
   player.inJail = false;
   if (!room.firstBankruptId) room.firstBankruptId = player.id;
-  pushFeed(room, 'bankrupt', player.name + ' don bankrupt.' + (myDeeds.length > 0 ? ' No be say you no get property. Na cash finish you.' : ''), { playerId: player.id });
+  if (opts.resign) {
+    pushFeed(room, 'bankrupt', player.name + ' don resign. Everything return to the bank.', { playerId: player.id });
+  } else if (opts.auto) {
+    // Lesson 13: forced by the server because nothing was left to raise.
+    pushFeed(room, 'bankrupt', player.name + ' don bankrupt: nothing remain to raise for the debt.', { playerId: player.id, auto: true, reason: 'nothing left to raise' });
+  } else {
+    pushFeed(room, 'bankrupt', player.name + ' don bankrupt.' + (myDeeds.length > 0 ? ' No be say you no get property. Na cash finish you.' : ''), { playerId: player.id });
+  }
   if (checkWinBySolvency(room)) { broadcast(room); return; }
   if (room.turnPlayerId === player.id) endTurn(room);
   else { room.phase = room.phase === 'debt' ? 'end' : room.phase; setDeadline(room); }
   updatePause(room);
+}
+// Lesson 11: leaving a running game is a resignation, never a ghost seat.
+// Two solvent players left: the resignation is a concession and the other
+// player wins at once. Three or more: the bank liquidation path runs
+// (buildings cleared at half value into the handover, cash to the bank,
+// deeds return unowned to the bank auction queue) and the game continues.
+function doResign(room, player) {
+  player.resigned = true;
+  if (room.trade && (room.trade.from === player.id || room.trade.to === player.id)) {
+    room.trade = null;
+    pushFeed(room, 'info', player.name + ' don resign: the open trade don cancel.', { playerId: player.id });
+  }
+  if (room.contractProposal && (room.contractProposal.from === player.id || room.contractProposal.to === player.id)) {
+    room.contractProposal = null;
+    pushFeed(room, 'info', player.name + ' don resign: the open contract proposal don cancel.', { playerId: player.id });
+  }
+  const others = solventPlayers(room).filter((p) => p.id !== player.id);
+  if (others.length <= 1) {
+    const winner = others[0] || null;
+    player.bankrupt = true;
+    player.inJail = false;
+    pushFeed(room, 'info', player.name + ' don resign.', { playerId: player.id });
+    room.endReason = 'resignation';
+    if (winner) endGame(room, winner, player.name + ' don resign. ' + winner.name + ' win by resignation.');
+    updatePause(room);
+    return;
+  }
+  declareBankruptcy(room, player, { resign: true });
 }
 function queueChoice(room, player, spaceIdx) {
   if (!room.pendingChoices[player.id]) room.pendingChoices[player.id] = [];
@@ -1070,7 +1150,7 @@ function startGame(room) {
     p.bankrupt = false; p.goojf = []; p.doublesCount = 0; p.lap = 0;
     p.minCash = D.START_CASH; p.everMortgaged = false; p.kirikiriTrips = 0;
     p.lastRentReceived = 0; p.rentsReceived = 0; p.rentsPaid = 0; p.finesPaid = [];
-    p.shield = false; p.chaosRole = null; p.firstRentForgiven = false;
+    p.shield = false; p.chaosRole = null; p.firstRentForgiven = false; p.resigned = false;
     p.lastStartPassAt = 0; p.dealBreakLap = -1; p.sapaWindowUsed = false;
     p.peakCash = D.START_CASH; p.purchases = []; p.salaryNote2 = false;
   }
@@ -1145,7 +1225,7 @@ function openNextLoanDecision(room) {
     }
   }
 }
-function seizeLoan(room, contract, reason) {
+function seizeLoan(room, contract, reason, auto) {
   const lender = room.players.find((p) => p.id === contract.lender);
   const borrower = room.players.find((p) => p.id === contract.borrower);
   const i = contract.pledgedSpace;
@@ -1153,11 +1233,11 @@ function seizeLoan(room, contract, reason) {
   contract.decisionOpen = false;
   if (room.props[i]) { room.props[i].pledged = null; room.props[i].owner = contract.lender; }
   settlePassesAfterTransfer(room, i, contract.lender, false);
-  pushFeed(room, 'contract', 'Loan seized: ' + (lender ? lender.name : 'The lender') + ' don collect ' + D.SPACES[i].name + ' from ' + (borrower ? borrower.name : 'the borrower') + '. The debt don finish, non recourse. ' + (reason || ''), { playerId: contract.lender, space: i });
+  pushFeed(room, 'contract', 'Loan seized: ' + (lender ? lender.name : 'The lender') + ' don collect ' + D.SPACES[i].name + ' from ' + (borrower ? borrower.name : 'the borrower') + '. The debt don finish, non recourse. ' + (reason || ''), { playerId: contract.lender, space: i, auto: !!auto, reason: auto ? 'loan decision timeout' : undefined });
   setMessage(room, 'Loan default: ' + D.SPACES[i].name + ' don move to the lender. Debt cancelled in full.');
   if (room.loanDecision && room.loanDecision.contractId === contract.id) openNextLoanDecision(room);
 }
-function resolveLoanDefault(room, contractId, choice) {
+function resolveLoanDefault(room, contractId, choice, auto) {
   const c = room.contracts.find((x) => x.id === contractId);
   if (!c || c.status !== 'active') { if (room.loanDecision && room.loanDecision.contractId === contractId) openNextLoanDecision(room); return; }
   if (choice === 'extend' && !c.extended) {
@@ -1167,12 +1247,12 @@ function resolveLoanDefault(room, contractId, choice) {
     c.lapsElapsed = 0;
     c.termLaps = 1;
     c.phaseCreated = infPhase(room);
-    pushFeed(room, 'contract', 'Loan extended: one more lap for extra ' + D.fmtN(c.dueExtra) + ' interest. Total interest no fit pass 40 percent.', { playerId: c.lender });
+    pushFeed(room, 'contract', 'Loan extended: one more lap for extra ' + D.fmtN(c.dueExtra) + ' interest. Total interest no fit pass 40 percent.', { playerId: c.lender, auto: !!auto, reason: auto ? 'loan decision timeout' : undefined });
     setMessage(room, 'The lender don extend the loan by one lap.');
     if (room.loanDecision && room.loanDecision.contractId === c.id) openNextLoanDecision(room);
     return;
   }
-  seizeLoan(room, c, choice === 'extend' ? 'Extension don already use.' : '');
+  seizeLoan(room, c, choice === 'extend' ? 'Extension don already use.' : '', auto);
 }
 function advancePhase(room) {
   const inf = room.inf;
@@ -1220,19 +1300,21 @@ function infTick(room) {
     changed = true;
   }
   if (room.contractProposal && t >= room.contractProposal.endsAt) {
-    pushFeed(room, 'contract', 'One contract proposal don expire without answer. E don decline by time.', {});
+    pushFeed(room, 'contract', 'One contract proposal don expire without answer. E don decline by time.', { auto: true, reason: 'proposal timeout' });
     room.contractProposal = null;
     changed = true;
   }
   if (room.trade && room.trade.expiresAt && t >= room.trade.expiresAt) {
     room.trade = null;
+    pushFeed(room, 'timeout', 'Trade proposal don expire by time. For Inflation Mode, deals get 30 seconds.', { auto: true, reason: 'trade timeout' });
     setMessage(room, 'Trade proposal don expire. For Inflation Mode, deals get 30 seconds.');
     changed = true;
   }
   if (room.loanDecision && t >= room.loanDecision.endsAt) {
     const c = room.contracts.find((x) => x.id === room.loanDecision.contractId);
     // Auto rule (spec 4.4): extend once if never extended, otherwise seize. The server never leaves a loan in limbo.
-    resolveLoanDefault(room, room.loanDecision.contractId, c && !c.extended ? 'extend' : 'seize');
+    pushFeed(room, 'timeout', 'Loan decision time don finish: the server apply the auto rule (extend once, after that seize).', { playerId: c ? c.lender : null, auto: true, reason: 'loan decision timeout' });
+    resolveLoanDefault(room, room.loanDecision.contractId, c && !c.extended ? 'extend' : 'seize', true);
     changed = true;
   }
   // Rescue Window timeout: the bid voids, fee to the pot, one barred re auction (spec 4.5).
@@ -1242,7 +1324,7 @@ function infTick(room) {
     const space = d.opts ? d.opts.auctionSpace : null;
     room.debt = null;
     if (debtor && debtor.cash >= 50000) payNow(room, debtor, 50000, null, 'Failed bid fee', { toPot: true, stat: 'fine' });
-    pushFeed(room, 'info', 'Rescue Window don close. The winning bid don void' + (debtor && debtor.cash >= 50000 ? ' and failed bid fee ' + D.fmtN(50000) + ' don enter the Owambe pot' : '') + '.', { playerId: d.playerId });
+    pushFeed(room, 'info', 'Rescue Window don close. The winning bid don void' + (debtor && debtor.cash >= 50000 ? ' and failed bid fee ' + D.fmtN(50000) + ' don enter the Owambe pot' : '') + '.', { playerId: d.playerId, auto: true, reason: 'rescue window timeout' });
     if (space != null && room.props[space]) {
       room.props[space].owner = null;
       if (!d.opts.wasReAuction && room.status === 'playing') {
@@ -1369,8 +1451,12 @@ function doBuild(room, player, i, kind, fail) {
     if (room.duplexSupply === 1) {
       const rivals = solventPlayers(room).filter((p) => p.id !== player.id && eligibleForBuild(room, p.id, 'duplex'));
       if (rivals.length) {
+        // Lesson 5 collision: a contested last building opens an auction,
+        // and auctions stay serial to the turn. A parallel builder is told
+        // plainly instead of hijacking the turn flow mid landing.
+        if (room.turnPlayerId !== player.id) { fail('Na the last duplex be this and other landlords fit contest am. Only the turn player fit open the auction for am.'); return false; }
         if (player.cash < cost0) { fail('You no get the cash for this duplex.'); return false; }
-        startAuction(room, { kind: 'duplex', space: i, resume: room.phase === 'buy' ? room.afterLanding || 'endPhase' : 'stay' });
+        startAuction(room, { kind: 'duplex', space: i, resume: room.phase === 'buy' ? room.afterLanding || 'endPhase' : 'stay', resumePhase: room.phase });
         broadcast(room);
         return true;
       }
@@ -1380,8 +1466,9 @@ function doBuild(room, player, i, kind, fail) {
     if (room.mansionSupply === 1) {
       const rivals = solventPlayers(room).filter((p) => p.id !== player.id && eligibleForBuild(room, p.id, 'mansion'));
       if (rivals.length) {
+        if (room.turnPlayerId !== player.id) { fail('Na the last mansion be this and other landlords fit contest am. Only the turn player fit open the auction for am.'); return false; }
         if (player.cash < cost0) { fail('You no get the cash for this mansion.'); return false; }
-        startAuction(room, { kind: 'mansion', space: i, resume: room.phase === 'buy' ? room.afterLanding || 'endPhase' : 'stay' });
+        startAuction(room, { kind: 'mansion', space: i, resume: room.phase === 'buy' ? room.afterLanding || 'endPhase' : 'stay', resumePhase: room.phase });
         broadcast(room);
         return true;
       }
@@ -1471,16 +1558,33 @@ function doUnmortgage(room, player, i, fail) {
   return true;
 }
 function manageAllowed(room, player) {
+  // Lesson 5 (players in parallel): management is not turn locked. Any
+  // solvent player may build, sell, mortgage or unmortgage at any time,
+  // validated against live state at execution. The blocks that remain are
+  // the collision guards: an auction is resolving, a building placement is
+  // pending, the game is paused waiting for a player, or another player's
+  // debt is hanging (the debtor manages freely: raising money is the point).
   if (room.status !== 'playing' || player.bankrupt) return false;
-  if (room.debt && room.debt.playerId === player.id) return true;
+  if (room.mode !== 'pass' && room.paused) return false;
   if (room.auction) return false;
-  return room.turnPlayerId === player.id && ['roll', 'jail', 'buy', 'end', 'tax'].includes(room.phase);
+  if (room.buildPlace) return false;
+  if (room.debt) return room.debt.playerId === player.id;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
 // Timers: auction clock, turn decision timer, game clock, bank auctions.
 // ---------------------------------------------------------------------------
 setInterval(() => {
+  // Room hygiene (Lesson 1): a room with no connected player survives the
+  // grace window, then dies. Any connection clears the clock (bindSeat and
+  // the entry paths also clear it directly).
+  for (const room of [...rooms.values()]) {
+    if (room.mode === 'pass') continue;
+    if (room.players.some((p) => p.connected)) { room.emptyAt = null; continue; }
+    if (room.emptyAt == null) room.emptyAt = now();
+    if (now() - room.emptyAt >= ROOM_GRACE_MS) rooms.delete(room.code);
+  }
   for (const room of rooms.values()) {
     if (room.status !== 'playing' || room.paused) continue;
     let changed = false;
@@ -1503,14 +1607,17 @@ setInterval(() => {
     if (!changed && room.turnDeadline && now() >= room.turnDeadline && !room.auction && !room.debt) {
       const player = curPlayer(room);
       if (player && !player.bankrupt) {
+        // Lesson 13: every one of these is a server auto action, and the
+        // feed confesses it with the (auto) tag and its reason.
+        const autoTag = { auto: true, reason: 'turn timer' };
         if ((room.pendingChoices[player.id] || []).length) {
-          if (resolveMortgageChoice(room, player, 'interest')) changed = true;
+          if (resolveMortgageChoice(room, player, 'interest')) { pushFeed(room, 'timeout', player.name + ' time don finish: the server pay the mortgage interest by itself.', Object.assign({ playerId: player.id }, autoTag)); changed = true; }
           else room.turnDeadline = now() + 30000;
-        } else if (room.phase === 'roll') { pushFeed(room, 'timeout', player.name + ' time don finish: the dice roll by itself.', { playerId: player.id }); doRoll(room, player); changed = true; }
-        else if (room.phase === 'jail') { pushFeed(room, 'timeout', player.name + ' time don finish: the Kirikiri dice roll by itself.', { playerId: player.id }); jailRoll(room, player); changed = true; }
-        else if (room.phase === 'buy') { pushFeed(room, 'timeout', player.name + ' time don finish with no answer: the deed go auction.', { playerId: player.id }); declineBuy(room, player); changed = true; }
-        else if (room.phase === 'tax') { pushFeed(room, 'timeout', player.name + ' time don finish: FIRS collect the smaller charge.', { playerId: player.id }); taxChoose(room, player, null); changed = true; }
-        else if (room.phase === 'end') { pushFeed(room, 'timeout', player.name + ' time don finish: turn don pass.', { playerId: player.id }); endTurn(room); changed = true; }
+        } else if (room.phase === 'roll') { pushFeed(room, 'timeout', player.name + ' time don finish: the dice roll by itself.', Object.assign({ playerId: player.id }, autoTag)); doRoll(room, player); changed = true; }
+        else if (room.phase === 'jail') { pushFeed(room, 'timeout', player.name + ' time don finish: the Kirikiri dice roll by itself.', Object.assign({ playerId: player.id }, autoTag)); jailRoll(room, player); changed = true; }
+        else if (room.phase === 'buy') { pushFeed(room, 'timeout', player.name + ' time don finish with no answer: the deed go auction.', Object.assign({ playerId: player.id }, autoTag)); declineBuy(room, player); changed = true; }
+        else if (room.phase === 'tax') { pushFeed(room, 'timeout', player.name + ' time don finish: FIRS collect the smaller charge.', Object.assign({ playerId: player.id }, autoTag)); taxChoose(room, player, null); changed = true; }
+        else if (room.phase === 'end') { pushFeed(room, 'timeout', player.name + ' time don finish: turn don pass.', Object.assign({ playerId: player.id }, autoTag)); endTurn(room); changed = true; }
         else if (room.phase === 'buildPlace') { room.turnDeadline = now() + 30000; }
       }
     } else if (!changed && room.debt && room.turnDeadline && now() >= room.turnDeadline) {
@@ -1604,10 +1711,22 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
     if (!room || room.mode === 'pass') { res.end(JSON.stringify({ exists: false })); return; }
     const host = room.players.find((p) => p.id === room.hostId);
+    // Lesson 3: a device that already holds a seat in this room is told so,
+    // with the seat's own name and token, before it joins under a second
+    // identity. A grace lobby (Lesson 1) answers here exactly like a live one.
+    let yourSeat = null;
+    try {
+      const cid = cleanClientId(new URL(req.url, 'http://localhost').searchParams.get('clientId'));
+      if (cid) {
+        const mine = room.players.find((p) => p.clientId && p.clientId === cid);
+        if (mine) yourSeat = { name: mine.name, token: mine.token };
+      }
+    } catch (e) { yourSeat = null; }
     res.end(JSON.stringify({
       exists: true, code: room.code, status: room.status,
       hostName: host ? host.name : null,
-      players: room.players.length, full: room.players.length >= MAX_PLAYERS
+      players: room.players.length, full: room.players.length >= MAX_PLAYERS,
+      yourSeat
     }));
     return;
   }
@@ -1693,6 +1812,8 @@ wss.on('connection', (ws) => {
       }
       if (msg.type === 'test_phase_ends_in') { if (room.inf && room.inf.phase < 4) room.inf.phaseEndsAt = now() + Number(msg.seconds) * 1000; }
       if (msg.type === 'test_horn_in') { if (room.inf) room.inf.hornAt = now() + Number(msg.seconds) * 1000; }
+      if (msg.type === 'test_deadline_in') { room.turnDeadline = now() + Number(msg.seconds) * 1000; }
+      if (msg.type === 'test_set_supply') { if (msg.duplex != null) room.duplexSupply = Number(msg.duplex); if (msg.mansion != null) room.mansionSupply = Number(msg.mansion); }
       broadcast(room);
       return;
     }
@@ -1831,7 +1952,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'play_again') {
       if (room.status !== 'ended') return fail('The game never finish yet.');
       room.status = 'lobby';
-      room.phase = 'roll'; room.winner = null; room.endTable = null;
+      room.phase = 'roll'; room.winner = null; room.endTable = null; room.endReason = null;
       room.auction = null; room.debt = null; room.trade = null; room.lastCard = null;
       setMessage(room, 'Back to the lobby. The host fit start a new game with the same players.');
       broadcast(room);
@@ -1883,9 +2004,11 @@ wss.on('connection', (ws) => {
       if (!canBuildOn(room, me.id, i, room.buildPlace.kind)) return fail('That building no fit land there. Pick a legal space in the set.');
       const kind = room.buildPlace.kind;
       const resume = room.buildPlace.resume;
+      const resumePhase = room.buildPlace.resumePhase;
       room.buildPlace = null;
       placeBuilding(room, me, i, kind);
-      afterCharge(room, resume, me);
+      if (resume === 'stay') { room.phase = ['roll', 'jail', 'end', 'tax'].includes(resumePhase) ? resumePhase : 'roll'; setDeadline(room); }
+      else afterCharge(room, resume, me);
       broadcast(room);
       return;
     }
@@ -1917,7 +2040,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'contract_propose') {
       if (!isInf(room)) return fail('Contracts only exist for Inflation Mode.');
       if (room.contractProposal) return fail('One contract proposal dey wait already. Finish that one first.');
-      if (!contractWindowOpen(room, me)) return fail('Contract window no open. Propose during your turn before you roll, or during a Deal Break. If e no dey for contract board, e no happen.');
+      if (!contractWindowOpen(room, me)) return fail('Contract window no open right now: auctions, another player debt and pauses close am. Otherwise deals fit fly anytime. If e no dey for contract board, e no happen.');
       if (room.debt && msg.kind !== 'loan') return fail('Inside the Rescue Window na only loan requests fit fly.');
       const phase = infPhase(room);
       const solventCount = solventPlayers(room).length;
@@ -2012,7 +2135,12 @@ wss.on('connection', (ws) => {
     if (msg.type === 'repay_loan') {
       const c = room.contracts.find((x) => x.id === Number(msg.contractId));
       if (!c || c.type !== 'loan' || c.status !== 'active' || c.borrower !== me.id) return fail('No active loan of yours matches that.');
-      if (room.status !== 'playing' || room.turnPlayerId !== me.id || room.auction) return fail('You fit only repay during your own turn.');
+      // Lesson 5: repayment is management, not a turn action. It stays
+      // blocked only while an auction runs, the game is paused, or another
+      // player's debt is being settled.
+      if (room.status !== 'playing' || room.auction) return fail('You no fit repay while an auction dey run.');
+      if (room.mode !== 'pass' && room.paused) return fail('The game dey paused, waiting for players.');
+      if (room.debt && room.debt.playerId !== me.id) return fail('Another player debt dey settle first.');
       const due = c.amount + Math.floor(c.amount * c.interestPct / 100) + (c.dueExtra || 0);
       const lender = room.players.find((p) => p.id === c.lender);
       if (!lender) return fail('The lender don vanish.');
@@ -2036,6 +2164,30 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ---- Resign / end room (Lesson 11) --------------------------------------
+    if (msg.type === 'resign') {
+      if (room.status !== 'playing') return fail('No game dey run to leave.');
+      if (!me || me.bankrupt) return fail('You don already comot for this game.');
+      if (room.auction) return fail('Auction dey run. Wait make e finish before you leave.');
+      if (room.buildPlace && room.buildPlace.playerId !== me.id) return fail('One building dey wait for placement. Wait small.');
+      if (room.debt && room.debt.playerId !== me.id) return fail('Another player debt dey settle. Wait small.');
+      doResign(room, me);
+      broadcast(room);
+      return;
+    }
+    if (msg.type === 'end_room') {
+      if (!ctx.player || ctx.player.id !== room.hostId) return fail('Only the host fit end the room.');
+      if (room.status !== 'playing') return fail('No game dey run.');
+      const alive = solventPlayers(room);
+      if (!alive.length) return fail('No players remain.');
+      const winner = alive.slice().sort((a, b) => netWorth(room, b) - netWorth(room, a) || b.cash - a.cash)[0];
+      room.endReason = 'host';
+      pushFeed(room, 'info', 'Host don end the room.', { playerId: ctx.player.id });
+      endGame(room, winner, 'Host don end the room.');
+      broadcast(room);
+      return;
+    }
+
     // ---- Debt: declare bankruptcy -------------------------------------------
     if (msg.type === 'declare_bankruptcy') {
       if (!room.debt || room.debt.playerId !== me.id) return fail('Bankruptcy only opens when a debt dey hang for your neck.');
@@ -2046,7 +2198,7 @@ wss.on('connection', (ws) => {
 
     // ---- Manage intents -------------------------------------------------------
     if (['build', 'sell_building', 'mortgage', 'unmortgage'].includes(msg.type)) {
-      if (!manageAllowed(room, me)) return fail('You fit only manage your deeds on your turn, or while you dey raise money for a debt.');
+      if (!manageAllowed(room, me)) return fail('Managing dey blocked right now: an auction dey run, a building dey wait for placement, the game dey paused, or another player debt dey settle. Otherwise you fit manage anytime.');
       const i = Number(msg.space);
       if (!Number.isInteger(i) || !D.SPACES[i] || !D.SPACES[i].price) return fail('That space get no deed.');
       let ok = false;
@@ -2062,7 +2214,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'trade_propose') {
       if (room.status !== 'playing') return fail('Trades open when the game starts.');
       if (room.trade) return fail('One trade dey table already. Finish that one first.');
-      if (isInf(room) && !contractWindowOpen(room, me)) return fail('For Inflation Mode, swaps na contracts: propose during your turn before you roll, or during a Deal Break. If e no dey for contract board, e no happen.');
+      if (isInf(room) && !contractWindowOpen(room, me)) return fail('For Inflation Mode, swaps na contracts: the window close only during auctions, another player debt, or a pause. Otherwise propose anytime. If e no dey for contract board, e no happen.');
       const to = room.players.find((p) => p.id === Number(msg.to));
       if (!to || to.id === me.id || to.bankrupt || me.bankrupt) return fail('Pick a living player to trade with.');
       const clean = (side) => ({
@@ -2237,16 +2389,19 @@ wss.on('connection', (ws) => {
     me.connected = false;
     me.ws = null;
     setMessage(room, me.name + ' disconnected.');
-    if (room.hostId === me.id) {
+    // Lesson 1: in the lobby the host seat is held, not migrated: the room
+    // is waiting for its host, and guests see the hostAway state.
+    if (room.status !== 'lobby' && room.hostId === me.id) {
       const next = room.players.find((p) => p.connected && !p.bankrupt) || room.players.find((p) => p.connected);
       if (next) room.hostId = next.id;
     }
     updatePause(room);
     if (!room.players.some((p) => p.connected)) {
-      rooms.delete(room.code);
-    } else {
-      broadcast(room);
+      // Nobody is here: start the grace clock instead of deleting. The
+      // interval reaps the room when the window passes (ROOM_GRACE_MS).
+      room.emptyAt = now();
     }
+    broadcast(room);
   });
 });
 

@@ -870,21 +870,32 @@ function centreTexture() {
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.45)); x.quadraticCurveTo(px(0), pz(-3.6), px(4.2), pz(-2.45)); x.stroke();
   x.strokeStyle = 'rgba(63,127,191,0.5)'; x.lineWidth = 4;
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.05)); x.quadraticCurveTo(px(0), pz(-1.8), px(4.2), pz(-2.05)); x.stroke();
-  // wordmark
+  // wordmark: moved south (Lesson 6c) so the bridge arc and its danfo,
+  // which project onto the plate's north rows from the follow camera, can
+  // never split KOLOPOLY again. The whole word sits below the bridge line.
   x.textAlign = 'center';
   x.fillStyle = INK; x.font = '900 118px "Aeonik Pro", sans-serif';
-  x.fillText('KOLO', px(-1.05), pz(-0.55));
+  x.fillText('KOLO', px(-1.05), pz(0.55));
   x.fillStyle = '#b57f10';
   const wHalf = x.measureText('KOLO').width;
-  x.textAlign = 'left'; x.fillText('POLY', px(-1.05) + wHalf + 6, pz(-0.55));
+  x.textAlign = 'left'; x.fillText('POLY', px(-1.05) + wHalf + 6, pz(0.55));
   x.fillStyle = 'rgba(43,32,24,0.55)'; x.font = '700 30px "Figtree", sans-serif'; x.textAlign = 'center';
-  x.fillText('LAGOS · ABUJA · PORT HARCOURT', px(0), pz(0.28));
+  x.fillText('LAGOS · ABUJA · PORT HARCOURT', px(0), pz(1.35));
   x.fillStyle = 'rgba(138,109,29,0.9)'; x.font = '900 30px "Aeonik Pro", sans-serif';
   x.fillText('OWAMBE POT', px(0), pz(3.35));
   x.fillStyle = 'rgba(43,32,24,0.5)'; x.font = '700 24px "Figtree", sans-serif';
   x.fillText('WAHALA', px(-2.95), pz(-0.28));
   x.fillText('FAMILY MEETING', px(2.95), pz(-0.28));
   return texOf(c);
+}
+
+// Tile band colour, mirrored from board.js bandColorFor: the landing
+// flash (Lesson 8) rings the tile in its own band colour.
+function bandColorHex(i, sp) {
+  return sp.type === 'street' ? D.GROUPS[sp.group].color
+    : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
+    : i === 0 ? '#e8a90c' : i === 20 ? '#e8a90c' : i === 10 || i === 30 ? '#8c2f2f'
+    : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
 
 // ---------------------------------------------------------------------------
@@ -938,6 +949,8 @@ class GameScene {
     this.lastDiceKey = ''; this.lastCardSeq = -1; this.lastFeedSeq = -1;
     this.bankruptSeen = new Set();
     this.focusOverride = null; this.focusUntil = 0;
+    this.viewKickUntil = 0; // Lesson 12: fast glide window after a view toggle
+    this.fullDist = null; this.fullAspect = 0; // Lesson 6: fitted full distance cache
     this.countdownZoom = 0;
     this.phaseLook = 0; this.phaseLookCur = { key: new THREE.Color(0xffd9a0), int: 1.55, bg: new THREE.Color(0x2a1a0e) };
   }
@@ -1005,12 +1018,13 @@ class GameScene {
     const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x3f7fbf, roughness: 0.15, metalness: 0.3 }));
     water.rotation.x = -Math.PI / 2; water.position.set(0, 0.035, -2.45); water.receiveShadow = true; s.add(water);
     const bridgeMat = std(0x333a40, 0.6, 0.3);
-    // Bridge arc scaled to live inside the island: radius 1.45 (peak 1.55),
-    // deck 3.4 long, piers to match. Nothing reaches the track or wordmark.
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.05, 8, 36, Math.PI), bridgeMat);
+    // Bridge arc shrunk (Lesson 6c): radius 1.1 (peak 1.2), deck 2.6 long,
+    // piers to match. Between the smaller arc and the wordmark's move
+    // south, the bridge can no longer reach the word at any camera angle.
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.05, 8, 36, Math.PI), bridgeMat);
     arc.position.set(0, 0.10, -2.45); arc.castShadow = true; s.add(arc);
-    s.add(bx(3.4, 0.07, 0.55, bridgeMat, 0, 0.09, -2.45));
-    for (const px2 of [-1.3, 0, 1.3]) s.add(bx(0.16, 0.5, 0.4, bridgeMat, px2, -0.1, -2.45));
+    s.add(bx(2.6, 0.07, 0.55, bridgeMat, 0, 0.09, -2.45));
+    for (const px2 of [-1.0, 0, 1.0]) s.add(bx(0.16, 0.5, 0.4, bridgeMat, px2, -0.1, -2.45));
     this.bridgeDanfo = buildDanfo(0.52); s.add(this.bridgeDanfo);
     // Owambe pot
     const potPts = [];
@@ -1213,11 +1227,16 @@ class GameScene {
       }
     }
     for (const [id, o] of this.tokens) if (!seen.has(id)) { this.tokenGroup.remove(o.grp); this.tokens.delete(id); }
-    // turn ring follows the turn player's token
+    // turn ring follows the turn player's token, in the player's own
+    // colour (Lesson 8): the active piece is findable at a glance.
     const turn = state.players.find((p) => p.id === state.turnPlayerId);
     if (turn && state.status === 'playing') {
       const o = this.tokens.get(turn.id);
-      if (o) { this.turnRing.visible = true; this.turnRing.position.set(o.grp.position.x, 0.245, o.grp.position.z); }
+      if (o) {
+        this.turnRing.visible = true;
+        this.turnRing.position.set(o.grp.position.x, 0.245, o.grp.position.z);
+        this.turnRing.material.color.set(turn.color);
+      }
     } else this.turnRing.visible = false;
   }
 
@@ -1300,12 +1319,45 @@ class GameScene {
     }
   }
 
+  // Lesson 6: the full board fit is computed from the LIVE stage aspect,
+  // not tuned for one screen. Binary search the camera distance along the
+  // fixed full view direction until the island rim corners (the board's
+  // true silhouette: rim box 14.15 wide at y -0.47, tiles inside it)
+  // project inside NDC 0.96 on both axes: the board spans about 96 percent
+  // of the stage width, centred, in portrait and landscape alike, with
+  // mansion tops still inside the frame.
+  fitFull() {
+    const aspect = this.camera.aspect || 1;
+    if (this.fullDist && Math.abs(aspect - this.fullAspect) < 0.01) return this.fullDist;
+    const dir = new THREE.Vector3(0, 22.1, 7.2).normalize();
+    const tgt = new THREE.Vector3(0, 0, 0.5);
+    const cam = this.camera;
+    const corners = [];
+    for (const cx of [-7.08, 7.08]) for (const cz of [-7.08, 7.08]) corners.push(new THREE.Vector3(cx, -0.47, cz));
+    let lo = 10, hi = 60;
+    for (let it = 0; it < 14; it++) {
+      const mid = (lo + hi) / 2;
+      cam.position.copy(tgt).addScaledVector(dir, mid);
+      cam.lookAt(tgt);
+      cam.updateMatrixWorld(true);
+      let fits = true;
+      for (const c of corners) {
+        const v = c.clone().project(cam);
+        if (Math.abs(v.x) > 0.96 || Math.abs(v.y) > 0.96) { fits = false; break; }
+      }
+      if (fits) hi = mid; else lo = mid;
+    }
+    this.fullDist = hi;
+    this.fullAspect = aspect;
+    return hi;
+  }
+
   update(dt, tNow) {
     const s = this.scene;
-    // bridge danfo shuttle
+    // bridge danfo shuttle (range and height follow the smaller arc)
     const bu = (Math.sin(tNow * 0.13) + 1) / 2;
-    const bx2 = -1.22 + bu * 2.44;
-    this.bridgeDanfo.position.set(bx2, 0.16 + Math.sin(bu * Math.PI) * 1.25, -2.45);
+    const bx2 = -0.92 + bu * 1.84;
+    this.bridgeDanfo.position.set(bx2, 0.16 + Math.sin(bu * Math.PI) * 0.92, -2.45);
     this.bridgeDanfo.rotation.z = Math.cos(bu * Math.PI) * 0.42 * (Math.cos(tNow * 0.13) > 0 ? 1 : -1);
     this.bridgeDanfo.rotation.y = Math.cos(tNow * 0.13) > 0 ? Math.PI / 2 : -Math.PI / 2;
     // pot notes gentle shimmer
@@ -1325,12 +1377,16 @@ class GameScene {
         else if (k > 0.9) { o.inner.scale.y = 0.86; }
         else { o.inner.scale.y = 1; o.inner.position.y = 0.045; }
         o.grp.position.copy(pos);
+        // Lesson 8: the moving piece grows a touch so the eye can track it.
+        o.grp.scale.setScalar((o.bankrupt ? 0.78 : 1) * 1.12);
         if (k >= 1) {
           a.cur = nextI; a.path.shift(); a.t = 0;
           if (window.KPSfxHop) window.KPSfxHop();
           o.pos = nextI;
+          // The landing tile flashes its own band colour.
+          this.pulse.material.color.set(bandColorHex(nextI, D.SPACES[nextI]));
           this.pulse.position.set(pos.x, 0.25, pos.z); this.pulseT = 0;
-          if (!a.path.length) { o.anim = null; o.inner.scale.y = 1; }
+          if (!a.path.length) { o.anim = null; o.inner.scale.y = 1; o.grp.scale.setScalar(o.bankrupt ? 0.78 : 1); }
         }
       } else {
         o.inner.position.y = 0.045 + Math.sin(tNow * 1.7 + o.bob) * 0.012;
@@ -1345,6 +1401,8 @@ class GameScene {
       this.pulse.material.opacity = 0.55 * (1 - this.pulseT);
     }
     this.turnRing.material.opacity = 0.6 + Math.sin(tNow * 3.2) * 0.25;
+    const ringPulse = 1 + Math.sin(tNow * 3.2) * 0.07;
+    this.turnRing.scale.set(ringPulse, ringPulse, 1);
     // buildings grow in
     const nowMs = performance.now();
     for (const t2 of this.tiles) {
@@ -1445,12 +1503,13 @@ class GameScene {
       this.countdownZoom -= dt;
       wantPos = new THREE.Vector3(0, 12.6, 11.4); wantTgt = new THREE.Vector3(0, 0, -0.4); damp = 1.1;
     } else if (B.effectiveFull()) {
-      // Full board: steep (72 degrees) and centred on the island, fitted
-      // with the real projection against the square stage (the wrap is
-      // aspect 1/1 at every size): the rim silhouette fills 93% of the
-      // width and 81% of the height, dead centre, so no tile is cropped,
-      // no dead band opens up, and the far row barely foreshortens.
-      wantPos = new THREE.Vector3(0, 22.1, 7.7); wantTgt = new THREE.Vector3(0, 0, 0.5);
+      // Full board: steep (72 degrees) and centred on the island, at the
+      // distance fitFull computed from the live stage aspect (Lesson 6):
+      // the rim fills about 97 percent of the binding dimension, dead
+      // centre, no tile cropped, in both orientations.
+      const dist = this.fitFull();
+      wantTgt = new THREE.Vector3(0, 0, 0.5);
+      wantPos = wantTgt.clone().addScaledVector(new THREE.Vector3(0, 22.1, 7.2).normalize(), dist);
     } else {
       let f = null;
       if (this.focusOverride != null && performance.now() < this.focusUntil) {
@@ -1462,9 +1521,14 @@ class GameScene {
       }
       if (!f) f = new THREE.Vector3(0, 0.2, 0);
       const inspect = this.focusOverride != null && performance.now() < this.focusUntil;
-      wantPos = f.clone().add(inspect ? new THREE.Vector3(1.8, 3.2, 3.2) : new THREE.Vector3(3.4, 5.6, 6.0));
+      // Follow sits a touch lower and closer than before (Lesson 8), a
+      // tight crop on the token's side of the board (Lesson 12).
+      wantPos = f.clone().add(inspect ? new THREE.Vector3(1.8, 3.2, 3.2) : new THREE.Vector3(2.8, 4.6, 5.0));
       wantTgt = f; damp = 3.0;
     }
+    // Lesson 12: for about 300ms after a view toggle the camera glides
+    // fast, so the switch reads as an answer, not a suggestion.
+    if (performance.now() < this.viewKickUntil) damp = 9;
     const kk = 1 - Math.exp(-dt * damp);
     this.camPos.lerp(wantPos, kk); this.camTgt.lerp(wantTgt, kk);
     this.camera.position.copy(this.camPos);
@@ -1798,7 +1862,7 @@ let motionUntil = 0, ambientOnUntil = 0, ambientOffUntil = 0;
 function motion(seconds) { motionUntil = Math.max(motionUntil, performance.now() + seconds * 1000); }
 // While a sheet or overlay covers the game board the player is reading, not
 // watching: motion-window draws are skipped (running animations still draw).
-const SHEET_IDS = ['deedScrim', 'listScrim', 'cardScrim', 'choiceScrim', 'proposalScrim', 'shareOverlay', 'phaseOverlay', 'countOverlay'];
+const SHEET_IDS = ['deedScrim', 'listScrim', 'cardScrim', 'choiceScrim', 'proposalScrim', 'shareOverlay', 'phaseOverlay', 'countOverlay', 'pauseOverlay'];
 function sheetCovering() {
   for (const id of SHEET_IDS) { const el = document.getElementById(id); if (el && el.classList.contains('show')) return true; }
   return false;
@@ -1885,6 +1949,15 @@ function patchBoard() {
   B.applyCamera = function (state) {
     if (KP3D.active) return;
     origCam(state);
+  };
+  // Lesson 12: a view toggle kicks the game camera into its fast glide and
+  // forces frames, interrupting any move camera lock at once.
+  const origToggle = B.toggleView.bind(B);
+  B.toggleView = function () {
+    const r = origToggle();
+    if (SCENES.game) SCENES.game.viewKickUntil = performance.now() + 400;
+    motion(1.5);
+    return r;
   };
   // the lobby renders through its own app function, not KPBoard.render
   if (typeof window.renderLobby === 'function') {

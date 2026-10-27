@@ -453,6 +453,125 @@ try {
   await M.waitForFunction(() => /don close/.test(document.querySelector('#inviteTitle').textContent), { timeout: 15000, polling: 200 }).catch(() => {});
   check('a dead invite link says so in one line', await M.evaluate(() => /don close/.test(document.querySelector('#inviteTitle').textContent)));
   await K.close(); await L.close(); await M.close();
+
+  // ---------------------------------------------------------- scenario 7
+  console.log('B7: lessons round: banner person forms, frozen roll label with beeps, view toggle frame difference, pause overlay');
+  const N = await newPage('N');
+  await N.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(N, 'Ngozi');
+  await clickId(N, 'createBtn');
+  await waitState(N, (s) => s.status === 'lobby', 'N in lobby');
+  const code7 = (await S(N)).code;
+  const O = await newPage('O');
+  await O.goto(BASE + '/?join=' + code7, { waitUntil: 'networkidle0' });
+  await typeName(O, 'Obi');
+  await O.click('#joinBtn');
+  await waitState(O, (s) => s.status === 'lobby' && s.players.length === 2, 'O joined');
+  await front(N);
+  await N.click('#startBtn');
+  await waitState(N, (s) => s.status === 'playing', 'B7 game playing');
+  await waitState(O, (s) => s.status === 'playing', 'B7 game playing on O');
+  const pages7 = [N, O];
+  const turnPg7 = async () => { const st = await S(N); return pages7[st.players.findIndex((p) => p.id === st.turnPlayerId)]; };
+  const otherPg7 = async () => ((await turnPg7()) === N ? O : N);
+  const stN7 = await S(N);
+  const turnName7 = stN7.players.find((p) => p.id === stN7.turnPlayerId).name;
+
+  // Banner person forms (Lesson 6b): second person only on the turn phone,
+  // in the opening announcement and in the plain turn banner alike.
+  const tp7 = await turnPg7();
+  const op7 = await otherPg7();
+  await tp7.waitForFunction((nm) => { const el = document.querySelector('#msgText'); return el && el.textContent.indexOf('Na your turn, ' + nm) >= 0; }, { timeout: 12000, polling: 200 }, turnName7).catch(() => {});
+  const openTurn = await tp7.evaluate(() => document.querySelector('#msgText').textContent);
+  check('the opening banner speaks second person on the turn phone', openTurn.indexOf('Na your turn, ' + turnName7) >= 0, openTurn.slice(0, 70));
+  const openOther = await op7.evaluate(() => document.querySelector('#msgText').textContent);
+  check('the opening banner speaks third person on the other phone', openOther.indexOf('Na ' + turnName7 + ' turn') >= 0 && openOther.indexOf('Na your turn') === -1, openOther.slice(0, 70));
+  // Play the first turn through (buy Ajegunle, end) so the plain turn
+  // banner takes over on the second turn.
+  const tpIdOpen = (await S(tp7)).turnPlayerId;
+  await send(tp7, 'test_set_position', { playerId: tpIdOpen, space: 0 });
+  await send(tp7, 'test_dice', { rolls: [[1, 2]] });
+  await clickId(tp7, 'abRoll');
+  await waitState(tp7, (s) => s.phase === 'buy' && s.buySpace === 3, 'opener buys Ajegunle');
+  await clickId(tp7, 'abBuy');
+  await waitState(tp7, (s) => s.phase === 'end', 'opener reaches end phase');
+  await clickId(tp7, 'abEnd');
+  { // waitState evals its predicate inside the page, so this poll (which
+    // needs a Node-side id) runs on state reads instead.
+    const end = Date.now() + 12000;
+    while ((await S(N)).turnPlayerId === tpIdOpen && Date.now() < end) await sleep(200);
+    if ((await S(N)).turnPlayerId === tpIdOpen) throw new Error('second turn never began');
+  }
+  const tp7b = await turnPg7();
+  const op7b = await otherPg7();
+  const stN7b = await S(N);
+  const name2 = stN7b.players.find((p) => p.id === stN7b.turnPlayerId).name;
+  await tp7b.waitForFunction((nm) => { const el = document.querySelector('#msgText'); return el && el.textContent.indexOf('Na your turn, ' + nm) === 0; }, { timeout: 12000, polling: 200 }, name2).catch(() => {});
+  const turnBanner = await tp7b.evaluate(() => document.querySelector('#msgText').textContent);
+  check('the turn phone reads the second person banner', turnBanner.indexOf('Na your turn, ' + name2) === 0, turnBanner.slice(0, 60));
+  const otherBanner = await op7b.evaluate(() => document.querySelector('#msgText').textContent);
+  check('the other phone reads the third person banner', otherBanner.indexOf('Na ' + name2 + ' turn') === 0, otherBanner.slice(0, 60));
+  check('the mode pill names the game in the top bar', /Classic/.test(await N.evaluate(() => document.querySelector('#modePill').textContent)));
+
+  // View toggle (Lessons 6 and 12): follow by default, a physical tap flips
+  // to full, and the two frames provably differ.
+  await front(tp7b);
+  check('follow is the phone default view', await tp7b.evaluate(() => window.KPBoard.effectiveFull() === false));
+  const wrapEl = await tp7b.$('#boardWrap');
+  const shotFollow = await wrapEl.screenshot();
+  await tp7b.click('#fullBoardBtn');
+  await sleep(1000);
+  check('a tap flips to the full board view', await tp7b.evaluate(() => window.KPBoard.effectiveFull() === true));
+  const shotFull = await wrapEl.screenshot();
+  const frameDiff = await tp7b.evaluate(async (a64, b64) => {
+    const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = 'data:image/png;base64,' + src; });
+    const ia = await load(a64); const ib = await load(b64);
+    const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+    const cx = cv.getContext('2d');
+    cx.drawImage(ia, 0, 0, 64, 64); const da = cx.getImageData(0, 0, 64, 64).data;
+    cx.clearRect(0, 0, 64, 64); cx.drawImage(ib, 0, 0, 64, 64); const db = cx.getImageData(0, 0, 64, 64).data;
+    let sum = 0; for (let i = 0; i < da.length; i += 4) sum += Math.abs(da[i] - db[i]) + Math.abs(da[i + 1] - db[i + 1]) + Math.abs(da[i + 2] - db[i + 2]);
+    return sum / (64 * 64 * 3);
+  }, shotFollow.toString('base64'), shotFull.toString('base64'));
+  check('follow and full frames are unmistakably different', frameDiff > 4, 'diff=' + frameDiff.toFixed(2));
+  // Frozen label plus beeps (Lessons 4 and 7): drive the turn clock into
+  // its last 10 seconds and watch the label and the beep counter.
+  await send(tp7b, 'test_deadline_in', { seconds: 9 });
+  await sleep(400);
+  const label1 = await tp7b.evaluate(() => document.querySelector('#abRoll').textContent);
+  await sleep(2500);
+  const label2 = await tp7b.evaluate(() => document.querySelector('#abRoll').textContent);
+  check('the roll label froze while its clock ran down', /Roll dice/.test(label1) && /Roll dice/.test(label2) && !/\d/.test(label1) && !/\d/.test(label2), JSON.stringify([label1, label2]));
+  await sleep(600);
+  const beeps = await tp7b.evaluate(() => window.__kpBeeps || 0);
+  check('clock beeps fired inside the last 10 seconds', beeps >= 2, 'beeps=' + beeps);
+
+  // Mid-move toggle: roll, then flip the view while the token is travelling.
+  await send(tp7b, 'test_deadline_in', { seconds: 30 });
+  const tpId7 = (await S(tp7b)).turnPlayerId;
+  await send(tp7b, 'test_set_position', { playerId: tpId7, space: 0 });
+  await send(tp7b, 'test_dice', { rolls: [[1, 2]] });
+  await clickId(tp7b, 'abRoll');
+  await sleep(250);
+  await tp7b.click('#fullBoardBtn');
+  check('the toggle answers mid-move, back to follow', await tp7b.evaluate(() => window.KPBoard.effectiveFull() === false));
+  await waitState(tp7b, (s) => s.phase === 'buy' || s.phase === 'end', 'the move settled after the mid-move toggle');
+
+  // Pause overlay (Lesson 14): O drops for real; N gets the waiting card.
+  await O.evaluate(() => window.__kolopolyDrop());
+  await O.goto('about:blank');
+  await N.waitForFunction(() => {
+    const el = document.querySelector('#pauseOverlay');
+    return el && el.classList.contains('show') && /Obi/.test(el.textContent);
+  }, { timeout: 15000, polling: 250 }).catch(() => {});
+  const pauseText = await N.evaluate(() => document.querySelector('#pauseOverlay').textContent.replace(/\s+/g, ' '));
+  check('the pause overlay names the missing player', /Obi/.test(pauseText), pauseText.slice(0, 110));
+  check('the pause overlay shows the frozen turn clock', /frozen/.test(pauseText), pauseText.slice(0, 110));
+  await O.goto(BASE, { waitUntil: 'networkidle0' });
+  await O.waitForFunction(() => window.__kolopolySession && window.__kolopolySession().live && window.__kolopolyState(), { timeout: 15000, polling: 250 }).catch(() => {});
+  await N.waitForFunction(() => !document.querySelector('#pauseOverlay').classList.contains('show'), { timeout: 15000, polling: 250 }).catch(() => {});
+  check('the pause overlay clears when the player returns', await N.evaluate(() => !document.querySelector('#pauseOverlay').classList.contains('show')));
+  await N.close(); await O.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

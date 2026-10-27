@@ -90,6 +90,13 @@ const SEAL_SVG =
 
 const LANDSCAPE_Q = '(orientation: landscape) and (min-width: 700px)';
 
+// Lesson 6a + 12: the view choice is the player's, remembered across
+// sessions. Follow is the phone default at all times (portrait AND
+// landscape) until the player explicitly picks Full board.
+let viewPref = null;
+try { viewPref = localStorage.getItem('kolopolyView'); } catch (e) { viewPref = null; }
+if (viewPref !== 'full' && viewPref !== 'follow') viewPref = null;
+
 const KPBoard = {
   els: [],
   center: null,
@@ -104,19 +111,16 @@ const KPBoard = {
   lastDiceKey: null,
 
   effectiveFull() {
-    const land = typeof window !== 'undefined' && window.matchMedia && window.matchMedia(LANDSCAPE_Q).matches;
-    return this.fullBoard || (land && !this.followPinned);
+    if (viewPref) return viewPref === 'full';
+    return false; // Follow everywhere until the player picks otherwise
   },
   toggleView() {
-    const land = window.matchMedia && window.matchMedia(LANDSCAPE_Q).matches;
-    if (this.effectiveFull()) {
-      if (land && !this.fullBoard) this.followPinned = true;
-      else this.fullBoard = false;
-    } else {
-      this.fullBoard = true;
-      this.followPinned = false;
-    }
-    return this.effectiveFull();
+    const nowFull = !this.effectiveFull();
+    viewPref = nowFull ? 'full' : 'follow';
+    try { localStorage.setItem('kolopolyView', viewPref); } catch (e) { }
+    this.fullBoard = nowFull;
+    this.followPinned = !nowFull;
+    return nowFull;
   },
 
   build(boardEl) {
@@ -353,7 +357,7 @@ const KPBoard = {
     const focusPlayer = state.players.find((p) => p.id === state.turnPlayerId);
     const focus = this.animating ? this.focusSpace : (focusPlayer ? focusPlayer.position : this.focusSpace);
     const c = spaceCenter(focus);
-    const k = 2.15;
+    const k = 2.2;
     let tx = size / 2 - c.x * size * k;
     let ty = size / 2 - c.y * size * k;
     tx = Math.max(size - size * k, Math.min(0, tx));
@@ -462,7 +466,7 @@ const KPBoard = {
           '<button class="btn small ghost" data-act="sell-building" data-space="' + i + '">Sell building</button>' : '') +
         (pr && !pr.m ? '<button class="btn small ghost" data-act="mortgage" data-space="' + i + '">Mortgage for ' + D.fmtN(D.mortgageOf(sp.price)) + '</button>'
           : '<button class="btn small ghost" data-act="unmortgage" data-space="' + i + '">Lift mortgage ' + D.fmtN(D.unmortgageCost(sp.price)) + '</button>') +
-        '</div><p class="caption mt8">Manage actions work on your turn, or while you dey raise money for a debt. The server enforces even building, full sets and pledges.</p>';
+        '</div><p class="caption mt8">You fit build anytime, even when no be your turn. The server checks the live state when your action land. Even building, full sets and pledges still apply.</p>';
     }
     html += '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
     html += '</div></div>';

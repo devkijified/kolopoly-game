@@ -36,6 +36,8 @@ let displayedCash = null;
 let cashAnim = null;
 let bidAs = null;
 let bankruptArmed = false;
+let leaveArmed = false;
+let endRoomArmed = false;
 const seenPositions = {};
 
 // Reconnect session: a seat (room code + player id + token) survives a
@@ -153,8 +155,9 @@ function noiseHit(o) {
   src.start(t); src.stop(t + o.dur + 0.05);
 }
 const sfx = {
-  // OPay style success: two bright tones up, tiny sparkle.
-  credit() { duckAmbient(); tone({ f: 988, dur: 0.13, vol: 0.10 }); tone({ f: 1319, at: 0.09, dur: 0.26, vol: 0.10 }); tone({ f: 1976, at: 0.09, dur: 0.1, vol: 0.028 }); },
+  // Credit success (Lesson 9): a brighter three note chime, rising and
+  // unmistakably money arriving. Synthesized here, our own notes, no samples.
+  credit() { duckAmbient(); tone({ f: 1047, dur: 0.11, vol: 0.10 }); tone({ f: 1319, at: 0.08, dur: 0.13, vol: 0.10 }); tone({ f: 1568, at: 0.16, dur: 0.30, vol: 0.11 }); tone({ f: 2093, at: 0.16, dur: 0.12, vol: 0.026 }); },
   // Calm low thud, no celebration.
   debit() { tone({ f: 170, f2: 92, dur: 0.2, vol: 0.12 }); noiseHit({ dur: 0.08, vol: 0.03, freq: 300, ftype: 'lowpass' }); },
   dice() { [0, 0.055, 0.12].forEach((at, i) => noiseHit({ at, dur: 0.035, vol: 0.045, freq: 1500 + i * 350, q: 1.4 })); tone({ f: 210, at: 0.12, dur: 0.07, type: 'triangle', vol: 0.05 }); },
@@ -180,6 +183,41 @@ window.KPSfxHop = () => sfx.hop();
 function renderMuteBtn() { $('muteBtn').innerHTML = window.icon(muted ? 'mute' : 'sound', 20); }
 $('muteBtn').addEventListener('click', () => { muted = !muted; localStorage.setItem('kolopolyMute', muted ? '1' : '0'); renderMuteBtn(); if (!muted) sfx.credit(); });
 renderMuteBtn();
+
+// Voice payment alerts (Lesson 9): when a credit lands for THIS player, the
+// phone announces it out loud in our own words: "Payment received, {amount}"
+// plus "from {name}" on rent. The host can switch voice off for the room;
+// every player can switch it off (or mute) on their own phone. A newer
+// credit supersedes a speaking one. Where the browser blocks speech before
+// a user gesture it fails silently and the chime carries the moment.
+let voiceOn = true;
+try { voiceOn = localStorage.getItem('kolopolyVoice') !== '0'; } catch (e) { voiceOn = true; }
+function renderVoiceBtn() {
+  const b = $('voiceBtn');
+  if (!b) return;
+  b.innerHTML = window.icon(voiceOn ? 'voice' : 'voiceOff', 20);
+  b.style.opacity = voiceOn ? '1' : '0.55';
+  b.title = voiceOn ? 'Voice payment alerts: on' : 'Voice payment alerts: off';
+}
+$('voiceBtn').addEventListener('click', () => {
+  voiceOn = !voiceOn;
+  try { localStorage.setItem('kolopolyVoice', voiceOn ? '1' : '0'); } catch (e) { }
+  renderVoiceBtn();
+  toast(voiceOn ? 'Voice alerts on: your phone go announce payments wey land for you.' : 'Voice alerts off for this phone.');
+});
+renderVoiceBtn();
+function speakCredit(line) {
+  try {
+    if (!voiceOn || muted) return;
+    if (state && state.settings && state.settings.voiceAlerts === false) return;
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    synth.cancel(); // a newer credit supersedes a speaking one
+    const u = new SpeechSynthesisUtterance(line);
+    u.rate = 1.02;
+    synth.speak(u);
+  } catch (e) { /* speech blocked or unavailable: the chime already played */ }
+}
 
 // ---------------------------------------------------------------------------
 // Toasts, alerts (the phone style money cards), spray, flicker
@@ -400,6 +438,7 @@ $('createBtn').addEventListener('click', () => {
       noRentInJail: $('optNoRentJail').checked,
       firstLapNoBuy: $('optFirstLap').checked,
       chaos: $('optChaos').checked,
+      voiceAlerts: $('optVoice').checked,
       turnTimerSec: Number($('optTimer').value)
     }
   });
@@ -465,7 +504,7 @@ if (inviteCode) {
   }
   $('inviteMeta').textContent = 'Checking the room...';
   history.replaceState(null, '', location.pathname);
-  fetch('/api/room/' + code).then((r) => r.json()).then((info) => {
+  fetch('/api/room/' + code + '?clientId=' + encodeURIComponent(CLIENT_ID || '')).then((r) => r.json()).then((info) => {
     inviteInfo = info;
     if (!info.exists) {
       $('inviteTitle').textContent = 'That room don close.';
@@ -478,16 +517,31 @@ if (inviteCode) {
     if (info.full) {
       $('inviteMeta').textContent = 'That room don full: 6 players dey inside.';
       $('inviteJoinBtn').textContent = 'Start fresh instead';
+      return;
+    }
+    // Lesson 3: this device already holds a seat in the room. Say so on the
+    // prompt, with the seat's own name, instead of silently joining under a
+    // second identity. Joining reclaims that seat; a different name is a
+    // Change away and applies from the next game.
+    const seat = info.yourSeat;
+    if (seat && (!name || seat.name !== name || seat.token !== selectedToken)) {
+      const tokName = (window.KP_DATA.TOKENS.find((t) => t.id === seat.token) || {}).name || seat.token;
+      $('inviteAs').textContent = 'You get one seat here as ' + seat.name;
+      $('inviteToken').innerHTML = tokenArtFor(seat.token);
+      $('inviteMeta').textContent = info.players + (info.players === 1 ? ' player' : ' players') + ' inside · your seat dey here as ' + seat.name + ' (' + tokName + '). Join to reclaim am. Another name? Tap Change: the new name go start from your next game.';
+      $('inviteJoinBtn').textContent = 'Join as ' + seat.name;
     }
   }).catch(() => { $('inviteMeta').textContent = 'Room ' + code + '. Join when you ready.'; });
   $('inviteJoinBtn').addEventListener('click', () => {
     if (inviteInfo && (!inviteInfo.exists || inviteInfo.full)) { location.href = location.pathname; return; }
-    if (!name) { revealForm('nameIn'); return; }
+    const seatName = inviteInfo && inviteInfo.yourSeat ? inviteInfo.yourSeat.name : null;
+    const joinName = name || seatName;
+    if (!joinName) { revealForm('nameIn'); return; }
     if (entrySent) return;
     clearSeat();
     entrySent = true;
     joinSentFor = code;
-    send('join_room', { code, name, token: selectedToken, clientId: CLIENT_ID });
+    send('join_room', { code, name: joinName, token: selectedToken, clientId: CLIENT_ID });
   });
   $('inviteChangeBtn').addEventListener('click', () => revealForm('nameIn'));
 }
@@ -533,6 +587,14 @@ function onState(room) {
   }
   $('roomChip').classList.toggle('hidden', !room.code);
   $('roomChip').textContent = room.code ? 'Room ' + room.code : '';
+  // Lesson 10: which game am I in, always on screen.
+  const mp = $('modePill');
+  if (room.code) {
+    mp.classList.remove('hidden');
+    mp.textContent = room.inf
+      ? 'Inflation · Phase ' + room.inf.phase
+      : 'Classic · ' + (room.settings.timed ? '60 min' : 'Untimed');
+  } else mp.classList.add('hidden');
   processFeed(room, prev);
   processPositions(room);
   if (room.status === 'lobby') renderLobby(room);
@@ -558,8 +620,17 @@ function processFeed(room, prev) {
       const p = room.players.find((x) => x.id === e.playerId);
       queueAlert(e.kind, e.amount, e.text, p ? p.cash : null);
     }
+    // Spoken credit announcement, receiver's phone only (Lesson 9). Debits
+    // never speak. Rent names the payer; salary and the pot stay unnamed.
+    if (e.kind === 'credit' && room.mode !== 'pass' && e.playerId === myId) {
+      const amt = String(Math.round(e.amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      let line = 'Payment received, ' + amt + ' naira';
+      const other = e.otherId != null ? room.players.find((x) => x.id === e.otherId) : null;
+      if (other && e.spaceName) line += ' from ' + other.name;
+      speakCredit(line + '.');
+    }
     if (e.kind === 'kirikiri') { sfx.siren(); buzz([70, 50, 70]); }
-    if (e.kind === 'timeout') toast(esc(e.text), 5200);
+    if (e.kind === 'timeout') toast(esc((e.auto ? '(auto) ' : '') + e.text), 5200);
     if (e.kind === 'jackpot' && e.amount >= 100000) {
       spray();
       sfx.cheer();
@@ -706,6 +777,12 @@ function renderLobby(room) {
   $('lobbyHint').textContent = room.players.length < 2
     ? 'You need at least 2 players. Share the code make your people join.'
     : isHost ? 'Everybody don enter? Start when ready.' : 'Waiting for the host to start the game.';
+  // Lesson 1: the host is inside the grace window. The room is alive and
+  // waiting for them, and nobody can start without them.
+  if (room.hostAway) {
+    $('startBtn').style.display = 'none';
+    $('lobbyHint').textContent = 'Host step out small, room go wake when e return.';
+  }
 }
 $('copyInviteBtn').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(inviteLink()); toast('Invite link copied. Send am give your people.'); }
@@ -734,15 +811,20 @@ $('fullBoardBtn').innerHTML = window.icon('eye', 15) + ' <span>Full board</span>
 function syncViewBtn() {
   const span = $('fullBoardBtn').querySelector('span');
   if (span) span.textContent = window.KPBoard.effectiveFull() ? 'Follow token' : 'Full board';
+  // Lesson 12: the active view shows on the button itself.
+  $('fullBoardBtn').classList.toggle('active', window.KPBoard.effectiveFull());
 }
-$('fullBoardBtn').addEventListener('click', () => {
+// Lesson 12: the toggle answers on pointerdown, not after the full click,
+// and it interrupts a moving camera at once (the 3D layer reads the same
+// effectiveFull state every frame and glides to the new framing).
+$('fullBoardBtn').addEventListener('pointerdown', () => {
   window.KPBoard.toggleView();
   syncViewBtn();
   if (state) window.KPBoard.applyCamera(state);
 });
 syncViewBtn();
 window.addEventListener('resize', syncViewBtn);
-$('rotateHint').innerHTML = window.icon('rotate', 15) + ' Rotate your phone for the full board';
+$('rotateHint').innerHTML = window.icon('rotate', 15) + ' Wider view? Turn your phone sideways.';
 $('denomRow').innerHTML = window.KP_DATA.DENOMS.map((d) => '<span class="denom">' + fmtN(d) + '</span>').join('');
 
 function onSpaceTap(i) {
@@ -780,7 +862,38 @@ function wireSheetButtons(root, viewer) {
   }));
 }
 
+// Lesson 14: a paused game speaks. A named waiting card covers the board:
+// who is missing, how long the wait has run, the frozen turn clock value,
+// and the controls underneath visibly disabled instead of silently dead.
+function renderPause(room) {
+  const o = $('pauseOverlay');
+  const show = !!(room.paused && room.status === 'playing' && room.mode !== 'pass');
+  $('view-game').classList.toggle('is-paused', show);
+  if (!show) { o.classList.remove('show'); o.innerHTML = ''; return; }
+  const missing = room.players.filter((p) => !p.connected && !p.bankrupt).map((p) => p.name);
+  const clockTxt = room.pauseClockMs != null
+    ? 'Turn clock dey frozen at ' + Math.round(room.pauseClockMs / 1000) + 's. E go continue from there when dem return.'
+    : 'Turn clock no dey run for this turn.';
+  o.innerHTML = '<div class="pause-card"><h3 class="title">Game dey pause</h3>' +
+    '<p class="lead" style="margin-top:8px;">We dey wait for <b>' + esc(missing.join(', ') || 'a player') + '</b> to return.</p>' +
+    '<p class="caption" id="pauseElapsed">Waiting don reach 0:00.</p>' +
+    '<p class="caption">' + clockTxt + '</p>' +
+    '<p class="caption">Your seat and your money dey held. Controls go wake the moment dem reconnect.</p></div>';
+  o.classList.add('show');
+}
+
 function renderGame(room) {
+  // Classic match clock (Lesson 10): the same rail slot the phase bar
+  // occupies in Inflation, so remaining time is always visible.
+  const classicBar = $('classicBar');
+  if (!room.inf && room.status === 'playing') {
+    classicBar.classList.remove('hidden');
+    classicBar.innerHTML = '<span class="ph">Classic</span>' +
+      '<span>' + (room.gameEndsAt ? 'Richest landlord when the horn blow wins' : 'Last landlord standing wins') + '</span>' +
+      '<span class="clk" id="classicClock"></span>';
+  } else {
+    classicBar.classList.add('hidden');
+  }
   // Inflation bar
   const infBar = $('infBar');
   if (room.inf) {
@@ -798,7 +911,16 @@ function renderGame(room) {
   } else {
     infBar.classList.add('hidden');
   }
-  $('msgText').textContent = room.message || '';
+  // Lesson 6b: second person turn copy renders only on the turn player's
+  // own client. Everybody else reads the third person form, wherever the
+  // line sits in the message (the plain turn banner and the opening
+  // announcement alike).
+  let msgOut = room.message || '';
+  if (room.mode !== 'pass' && room.turnPlayerId != null && room.turnPlayerId !== myId) {
+    const tp = room.players.find((p) => p.id === room.turnPlayerId);
+    if (tp) msgOut = msgOut.split('Na your turn, ' + tp.name).join('Na ' + tp.name + ' turn');
+  }
+  $('msgText').textContent = msgOut;
   // Players strip
   $('playersStrip').innerHTML = room.players.map((p) => {
     const loanMark = room.inf && room.inf.contracts.some((c) => c.type === 'loan' && c.borrower === p.id) ? ' · loan' : '';
@@ -817,6 +939,7 @@ function renderGame(room) {
   renderWallet(room);
   renderActionBar(room);
   renderAuction(room);
+  renderPause(room);
   maybeShowModals(room);
   // Pass and play banner on turn change
   if (room.mode === 'pass' && prevTurnPlayer !== null && prevTurnPlayer !== room.turnPlayerId && room.status === 'playing') {
@@ -859,10 +982,12 @@ function renderWallet(room) {
   if (wb) document.documentElement.style.setProperty('--wallet-h', wb.offsetHeight + 'px');
 }
 
-function timerSpan(deadline) {
+// Lesson 4: primary action labels never mutate. The countdown lives in
+// its own chip beside the button, never inside the label.
+function clockChip(deadline) {
   if (!deadline) return '';
   const s = Math.max(0, Math.round((deadline - Date.now()) / 1000));
-  return ' <span class="turn-timer" data-deadline="' + deadline + '">' + s + 's</span>';
+  return '<span class="clock-chip" data-deadline="' + deadline + '">' + s + 's</span>';
 }
 function renderActionBar(room) {
   const bar = $('actionBar');
@@ -888,14 +1013,15 @@ function renderActionBar(room) {
   } else if (room.buildPlace && room.buildPlace.playerId === me.id) {
     html = '<p class="caption" style="align-self:center;">You win the last ' + room.buildPlace.kind + '. Tap a highlighted street to place am.</p>';
   } else if (room.turnPlayerId !== me.id && room.mode !== 'pass') {
-    html = '<p class="caption" style="align-self:center;">Na ' + esc(turn ? turn.name : '') + ' turn. Wait small.</p>';
+    // Lesson 5: waiting is no longer dead time. The quiet hint says so.
+    html = '<p class="caption" style="align-self:center;">Na ' + esc(turn ? turn.name : '') + ' turn. Your deeds still dey work: build, mortgage or trade anytime.</p>';
   } else {
     // My action (online: me; pass: the turn player, acting through this phone)
     const actor = room.mode === 'pass' ? turn : me;
     if (actor.pendingChoice != null) {
       html = '<p class="caption" style="align-self:center;">You carry a mortgaged deed choice. Settle am for the popup first.</p>';
     } else if (room.phase === 'roll') {
-      html = '<button class="btn green" id="abRoll">' + window.icon('dice', 20) + ' Roll dice' + timerSpan(room.turnDeadline) + '</button>';
+      html = '<button class="btn green" id="abRoll">' + window.icon('dice', 20) + ' Roll dice</button>' + clockChip(room.turnDeadline);
     } else if (room.phase === 'jail') {
       html = '<button class="btn" id="abJailPay">Pay bail ' + fmtN(50000) + '</button>' +
         (actor.goojf > 0 ? '<button class="btn" id="abJailCard">' + window.icon('card', 18) + ' Use Get Out card</button>' : '') +
@@ -909,7 +1035,7 @@ function renderActionBar(room) {
       html = '<button class="btn" id="abTaxFlat">Pay flat ' + fmtN(200000) + '</button>' +
         '<button class="btn" id="abTaxPct">Pay 10%: ' + fmtN(pct) + '</button>';
     } else if (room.phase === 'end') {
-      html = '<button class="btn dark" id="abEnd">End turn' + timerSpan(room.turnDeadline) + '</button>';
+      html = '<button class="btn dark" id="abEnd">End turn</button>' + clockChip(room.turnDeadline);
     } else {
       html = '<p class="caption" style="align-self:center;">Wait small…</p>';
     }
@@ -936,11 +1062,27 @@ function renderActionBar(room) {
   if (!spectator) secHtml += '<button class="btn small ghost" id="sbTrade">' + window.icon('swap', 16) + ' ' + (room.inf ? 'Swap contract' : 'Trade') + '</button>';
   if (room.inf && !spectator) secHtml += '<button class="btn small ghost" id="sbContracts">' + window.icon('card', 16) + ' Contracts</button>';
   secHtml += '<button class="btn small ghost" id="sbGist">' + window.icon('eye', 16) + ' Game gist</button>';
+  // Lesson 11: a way out, with an honest two tap confirm. The host also
+  // carries the room ending option.
+  if (!spectator && me && !me.bankrupt && room.status === 'playing') {
+    secHtml += '<button class="btn small ghost" id="sbLeave">' + window.icon('leave', 16) + ' ' + (leaveArmed ? 'You wan give up this game? Tap again to leave.' : 'Leave game') + '</button>';
+    if (myId === room.hostId) secHtml += '<button class="btn small ghost" id="sbEndRoom">' + (endRoomArmed ? 'End the room for everybody? Tap again.' : 'End room') + '</button>';
+  }
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
   wire('sbTrade', () => openTrade());
   wire('sbContracts', () => openContracts());
   wire('sbGist', () => openGist());
+  wire('sbLeave', () => {
+    if (!leaveArmed) { leaveArmed = true; renderActionBar(room); setTimeout(() => { leaveArmed = false; if (state) renderActionBar(state); }, 4000); return; }
+    leaveArmed = false;
+    sendAs('resign', {});
+  });
+  wire('sbEndRoom', () => {
+    if (!endRoomArmed) { endRoomArmed = true; renderActionBar(room); setTimeout(() => { endRoomArmed = false; if (state) renderActionBar(state); }, 4000); return; }
+    endRoomArmed = false;
+    send('end_room', {});
+  });
 }
 // ---------------------------------------------------------------------------
 // Smart auto-end: when the turn player has nothing left to decide, the turn
@@ -1245,6 +1387,7 @@ function openMyDeeds() {
   if (!me) return;
   $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + esc(me.name) + ': your deeds</h3>' +
     '<p class="caption">Cash ' + fmtN(me.cash) + ' · Net worth ' + fmtN(me.netWorth) + ' · Bank supply: ' + room.duplexSupply + ' duplexes, ' + room.mansionSupply + ' mansions · Owambe pot ' + fmtN(room.pot) + '</p>' +
+    '<p class="caption">You fit build anytime, even when no be your turn. Open a deed to manage am.</p>' +
     '<div class="mt8">' + deedRowsFor(me.id, room, false) + '</div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
   $('listScrim').classList.add('show');
@@ -1262,7 +1405,7 @@ function openTrade() {
   if (!others.length) { toast('No living player to trade with.'); return; }
   $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + (room.inf ? 'Propose a swap contract' : 'Propose a trade') + '</h3>' +
     (room.mode === 'pass' ? '<label style="display:block;font-weight:800;font-size:12px;margin:10px 0 6px;">You dey act as</label><select class="textin" id="actAs">' + room.players.filter((p) => !p.bankrupt).map((p) => '<option value="' + p.id + '"' + (p.id === me.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>' : '') +
-    (room.inf ? '<p class="caption">For Inflation Mode, swaps na contracts: propose during your turn before you roll, or during a Deal Break. The other side gets 30 seconds to answer. If e no dey for contract board, e no happen.</p>' : '<p class="caption">Trades fit happen any time. Deeds with buildings for their set no fit trade until the buildings sell.</p>') +
+    (room.inf ? '<p class="caption">For Inflation Mode, swaps na contracts: propose anytime, except during an auction, another player debt, or a pause. The other side gets 30 seconds to answer. If e no dey for contract board, e no happen.</p>' : '<p class="caption">Trades fit happen any time. Deeds with buildings for their set no fit trade until the buildings sell.</p>') +
     '<label style="display:block;font-weight:800;font-size:12px;margin:12px 0 6px;">Trade with</label>' +
     '<select class="textin" id="tradeTo">' + others.map((p) => '<option value="' + p.id + '">' + esc(p.name) + '</option>').join('') + '</select>' +
     '<div class="trade-cols mt8"><div><b>You give</b><input class="num-in mt8" id="giveCash" type="number" min="0" placeholder="Cash ₦">' +
@@ -1373,7 +1516,7 @@ function openContracts() {
 function openGist() {
   const room = state;
   const items = (room.feed || []).slice().reverse().map((e) =>
-    '<div class="feed-item"><span class="k">' + esc(e.kind) + '</span><div>' + esc(e.text) + '</div></div>').join('') || '<p class="caption">Nothing don happen yet.</p>';
+    '<div class="feed-item"><span class="k">' + esc(e.kind) + '</span><div>' + esc((e.auto ? '(auto) ' : '') + e.text) + '</div></div>').join('') || '<p class="caption">Nothing don happen yet.</p>';
   $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">Game gist</h3><div class="mt8">' + items + '</div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
   $('listScrim').classList.add('show');
@@ -1387,13 +1530,15 @@ function renderEnd(room) {
   const o = $('endOverlay');
   if (!room.endTable) { o.classList.remove('show'); return; }
   const rows = room.endTable.map((r, idx) =>
-    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta" style="color:inherit;opacity:.75;">' + esc(r.title) + '</span>' +
+    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta" style="color:inherit;opacity:.75;">' + esc(r.title) + '</span>' +
     (r.lessons && r.lessons.length ? r.lessons.map((l) => '<span class="end-lessons">' + esc(l) + '</span>').join('') : '') +
     '</td><td>' + fmtN(r.netWorth) + '</td></tr>').join('');
   const hasReal = room.endTable.some((r) => r.realNetWorth != null);
   const realRows = hasReal ? room.endTable.slice().sort((a, b) => b.realNetWorth - a.realNetWorth).map((r) =>
     '<tr><td>' + esc(r.name) + '<br><span class="meta" style="color:inherit;opacity:.75;">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</span></td><td>' + fmtN(r.realNetWorth) + '</td></tr>').join('') : '';
   o.innerHTML = '<h2 class="headline" style="color:var(--gold);">' + esc(room.winner ? room.winner.name : '') + ' na the real landlord</h2>' +
+    (room.endReason === 'resignation' ? '<p class="caption" style="color:#ffe9c9;">Won by resignation.</p>' : '') +
+    (room.endReason === 'host' ? '<p class="caption" style="color:#ffe9c9;">The host end the room.</p>' : '') +
     '<p class="caption" style="color:#ffe9c9;opacity:.8;">THE NOMINAL TABLE: wetin the numbers talk</p>' +
     '<table class="end-table"><tr><th>Player and title</th><th>Net worth</th></tr>' + rows + '</table>' +
     (hasReal ? '<p class="caption" style="color:#ffe9c9;opacity:.8;">THE REAL TABLE: wetin the money fit buy at Phase 1 prices (cash divided by the Inflation Index ' + (room.inf ? room.inf.index : '') + 'x)</p>' +
@@ -1462,15 +1607,64 @@ document.querySelectorAll('.sheet').forEach((sh) => {
   }, { passive: true });
 });
 
-// One second ticker: countdown labels only, no full re-render.
-let lastAuctionTickSec = -1;
+// ---------------------------------------------------------------------------
+// Clock beeps (Lesson 7): every live clock that belongs to this player
+// beeps inside its last 10 seconds: soft ticks each second, firmer ticks in
+// the final 3, one final beep at zero, and the timer chip pulses with each
+// beep. One pattern for the turn timer, the Kirikiri roll prompt (same
+// deadline), auctions, deal and choice clocks. Mute governs all of it.
+// window.__kpBeeps counts fired beeps so tests can prove them without ears.
+// ---------------------------------------------------------------------------
+window.__kpBeeps = 0;
+const beepSeen = {};
+function beepTick(secsLeft, final) {
+  window.__kpBeeps += 1;
+  if (final) { tone({ f: 1760, dur: 0.09, vol: 0.07 }); tone({ f: 1760, at: 0.13, dur: 0.15, vol: 0.07 }); }
+  else if (secsLeft <= 3) tone({ f: 1560, dur: 0.06, type: 'square', vol: 0.05 });
+  else tone({ f: 1240, dur: 0.04, type: 'square', vol: 0.022 });
+}
+function pulseDeadline(endsAt) {
+  document.querySelectorAll('[data-deadline]').forEach((el) => {
+    if (Math.abs(Number(el.dataset.deadline) - endsAt) < 1600) {
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+      setTimeout(() => el.classList.remove('pulse'), 340);
+    }
+  });
+}
+function clockCandidates() {
+  const out = [];
+  const room = state;
+  if (!room || room.status !== 'playing' || spectator) return out;
+  const mine = actingId();
+  if (room.turnDeadline && (room.turnPlayerId === mine || (room.debt && room.debt.playerId === mine))) out.push({ key: 'turn', endsAt: room.turnDeadline });
+  if (room.auction) out.push({ key: 'auction', endsAt: room.auction.endsAt });
+  const pr = room.inf && room.inf.proposal;
+  if (pr && (room.mode === 'pass' || pr.to === myId)) out.push({ key: 'proposal', endsAt: pr.endsAt });
+  const ld = room.inf && room.inf.loanDecision;
+  if (ld) {
+    const c = room.inf.contracts.find((x) => x.id === ld.contractId);
+    if (c && (room.mode === 'pass' || c.lender === myId)) out.push({ key: 'loan', endsAt: ld.endsAt });
+  }
+  if (room.trade && room.trade.expiresAt && (room.mode === 'pass' || room.trade.to === myId)) out.push({ key: 'trade', endsAt: room.trade.expiresAt });
+  if (room.debt && room.debt.rescueEndsAt && room.debt.playerId === mine) out.push({ key: 'rescue', endsAt: room.debt.rescueEndsAt });
+  return out;
+}
+function runClockBeeps() {
+  if (muted || !state || state.paused) return;
+  for (const c of clockCandidates()) {
+    const s = Math.ceil((c.endsAt - Date.now()) / 1000);
+    let rec = beepSeen[c.key];
+    if (!rec || Math.abs(rec.endsAt - c.endsAt) > 1500) { rec = beepSeen[c.key] = { endsAt: c.endsAt, s: 99 }; }
+    if (s >= 1 && s <= 10 && rec.s !== s) { rec.s = s; beepTick(s, false); pulseDeadline(c.endsAt); }
+    else if (s <= 0 && rec.s !== 0) { rec.s = 0; beepTick(0, true); pulseDeadline(c.endsAt); }
+  }
+}
+
+// Ticker: countdown labels and clock beeps, no full re-render.
 setInterval(() => {
-  // Auction pressure: a tick a second under the last five seconds.
-  const auc = state && state.auction;
-  if (auc) {
-    const s = Math.ceil((auc.endsAt - Date.now()) / 1000);
-    if (s <= 5 && s >= 1 && s !== lastAuctionTickSec) { lastAuctionTickSec = s; sfx.auctionTick(); }
-  } else lastAuctionTickSec = -1;
+  runClockBeeps();
   document.querySelectorAll('[data-deadline]').forEach((el) => {
     const left = Math.max(0, Math.round((Number(el.dataset.deadline) - Date.now()) / 1000));
     el.textContent = left + 's';
@@ -1484,6 +1678,18 @@ setInterval(() => {
       const s = Math.max(0, Math.floor((state.inf.hornAt - Date.now()) / 1000));
       clk.textContent = 'Horn in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     } else clk.textContent = 'Phase open';
+  }
+  const cc = $('classicClock');
+  if (cc && state) {
+    if (state.gameEndsAt) {
+      const s = Math.max(0, Math.floor((state.gameEndsAt - Date.now()) / 1000));
+      cc.textContent = 'Game ends ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    } else cc.textContent = 'Untimed';
+  }
+  const pe = $('pauseElapsed');
+  if (pe && state && state.pausedSince) {
+    const s = Math.max(0, Math.floor((Date.now() - state.pausedSince) / 1000));
+    pe.textContent = 'Waiting don reach ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + '.';
   }
 }, 500);
 

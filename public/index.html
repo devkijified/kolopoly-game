@@ -16,7 +16,9 @@
   <div class="wordmark">KOLO<span class="gold">POLY</span></div>
   <div class="spacer"></div>
   <span class="chip hidden" id="roomChip"></span>
+  <span class="chip hidden" id="modePill"></span>
   <button class="iconbtn hidden" id="tierBtn" aria-label="Graphics quality"></button>
+  <button class="iconbtn" id="voiceBtn" aria-label="Voice payment alerts on or off"></button>
   <button class="iconbtn" id="muteBtn" aria-label="Sound on or off"></button>
 </header>
 
@@ -107,6 +109,7 @@
       <div class="toggle-row"><div class="grow"><div class="t">No rent while owner dey Kirikiri</div><div class="caption">Off by default: rent still flows to players inside.</div></div><label class="switch"><input type="checkbox" id="optNoRentJail"><span class="track"></span></label></div>
       <div class="toggle-row"><div class="grow"><div class="t">First lap, no buying</div><div class="caption">Off by default: everybody must complete one lap before any purchase.</div></div><label class="switch"><input type="checkbox" id="optFirstLap"><span class="track"></span></label></div>
       <div class="toggle-row"><div class="grow"><div class="t">Nepo / Lapo Chaos seats</div><div class="caption">Off by default, never for quick play. One seat starts rich with a free deed, one seat starts poor with first rent forgiven.</div></div><label class="switch"><input type="checkbox" id="optChaos"><span class="track"></span></label></div>
+      <div class="toggle-row"><div class="grow"><div class="t">Voice alert for payments received</div><div class="caption">On by default. When money land for a player, their phone announces am out loud: Payment received, plus the exact amount. Every player fit switch voice off for their own phone.</div></div><label class="switch"><input type="checkbox" id="optVoice" checked><span class="track"></span></label></div>
       <label for="optTimer">Turn decision timer</label>
       <select class="textin" id="optTimer">
         <option value="60" selected>60 seconds (default)</option>
@@ -177,6 +180,7 @@
 
   <aside class="game-rail">
     <div class="rail-top">
+      <div id="classicBar" class="hidden"></div>
       <div id="infBar" class="hidden"></div>
       <div class="msgbar"><span id="msgText">Welcome to Kolopoly.</span></div>
       <div class="players-strip" id="playersStrip"></div>
@@ -209,6 +213,7 @@
 <div class="scrim modal-scrim" id="cardScrim"><div class="modal-card" id="cardModal"></div></div>
 <div class="scrim modal-scrim" id="choiceScrim"><div class="modal-card" id="choiceModal"></div></div>
 <div class="scrim modal-scrim" id="proposalScrim"><div class="modal-card" id="proposalModal"></div></div>
+<div class="overlay" id="pauseOverlay"></div>
 <div class="overlay" id="countOverlay"><div class="count-num" id="countNum">3</div><p class="lead">Get ready. First roll coming.</p></div>
 <div class="overlay" id="endOverlay"></div>
 <div class="overlay" id="shareOverlay"></div>
