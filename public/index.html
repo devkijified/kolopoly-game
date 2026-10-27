@@ -146,6 +146,15 @@
     </div>
     <div class="qr-box" id="inviteQr"></div>
     <div class="lobby-stage" id="lobbyStage"><div class="lobby-stage-fallback"><span class="ls-word">KOLO<span class="gold">POLY</span></span><span class="ls-sub">Your people dey gather around the board</span></div></div>
+    <div class="bot-prompt hidden" id="botPrompt">
+      <p class="bp-title">Wanna play with bot?</p>
+      <p class="caption">Bots take real seats and play by the same rules as everybody. Add one or two make the table full.</p>
+      <div class="btnrow">
+        <button class="btn" id="botAdd1">Add 1 bot</button>
+        <button class="btn" id="botAdd2">Add 2 bots</button>
+        <button class="btn ghost" id="botNone">No bots</button>
+      </div>
+    </div>
     <div class="slots" id="slotBoard"></div>
     <div id="passAddBox" class="hidden">
       <label for="localNameIn" style="display:block;font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--ink-soft);margin-bottom:7px;">Add a player to this phone</label>
@@ -160,7 +169,7 @@
       <button class="btn block" id="startBtn">Start game</button>
       <p class="caption center mt8" id="lobbyHint"></p>
     </div>
-    <div class="center mt14"><button class="btn small ghost" id="leaveLobbyBtn">Leave room</button></div>
+    <div class="center mt14"><button class="btn small ghost hidden" id="addBotBtn">Add bot</button> <button class="btn small ghost" id="leaveLobbyBtn">Leave room</button></div>
   </div>
 </main>
 

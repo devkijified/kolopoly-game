@@ -753,11 +753,13 @@ function renderLobby(room) {
     const p = room.players[k];
     if (!p) return '<div class="slot empty">Waiting for player…</div>';
     return '<div class="slot"><div class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 22) + '</div>' +
-      '<div><div class="nm">' + esc(p.name) + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
-      '<div class="meta">' + (room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
-      (room.mode === 'pass' && myId === room.hostId && p.id !== room.hostId ? '<button class="btn small ghost" data-remove-local="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') + '</div>';
+      '<div><div class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
+      '<div class="meta">' + (p.bot ? 'Bot player · always ready' : room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
+      (room.mode === 'pass' && myId === room.hostId && p.id !== room.hostId ? '<button class="btn small ghost" data-remove-local="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') +
+      (p.bot && myId === room.hostId ? '<button class="btn small ghost" data-remove-bot="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') + '</div>';
   }).join('');
   $('slotBoard').querySelectorAll('[data-remove-local]').forEach((b) => b.addEventListener('click', () => send('remove_local_player', { playerId: Number(b.dataset.removeLocal) })));
+  $('slotBoard').querySelectorAll('[data-remove-bot]').forEach((b) => b.addEventListener('click', () => send('remove_bot', { playerId: Number(b.dataset.removeBot) })));
   $('passAddBox').classList.toggle('hidden', room.mode !== 'pass');
   const chips = [];
   if (room.settings.gameMode === 'inflation') chips.push('Phases: salary ₦200,000 → ₦100,000 → ₦50,000 → ₦25,000');
@@ -783,6 +785,14 @@ function renderLobby(room) {
     $('startBtn').style.display = 'none';
     $('lobbyHint').textContent = 'Host step out small, room go wake when e return.';
   }
+  // Bots (the owner's ask): right after the host creates a room, ask once:
+  // "Wanna play with bot?" The host can still add bots later with the Add
+  // bot button, up to 4 seats total. Pass and play rooms never see bots.
+  const canBots = room.mode !== 'pass' && isHost && room.players.length < 4;
+  let botAsked = false;
+  try { botAsked = !!sessionStorage.getItem('kolopolyBotAsked:' + room.code); } catch (e) { /* private mode */ }
+  $('botPrompt').classList.toggle('hidden', !(canBots && !botAsked && !room.players.some((p) => p.bot)));
+  $('addBotBtn').classList.toggle('hidden', !canBots);
 }
 $('copyInviteBtn').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(inviteLink()); toast('Invite link copied. Send am give your people.'); }
@@ -800,6 +810,14 @@ $('addLocalBtn').addEventListener('click', () => {
   $('localNameIn').value = '';
 });
 $('startBtn').addEventListener('click', () => send('start_game', {}));
+function dismissBotPrompt() {
+  try { if (state) sessionStorage.setItem('kolopolyBotAsked:' + state.code, '1'); } catch (e) { /* private mode */ }
+  $('botPrompt').classList.add('hidden');
+}
+$('botAdd1').addEventListener('click', () => { send('add_bot', {}); dismissBotPrompt(); });
+$('botAdd2').addEventListener('click', () => { send('add_bot', {}); setTimeout(() => send('add_bot', {}), 200); dismissBotPrompt(); });
+$('botNone').addEventListener('click', () => dismissBotPrompt());
+$('addBotBtn').addEventListener('click', () => send('add_bot', {}));
 $('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); clearSeat(); setTimeout(() => location.reload(), 250); });
 
 // ---------------------------------------------------------------------------
@@ -926,7 +944,7 @@ function renderGame(room) {
     const loanMark = room.inf && room.inf.contracts.some((c) => c.type === 'loan' && c.borrower === p.id) ? ' · loan' : '';
     return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '">' +
       '<span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 15) + '</span>' +
-      '<span><span class="nm">' + esc(p.name) + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span><br>' +
+      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span><br>' +
       '<span class="cash">' + fmtN(p.cash) + '</span><span class="meta"> · ' + p.deeds + ' deeds' + loanMark + '</span></span></div>';
   }).join('');
   // Board legal highlights for build placement
@@ -1530,7 +1548,7 @@ function renderEnd(room) {
   const o = $('endOverlay');
   if (!room.endTable) { o.classList.remove('show'); return; }
   const rows = room.endTable.map((r, idx) =>
-    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta" style="color:inherit;opacity:.75;">' + esc(r.title) + '</span>' +
+    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.bot ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta" style="color:inherit;opacity:.75;">' + esc(r.title) + '</span>' +
     (r.lessons && r.lessons.length ? r.lessons.map((l) => '<span class="end-lessons">' + esc(l) + '</span>').join('') : '') +
     '</td><td>' + fmtN(r.netWorth) + '</td></tr>').join('');
   const hasReal = room.endTable.some((r) => r.realNetWorth != null);
@@ -1538,6 +1556,7 @@ function renderEnd(room) {
     '<tr><td>' + esc(r.name) + '<br><span class="meta" style="color:inherit;opacity:.75;">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</span></td><td>' + fmtN(r.realNetWorth) + '</td></tr>').join('') : '';
   o.innerHTML = '<h2 class="headline" style="color:var(--gold);">' + esc(room.winner ? room.winner.name : '') + ' na the real landlord</h2>' +
     (room.endReason === 'resignation' ? '<p class="caption" style="color:#ffe9c9;">Won by resignation.</p>' : '') +
+    (room.endReason === 'abandoned' ? '<p class="caption" style="color:#ffe9c9;">Everybody leave the table, so the room close.</p>' : '') +
     (room.endReason === 'host' ? '<p class="caption" style="color:#ffe9c9;">The host end the room.</p>' : '') +
     '<p class="caption" style="color:#ffe9c9;opacity:.8;">THE NOMINAL TABLE: wetin the numbers talk</p>' +
     '<table class="end-table"><tr><th>Player and title</th><th>Net worth</th></tr>' + rows + '</table>' +

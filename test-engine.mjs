@@ -33,6 +33,7 @@ class Client {
         if (msg.type === 'joined') { this.playerId = msg.playerId; this.code = msg.code; }
         if (msg.type === 'state') this.state = msg.room;
         if (msg.type === 'error') this.errors.push(msg.message);
+        if (msg.type === 'test_bot_stats') this.botStats = msg.bots;
       });
     });
   }
@@ -94,6 +95,81 @@ async function passAuction(g) {
     await sleep(250);
   }
   await g.host.waitFor((s) => !s.auction, 'auction closed', 9000);
+}
+
+// ---- Bot helpers -----------------------------------------------------------
+// A room whose only human is the host; bots fill the other seats.
+async function botRoom(settings, botCount) {
+  const host = new Client('BotHost');
+  await host.connect();
+  host.send('create_room', { name: 'BotHost', token: 'danfo', mode: 'online', settings });
+  await host.waitFor((s) => s.status === 'lobby' && s.players.length === 1, 'bot room lobby');
+  for (let i = 0; i < botCount; i++) host.send('add_bot', {});
+  await host.waitFor((s) => s.players.length === 1 + botCount, 'bots seated');
+  const g = { host, code: host.state.code };
+  g.S = () => host.state;
+  g.bots = () => host.state.players.filter((p) => p.bot);
+  g.botRow = (id) => host.state.players.find((p) => p.id === id);
+  g.hook = (type, obj) => host.send(type, obj);
+  g.hold = (id, h) => host.send('test_bot_hold', { playerId: id, hold: h });
+  return g;
+}
+// Play the host seat honestly (Owambe turns, pass auctions, pay tax flat)
+// until pred(state) holds. Used to give bots room to act.
+async function driveUntil(g, pred, label, ms) {
+  const host = g.host;
+  const end = Date.now() + (ms || 25000);
+  while (Date.now() < end) {
+    const s = host.state;
+    if (s && pred(s)) return s;
+    if (s && s.status === 'playing') {
+      if (s.auction) { if (s.auction.highBidder !== host.playerId) host.send('pass_bid', {}); }
+      else if (s.turnPlayerId === host.playerId) {
+        const me = s.players.find((p) => p.id === host.playerId);
+        if (me && me.inJail) host.send('jail_roll', {});
+        else if (s.phase === 'roll') {
+          host.send('test_set_position', { playerId: host.playerId, space: 17 });
+          host.send('test_dice', { rolls: [[1, 2]] });
+          host.send('roll', {});
+        }
+        else if (s.phase === 'buy') host.send('decline', {});
+        else if (s.phase === 'tax') host.send('tax_choice', { choice: 'flat' });
+        else if (s.phase === 'end') host.send('end_turn', {});
+      }
+    }
+    await sleep(130);
+  }
+  throw new Error('driveUntil timeout: ' + label);
+}
+async function botStats(g) {
+  g.host.botStats = null;
+  g.host.send('test_bot_stats', {});
+  const end = Date.now() + 5000;
+  while (Date.now() < end) { if (g.host.botStats) return g.host.botStats; await sleep(80); }
+  throw new Error('bot stats timeout');
+}
+// Script one bot turn: drive to a host end phase, load the bot's position,
+// cash and dice, pass the turn, then wait (sequence gated) for the outcome.
+// A lagging client state can make one setup cycle miss its turn, so the
+// whole setup retries until the gated outcome lands.
+async function scriptBotTurn(g, setup, gate, label, tries) {
+  if (gate(g.S())) return;
+  let lastErr = null;
+  for (let t = 0; t < (tries || 4); t++) {
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'end', label + ' (host end, try ' + (t + 1) + ')', 30000);
+    if (gate(g.S())) return;
+    const mark = g.S().messageSeq;
+    if (setup.pos != null) g.hook('test_set_position', { playerId: setup.botId, space: setup.pos });
+    if (setup.cash != null) g.hook('test_set_cash', { playerId: setup.botId, amount: setup.cash });
+    if (setup.dice) g.hook('test_dice', { rolls: setup.dice });
+    if (setup.card) g.hook('test_card', setup.card);
+    g.host.send('end_turn', {});
+    try {
+      await g.host.waitFor((s) => s.messageSeq > mark && gate(s), label, 4500);
+      return;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('scriptBotTurn failed: ' + label);
 }
 
 // ---------------------------------------------------------------------------
@@ -775,6 +851,250 @@ try {
     check('the timeout action carries the timeout kind', e.kind === 'timeout', 'kind=' + e.kind);
     check('the auto entry names its reason', e.reason === 'turn timer', 'reason=' + e.reason);
     for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('BOT1: lobby plumbing: host only, seat cap of 4, remove, pass mode refusal');
+  {
+    const host = new Client('BotLobbyHost');
+    await host.connect();
+    host.send('create_room', { name: 'BotLobbyHost', token: 'danfo', mode: 'online', settings: { timed: false, turnTimerSec: 0 } });
+    await host.waitFor((s) => s.status === 'lobby' && s.players.length === 1, 'bot lobby');
+    const guest = new Client('BotLobbyGuest');
+    await guest.connect();
+    guest.send('join_room', { code: host.state.code, name: 'BotLobbyGuest', token: 'keke' });
+    await host.waitFor((s) => s.players.length === 2, 'guest seated');
+    guest.send('add_bot', {});
+    await sleep(300);
+    check('a guest cannot add a bot', guest.errors.some((e) => e.includes('Only the host fit add a bot')), guest.errors.join('|'));
+    check('no bot appeared from the guest try', host.state.players.every((p) => !p.bot));
+    host.send('remove_bot', { playerId: guest.playerId });
+    await sleep(200);
+    check('removing a human seat as a bot is refused', host.errors.some((e) => e.includes('That seat no be bot')), host.errors.join('|'));
+    guest.ws.close();
+    host.send('add_bot', {}); host.send('add_bot', {}); host.send('add_bot', {});
+    await sleep(500);
+    check('bots fill the room only reach 4 seats total', host.state.players.length === 4 && host.state.players.filter((p) => p.bot).length === 2, 'players=' + host.state.players.length);
+    check('the cap refusal is explained', host.errors.some((e) => e.includes('Bots fit only fill the room reach 4 seats')), host.errors.join('|'));
+    const botRow = host.state.players.find((p) => p.bot);
+    check('bot seats carry the bot flag and a BOT pool name', !!botRow && /^BOT /.test(botRow.name), botRow && botRow.name);
+    check('bot tokens are unique at the table', new Set(host.state.players.map((p) => p.token)).size === host.state.players.length);
+    host.send('remove_bot', { playerId: botRow.id });
+    await host.waitFor((s) => s.players.length === 3, 'bot removed');
+    check('the host can remove a bot before start', host.state.players.every((p) => p.id !== botRow.id));
+    host.send('add_bot', {});
+    await host.waitFor((s) => s.players.length === 4, 'bot re-added');
+    check('a removed bot seat can be filled again', host.state.players.filter((p) => p.bot).length === 2);
+    host.ws.close();
+
+    const passHost = new Client('PassHost');
+    await passHost.connect();
+    passHost.send('create_room', { name: 'PassHost', token: 'danfo', mode: 'pass', settings: { timed: false, turnTimerSec: 0 } });
+    await passHost.waitFor((s) => s.status === 'lobby', 'pass lobby');
+    passHost.send('add_bot', {});
+    await sleep(300);
+    check('pass and play rooms get no bots', passHost.errors.some((e) => e.includes('Pass and play no dey use bot')), passHost.errors.join('|'));
+    passHost.ws.close();
+  }
+
+  console.log('BOT2: three bots and one host play a timed Classic game to a winner, zero illegal bot intents');
+  {
+    const g = await botRoom({ timed: true, turnTimerSec: 30 }, 3);
+    check('host plus 1 bot is not the case here: 4 seats filled', g.S().players.length === 4);
+    g.host.send('start_game', {});
+    await g.host.waitFor((s) => s.status === 'playing', 'bot game started');
+    g.hook('test_clock', { secondsLeft: 25 });
+    const endState = await driveUntil(g, (s) => s.status === 'ended', 'bot game ends on the clock', 70000);
+    check('the bot game ran to a declared winner', !!endState.winner && !!endState.endTable, 'winner=' + JSON.stringify(endState.winner));
+    const botDeeds = g.S().players.filter((p) => p.bot).reduce((n, p) => n + p.deeds, 0);
+    check('bots bought deeds between them', botDeeds >= 1, 'botDeeds=' + botDeeds);
+    const stats = await botStats(g);
+    check('every bot stayed active all game', stats.length === 3 && stats.every((b) => b.actions >= 8), JSON.stringify(stats.map((b) => b.actions)));
+    check('zero illegal intents from any bot', stats.every((b) => b.errors.length === 0), JSON.stringify(stats.map((b) => b.errors)));
+    g.host.ws.close();
+  }
+
+  console.log('BOT3: host plus bot: scripted purchase, parallel build, Kirikiri bail plan, auction discipline');
+  {
+    const g = await botRoom({ timed: false, turnTimerSec: 0 }, 1);
+    const botId = g.bots()[0].id;
+    g.host.send('start_game', {});
+    await g.host.waitFor((s) => s.status === 'playing', 'host bot game started');
+    if (g.S().turnPlayerId === botId) {
+      await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId, 'bot free first turn', 25000);
+    }
+    g.hold(botId, true);
+    // Purchase: wrap START onto Makoko with the reserve comfortably intact.
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'end', 'host end phase for purchase', 30000);
+    g.hook('test_set_position', { playerId: botId, space: 38 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.host.send('end_turn', {});
+    await g.host.waitFor((s) => s.turnPlayerId === botId && s.phase === 'roll', 'bot roll phase', 9000);
+    g.hold(botId, false);
+    await g.host.waitFor((s) => s.props[1] && s.props[1].o === botId, 'bot buys Makoko', 9000);
+    check('bot buys an unowned landing when cash after keeps the reserve', g.S().props[1].o === botId);
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId, 'turn returns to host', 25000);
+    g.hold(botId, true);
+    // Build: a completed pink set gets a duplex while the host is playing.
+    g.hook('test_give', { playerId: botId, space: 11 });
+    g.hook('test_give', { playerId: botId, space: 13 });
+    g.hook('test_give', { playerId: botId, space: 14 });
+    g.hold(botId, false);
+    await driveUntil(g, (s) => [11, 13, 14].some((i) => s.props[i] && s.props[i].b >= 1), 'bot builds on the pink set', 30000);
+    check('bot builds evenly on its completed set using parallel management', [11, 13, 14].some((i) => g.S().props[i].b >= 1));
+    // Kirikiri: roll for doubles twice, pay bail on the third attempt.
+    const inJail = (s) => { const b = s.players.find((p) => p.id === botId); return b && b.inJail; };
+    await scriptBotTurn(g, { botId, pos: 28, dice: [[1, 1]] }, inJail, 'bot enters Kirikiri');
+    check('bot is in Kirikiri after landing on Go To Kirikiri', g.botRow(botId).inJail === true);
+    const jailDice = [[2, 3], [3, 4], [1, 2]];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const d = jailDice[attempt];
+      await scriptBotTurn(g, { botId, dice: [d] }, (s) => { const b = s.players.find((p) => p.id === botId); return s.turnPlayerId === g.host.playerId && b && b.inJail; }, 'jail attempt ' + (attempt + 1) + ' resolves', 5);
+      check('bot rolls for doubles and stays in Kirikiri on attempt ' + (attempt + 1), g.botRow(botId).inJail === true);
+    }
+    await scriptBotTurn(g, { botId, dice: [jailDice[2]] }, (s) => { const b = s.players.find((p) => p.id === botId); return b && !b.inJail; }, 'bot pays bail and walks', 5);
+    check('bot pays the Kirikiri bail on the third attempt', g.S().feed.some((e) => e.playerId === botId && e.text.includes('Kirikiri bail')), g.S().feed.map((f) => f.text).join(' | '));
+    // Auction: bot owns Mushin and Bariga, so Agege completes its set (cap 1.2x of print).
+    g.hook('test_give', { playerId: botId, space: 6 });
+    g.hook('test_give', { playerId: botId, space: 8 });
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'roll' && !s.auction, 'host roll phase for auction', 30000);
+    g.hook('test_set_position', { playerId: g.host.playerId, space: 6 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.host.send('roll', {});
+    await g.host.waitFor((s) => s.phase === 'buy' && s.turnPlayerId === g.host.playerId, 'host buy phase on Agege', 9000);
+    g.host.send('decline', {});
+    await g.host.waitFor((s) => s.auction && s.auction.highBidder === botId, 'bot leads the Agege auction', 9000);
+    const leadBid = g.S().auction.highBid;
+    check('bot bids for its set inside the 1.2x cap', leadBid >= 1000 && leadBid <= 144000, 'bid=' + leadBid);
+    g.host.send('pass_bid', {});
+    await g.host.waitFor((s) => !s.auction && s.props[9] && s.props[9].o === botId, 'bot wins Agege', 9000);
+    check('bot wins the auction and completes the lightblue set', g.S().props[9].o === botId);
+    const stats = await botStats(g);
+    check('the whole scripted game cost the bot zero server errors', stats.length === 1 && stats[0].errors.length === 0, JSON.stringify(stats));
+    g.host.ws.close();
+  }
+
+  console.log('BOT4: a Get Out of Kirikiri card is played instead of bail on the third attempt');
+  {
+    const g = await botRoom({ timed: false, turnTimerSec: 0 }, 1);
+    const botId = g.bots()[0].id;
+    g.host.send('start_game', {});
+    await g.host.waitFor((s) => s.status === 'playing', 'card game started');
+    if (g.S().turnPlayerId === botId) {
+      await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId, 'bot free first turn', 25000);
+    }
+    g.hold(botId, true);
+    g.hook('test_give', { playerId: botId, space: 13 }); // Yaba: a cash neutral landing after jail
+    // Draw the Wahala Get Out card: 34 plus [1,1] lands on 36, extra roll [1,2] to Banana Island.
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'end', 'host end phase for card draw', 30000);
+    g.hook('test_set_position', { playerId: botId, space: 34 });
+    g.hook('test_dice', { rolls: [[1, 1], [1, 2]] });
+    g.hook('test_card', { deck: 'wahala', cardId: 'w08' });
+    g.host.send('end_turn', {});
+    await g.host.waitFor((s) => s.turnPlayerId === botId && s.phase === 'roll', 'bot card roll phase', 9000);
+    g.hold(botId, false);
+    await g.host.waitFor((s) => { const b = s.players.find((p) => p.id === botId); return b && b.goojf === 1; }, 'bot holds the Get Out card', 12000);
+    check('bot drew and kept the Get Out of Kirikiri card', g.botRow(botId).goojf === 1);
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId, 'turn returns to host after card', 25000);
+    g.hold(botId, true);
+    // Into Kirikiri with the card in hand.
+    g.hold(botId, false);
+    const inJailB = (s) => { const b = s.players.find((p) => p.id === botId); return b && b.inJail; };
+    await scriptBotTurn(g, { botId, pos: 28, dice: [[1, 1]] }, inJailB, 'bot enters Kirikiri holding the card');
+    check('bot is in Kirikiri holding the card', g.botRow(botId).inJail === true && g.botRow(botId).goojf === 1);
+    const jailDice = [[2, 3], [3, 4], [1, 2]];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const d = jailDice[attempt];
+      await scriptBotTurn(g, { botId, dice: [d] }, (s) => { const b = s.players.find((p) => p.id === botId); return s.turnPlayerId === g.host.playerId && b && b.inJail; }, 'card jail attempt ' + (attempt + 1) + ' resolves', 5);
+    }
+    const cashBefore = g.botRow(botId).cash;
+    await scriptBotTurn(g, { botId, dice: [jailDice[2]] }, (s) => { const b = s.players.find((p) => p.id === botId); return b && !b.inJail && b.goojf === 0; }, 'bot plays the card and walks', 5);
+    check('bot played the Get Out card on the third attempt', g.botRow(botId).goojf === 0 && g.botRow(botId).inJail === false);
+    check('no bail was paid: the bot cash is untouched by Kirikiri', g.botRow(botId).cash === cashBefore, 'before=' + cashBefore + ' after=' + g.botRow(botId).cash);
+    g.host.ws.close();
+  }
+
+  console.log('BOT5: Inflation Phase 2: the reserve scales with the phase multiplier');
+  {
+    const g = await botRoom({ gameMode: 'inflation', preset: 'quick', timed: false, turnTimerSec: 0 }, 2);
+    const botIds = g.bots().map((p) => p.id);
+    for (const id of botIds) g.hold(id, true); // frozen before the game even starts: no first-tick race
+    g.host.send('start_game', {});
+    await g.host.waitFor((s) => s.status === 'playing', 'inflation bot game started');
+    g.hook('test_phase', { phase: 2 });
+    // The first bot whose turn arrives is the subject; the other is a filler.
+    await driveUntil(g, (s) => botIds.includes(s.turnPlayerId) && s.phase === 'roll', 'a bot roll phase arrives', 30000);
+    const subject = g.S().turnPlayerId;
+    const filler = botIds.find((id) => id !== subject);
+    // Phase 2 reserve is 250000 x 2.53 = 632500. Cash 800000 buys a 100000 street.
+    g.hook('test_set_cash', { playerId: subject, amount: 800000 });
+    g.hook('test_set_position', { playerId: subject, space: 3 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.hold(subject, false);
+    await g.host.waitFor((s) => s.props[6] && s.props[6].o === subject, 'subject buys Mushin in Phase 2', 9000);
+    check('Phase 2: bot buys when cash after keeps the phase scaled reserve', g.S().props[6].o === subject);
+    // Let the subject finish, then walk turns until the subject rolls again.
+    await g.host.waitFor((s) => s.turnPlayerId !== subject, 'subject turn done', 12000);
+    g.hold(subject, true);
+    {
+      const end = Date.now() + 45000;
+      let scripted = false;
+      while (Date.now() < end && !scripted) {
+        const s = g.S();
+        if (s.turnPlayerId === subject && s.phase === 'roll') {
+          // Pick an unowned street priced 100000 or more, no START wrap.
+          const target = [8, 9, 11, 13, 14, 16, 18, 19].find((i) => { const pr = s.props[i]; return !pr || !pr.o; });
+          if (target == null) throw new Error('no decline target street left');
+          g.hook('test_set_cash', { playerId: subject, amount: 700000 });
+          g.hook('test_set_position', { playerId: subject, space: target - 3 });
+          g.hook('test_dice', { rolls: [[1, 2]] });
+          g.hold(subject, false);
+          g.declineTarget = target;
+          scripted = true;
+          break;
+        }
+        if (s.turnPlayerId === filler) g.hold(filler, false); else g.hold(filler, true);
+        if (s.auction) { if (s.auction.highBidder !== g.host.playerId) g.host.send('pass_bid', {}); }
+        else if (s.turnPlayerId === g.host.playerId) {
+          if (s.phase === 'roll') {
+            g.host.send('test_set_position', { playerId: g.host.playerId, space: 17 });
+            g.host.send('test_dice', { rolls: [[1, 2]] });
+            g.host.send('roll', {});
+          }
+          else if (s.phase === 'buy') g.host.send('decline', {});
+          else if (s.phase === 'tax') g.host.send('tax_choice', { choice: 'flat' });
+          else if (s.phase === 'end') g.host.send('end_turn', {});
+        }
+        await sleep(120);
+      }
+      if (!scripted) throw new Error('subject second turn never arrived');
+    }
+    const target = g.declineTarget;
+    await g.host.waitFor((s) => s.auction && s.auction.space === target, 'subject declines and the street goes to auction', 12000);
+    check('Phase 2: bot declines a buy that would break the scaled reserve (it would have bought at Classic reserve)', true);
+    for (let r = 0; r < 30 && g.S().auction; r++) { g.host.send('pass_bid', {}); await sleep(250); }
+    const stats = await botStats(g);
+    check('inflation bots also finish with zero server errors', stats.every((b) => b.errors.length === 0), JSON.stringify(stats.map((b) => b.errors)));
+    g.host.ws.close();
+  }
+
+  console.log('BOT6: when every human leaves a started bot game, the game ends and the room closes');
+  {
+    const g = await botRoom({ timed: false, turnTimerSec: 0 }, 1);
+    g.host.send('start_game', {});
+    await g.host.waitFor((s) => s.status === 'playing', 'leave game started');
+    const code = g.code;
+    g.host.ws.close();
+    await sleep(1200);
+    const mid = await (await fetch('http://127.0.0.1:' + PORT + '/api/room/' + code)).json();
+    check('the room survives inside the grace window, pause behaviour intact', mid.exists === true, JSON.stringify(mid));
+    const deadline = Date.now() + 10000;
+    let gone = false;
+    while (Date.now() < deadline) {
+      const r = await (await fetch('http://127.0.0.1:' + PORT + '/api/room/' + code)).json();
+      if (!r.exists) { gone = true; break; }
+      await sleep(300);
+    }
+    check('after grace the room closes: bots never play alone', gone);
   }
 } catch (err) {
   failures += 1;

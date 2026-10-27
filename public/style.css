@@ -194,6 +194,17 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .qr-box { display: flex; justify-content: center; padding: 8px 0; }
 .qr-box svg { width: 148px; height: 148px; }
 .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 14px 0; }
+.bot-prompt {
+  margin: 14px 0 0; padding: 14px; border-radius: 16px;
+  background: #fff3d1; border: 1px solid var(--gold);
+}
+.bot-prompt .bp-title { font-family: 'Aeonik Pro', sans-serif; font-weight: 700; font-size: var(--fs-lead); margin-bottom: 4px; }
+.bot-prompt .btnrow { margin-top: 10px; }
+.bot-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 999px;
+  background: var(--ink); color: var(--gold);
+  font-size: var(--fs-meta); font-weight: 800; letter-spacing: 0.6px; vertical-align: 2px;
+}
 .slot {
   display: flex; align-items: center; gap: 10px; padding: 11px 12px;
   background: var(--card); border: 1px solid var(--line); border-radius: 15px; min-height: 58px;

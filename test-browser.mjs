@@ -572,6 +572,46 @@ try {
   await N.waitForFunction(() => !document.querySelector('#pauseOverlay').classList.contains('show'), { timeout: 15000, polling: 250 }).catch(() => {});
   check('the pause overlay clears when the player returns', await N.evaluate(() => !document.querySelector('#pauseOverlay').classList.contains('show')));
   await N.close(); await O.close();
+
+  console.log('B8: the bot prompt: create a room, add a bot, start, and the bot plays unaided');
+  const BP = await newPage('BP');
+  await BP.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(BP, 'Bisi');
+  await BP.click('#createBtn');
+  await waitState(BP, (s) => s.status === 'lobby', 'BP in lobby');
+  await BP.waitForFunction(() => { const el = document.querySelector('#botPrompt'); return el && !el.classList.contains('hidden') && el.textContent.includes('Wanna play with bot?'); }, { timeout: 12000, polling: 200 }).catch(() => {});
+  check('creating a room shows the "Wanna play with bot?" prompt card', await BP.evaluate(() => { const el = document.querySelector('#botPrompt'); return !!el && !el.classList.contains('hidden') && el.textContent.includes('Wanna play with bot?'); }));
+  await BP.screenshot({ path: SHOTS + 'kp7-botprompt.png' });
+  await clickId(BP, 'botAdd1');
+  await waitState(BP, (s) => s.players.length === 2 && s.players.some((p) => p.bot), 'bot seated in the lobby', 12000);
+  check('tapping Add 1 bot seats a bot right away', (await S(BP)).players.filter((p) => p.bot).length === 1);
+  check('the lobby slot carries a clear BOT tag', await BP.evaluate(() => !!document.querySelector('#slotBoard .bot-tag')));
+  await BP.screenshot({ path: SHOTS + 'kp7-lobby-bot.png' });
+  check('host plus one bot is startable', await BP.evaluate(() => !document.getElementById('startBtn').disabled));
+  await BP.click('#startBtn');
+  await waitState(BP, (s) => s.status === 'playing', 'bot game playing', 15000);
+  const stB8 = await S(BP);
+  const botId8 = stB8.players.find((p) => p.bot).id;
+  const hostId8 = stB8.hostId;
+  let botMoved = false;
+  const driveEnd8 = Date.now() + 60000;
+  while (Date.now() < driveEnd8) {
+    const st = await S(BP);
+    if (!st || st.status !== 'playing') break;
+    const b = st.players.find((p) => p.id === botId8);
+    if (b && (b.position !== 0 || b.deeds > 0 || b.cash !== 1500000)) { botMoved = true; break; }
+    if (st.auction) { if (st.auction.highBidder !== hostId8) await send(BP, 'pass_bid', {}); }
+    else if (st.turnPlayerId === hostId8) {
+      if (st.phase === 'roll') { await send(BP, 'test_set_position', { playerId: hostId8, space: 17 }); await send(BP, 'test_dice', { rolls: [[1, 2]] }); await send(BP, 'roll', {}); }
+      else if (st.phase === 'buy') await send(BP, 'decline', {});
+      else if (st.phase === 'tax') await send(BP, 'tax_choice', { choice: 'flat' });
+      else if (st.phase === 'jail') await send(BP, 'jail_roll', {});
+      else if (st.phase === 'end') await send(BP, 'end_turn', {});
+    }
+    await sleep(250);
+  }
+  check('the bot completes its first turn unaided and the board state advances', botMoved);
+  await BP.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

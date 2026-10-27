@@ -9,7 +9,9 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const { EventEmitter } = require('events');
 const D = require('./public/game-data.js');
+const { BotBrain, BOT_NAMES } = require('./bot.js');
 
 const PORT = process.env.PORT || 4173;
 const TEST = process.env.KP_TEST === '1';
@@ -269,6 +271,7 @@ function newPlayer(name, token, colorIdx) {
     everMortgaged: false, kirikiriTrips: 0, lastRentReceived: 0,
     rentsReceived: 0, rentsPaid: 0, finesPaid: [], shield: false,
     chaosRole: null, firstRentForgiven: false, local: false,
+    bot: false, botBrain: null,
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
     peakCash: D.START_CASH, purchases: [], salaryNote2: false,
     resigned: false
@@ -393,7 +396,7 @@ function publicRoom(room) {
     feed: room.feed.slice(-14),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
-      isHost: p.id === room.hostId, cash: p.cash, position: p.position,
+      isHost: p.id === room.hostId, bot: !!p.bot, cash: p.cash, position: p.position,
       inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
       sapa: room.inf ? sapaFor(room, p) : null,
@@ -895,7 +898,11 @@ function endTurn(room) {
 function updatePause(room) {
   if (room.mode === 'pass') { room.paused = false; room.pauseSince = null; room.pauseClockMs = null; return; }
   const was = room.paused;
-  room.paused = room.status === 'playing' && connectedSolvent(room).length < 2;
+  // Bots wait like everyone else: a table whose humans have all stepped
+  // away pauses even when two bot seats are still "connected".
+  const noHumanSeated = room.players.some((p) => p.bot)
+    && !room.players.some((p) => !p.bot && p.connected && !p.bankrupt);
+  room.paused = room.status === 'playing' && (connectedSolvent(room).length < 2 || noHumanSeated);
   if (room.paused && !was) {
     // Lesson 14: the pause speaks. Record when it started and the frozen
     // turn clock value so the waiting card can show both honestly.
@@ -987,7 +994,7 @@ function endGame(room, winner, why) {
   room.status = 'ended';
   room.winner = { playerId: winner.id, name: winner.name };
   room.endTable = room.players.map((p) => ({
-    playerId: p.id, name: p.name, token: p.token, color: p.color,
+    playerId: p.id, name: p.name, token: p.token, color: p.color, bot: !!p.bot,
     netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt, resigned: !!p.resigned,
     title: titlesFor(room, p, winner)
   })).sort((a, b) => b.netWorth - a.netWorth);
@@ -1578,12 +1585,27 @@ function manageAllowed(room, player) {
 setInterval(() => {
   // Room hygiene (Lesson 1): a room with no connected player survives the
   // grace window, then dies. Any connection clears the clock (bindSeat and
-  // the entry paths also clear it directly).
+  // the entry paths also clear it directly). Bots are permanently connected
+  // but they are not people: only HUMANS hold a room open. When every human
+  // has left a started game past the grace window, the game ends on the
+  // spot (richest seat wins) and the room closes: bots never play alone.
   for (const room of [...rooms.values()]) {
     if (room.mode === 'pass') continue;
-    if (room.players.some((p) => p.connected)) { room.emptyAt = null; continue; }
+    if (room.players.some((p) => p.connected && !p.bot)) { room.emptyAt = null; continue; }
     if (room.emptyAt == null) room.emptyAt = now();
-    if (now() - room.emptyAt >= ROOM_GRACE_MS) rooms.delete(room.code);
+    if (now() - room.emptyAt >= ROOM_GRACE_MS) {
+      if (room.status === 'playing' && room.players.some((p) => p.bot)) {
+        const alive = solventPlayers(room);
+        if (alive.length) {
+          const winner = alive.slice().sort((a, b) => netWorth(room, b) - netWorth(room, a) || b.cash - a.cash)[0];
+          room.endReason = 'abandoned';
+          endGame(room, winner, 'Everybody don leave the table. The room don close.');
+          broadcast(room);
+        }
+      }
+      for (const p of room.players) if (p.botBrain) p.botBrain.kill();
+      rooms.delete(room.code);
+    }
   }
   for (const room of rooms.values()) {
     if (room.status !== 'playing' || room.paused) continue;
@@ -1764,7 +1786,39 @@ function pickToken(room, wanted) {
 }
 function cleanName(v) { return String(v || '').trim().slice(0, 20); }
 
-wss.on('connection', (ws) => {
+// Bots (the owner's ask): a bot is a real seat driven by a BotBrain through
+// a fake socket, playing the same intents a human client sends. Bots fill a
+// room to at most BOT_SEAT_CAP seats so a table always stays human led.
+const BOT_SEAT_CAP = 4;
+function spawnBot(room) {
+  const usedNames = new Set(room.players.map((p) => p.name));
+  const name = BOT_NAMES.find((n) => !usedNames.has(n)) || ('BOT ' + room.players.length);
+  const player = newPlayer(name, pickToken(room, null), room.players.length);
+  player.bot = true;
+  player.connected = true;
+  const fake = new EventEmitter();
+  fake.readyState = 1;
+  fake.__bot = true;
+  fake.__botPlayer = player;
+  const brain = new BotBrain({
+    playerId: player.id,
+    test: TEST,
+    send: (obj) => { if (fake.readyState === 1) fake.emit('message', Buffer.from(JSON.stringify(obj))); }
+  });
+  player.botBrain = brain;
+  fake.send = (data) => brain.handleRaw(data);
+  fake.close = () => {
+    if (fake.readyState === 3) return;
+    fake.readyState = 3;
+    brain.kill();
+    fake.emit('close');
+  };
+  handleConnection(fake);
+  fake.emit('message', Buffer.from(JSON.stringify({ type: 'bot_attach', code: room.code })));
+  return room.players.some((p) => p.id === player.id) ? player : null;
+}
+
+function handleConnection(ws) {
   const ctx = { player: null, room: null, spectator: false };
   function send(obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
   function fail(t) { send({ type: 'error', message: t }); }
@@ -1814,7 +1868,32 @@ wss.on('connection', (ws) => {
       if (msg.type === 'test_horn_in') { if (room.inf) room.inf.hornAt = now() + Number(msg.seconds) * 1000; }
       if (msg.type === 'test_deadline_in') { room.turnDeadline = now() + Number(msg.seconds) * 1000; }
       if (msg.type === 'test_set_supply') { if (msg.duplex != null) room.duplexSupply = Number(msg.duplex); if (msg.mansion != null) room.mansionSupply = Number(msg.mansion); }
+      if (msg.type === 'test_bot_stats') {
+        send({ type: 'test_bot_stats', bots: room.players.filter((p) => p.bot).map((p) => ({ id: p.id, name: p.name, actions: p.botBrain ? p.botBrain.actions : 0, errors: p.botBrain ? p.botBrain.errors.slice() : ['no brain'] })) });
+        return;
+      }
+      if (msg.type === 'test_bot_hold') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p && p.botBrain) p.botBrain.hold = !!msg.hold; broadcast(room); return; }
       broadcast(room);
+      return;
+    }
+
+    // ---- Bot attach (server spawned sockets only) -------------------------
+    // A real client can never set ws.__bot: that flag lives on the fake
+    // socket object the server itself created in spawnBot.
+    if (msg.type === 'bot_attach') {
+      if (!ws.__bot || !ws.__botPlayer) return fail('Bots only enter when the server sends them.');
+      const target = rooms.get(String(msg.code || '').trim().toUpperCase());
+      const player = ws.__botPlayer;
+      if (!target || target.mode === 'pass' || target.status !== 'lobby' || target.players.some((p) => p.id === player.id)) {
+        send({ type: 'rejoin_failed' });
+        return;
+      }
+      target.players.push(player);
+      player.ws = ws;
+      ctx.room = target; ctx.player = player; ctx.spectator = false;
+      setMessage(target, player.name + ' don join the room.');
+      send({ type: 'joined', playerId: player.id, code: target.code, token: player.reconnectToken });
+      broadcast(target);
       return;
     }
 
@@ -1938,6 +2017,29 @@ wss.on('connection', (ws) => {
     if (msg.type === 'remove_local_player') {
       if (room.mode !== 'pass' || room.status !== 'lobby') return fail('You fit only remove local players before the game starts.');
       room.players = room.players.filter((p) => p.id !== Number(msg.playerId) || p.id === room.hostId);
+      broadcast(room);
+      return;
+    }
+    if (msg.type === 'add_bot') {
+      if (!ctx.player || ctx.player.id !== room.hostId) return fail('Only the host fit add a bot.');
+      if (room.mode === 'pass') return fail('Pass and play no dey use bot. Na una dey the same phone.');
+      if (room.status !== 'lobby') return fail('Bots fit only join before the game starts.');
+      if (room.players.length >= BOT_SEAT_CAP) return fail('Bots fit only fill the room reach ' + BOT_SEAT_CAP + ' seats.');
+      const bot = spawnBot(room);
+      if (!bot) return fail('The bot no fit enter this room.');
+      return; // bot_attach already broadcast the new seat
+    }
+    if (msg.type === 'remove_bot') {
+      if (!ctx.player || ctx.player.id !== room.hostId) return fail('Only the host fit remove a bot.');
+      if (room.status !== 'lobby') return fail('Bots fit only comot before the game starts.');
+      const target = room.players.find((p) => p.id === Number(msg.playerId));
+      if (!target || !target.bot) return fail('That seat no be bot.');
+      const sock = target.ws;
+      if (sock) sock.__detached = true; // its close handler stays out of this
+      if (target.botBrain) target.botBrain.kill();
+      room.players = room.players.filter((p) => p.id !== target.id);
+      if (sock) { try { sock.close(); } catch (e) { /* already gone */ } }
+      setMessage(room, target.name + ' don comot for the room.');
       broadcast(room);
       return;
     }
@@ -2379,6 +2481,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
+    if (ws.__detached) return; // a bot seat the host removed on purpose
     const room = ctx.room;
     if (!room) return;
     if (ctx.spectator) { room.spectators.delete(ws); return; }
@@ -2392,18 +2495,21 @@ wss.on('connection', (ws) => {
     // Lesson 1: in the lobby the host seat is held, not migrated: the room
     // is waiting for its host, and guests see the hostAway state.
     if (room.status !== 'lobby' && room.hostId === me.id) {
-      const next = room.players.find((p) => p.connected && !p.bankrupt) || room.players.find((p) => p.connected);
+      const next = room.players.find((p) => p.connected && !p.bot && !p.bankrupt)
+        || room.players.find((p) => p.connected && !p.bankrupt)
+        || room.players.find((p) => p.connected);
       if (next) room.hostId = next.id;
     }
     updatePause(room);
-    if (!room.players.some((p) => p.connected)) {
-      // Nobody is here: start the grace clock instead of deleting. The
+    if (!room.players.some((p) => p.connected && !p.bot)) {
+      // No human is here: start the grace clock instead of deleting. The
       // interval reaps the room when the window passes (ROOM_GRACE_MS).
       room.emptyAt = now();
     }
     broadcast(room);
   });
-});
+}
+wss.on('connection', handleConnection);
 
 server.listen(PORT, () => {
   console.log('Kolopoly listening on port ' + PORT);
