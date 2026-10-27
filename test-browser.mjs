@@ -601,7 +601,7 @@ try {
   check('the bot completes its first turn unaided and the board state advances', botMoved);
   await BP.close();
 
-  console.log('B9: KP10 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact, no rotate hint, Classic bar or view toggle, match clock in the header chip, square full-bleed stage with the rim filling it, icon utility bar');
+  console.log('B9: KP11 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact, no rotate hint, Classic bar or view toggle, match clock in the header chip, tall stage restored, frame assembly deleted, the tile ring filling its box at 100 percent on both axes, icon utility bar');
   const overflowOf = (page) => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
   for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844]]) {
     const MP = await newPage(tag);
@@ -664,32 +664,36 @@ try {
       lb: b.querySelector('.u-lb') ? getComputedStyle(b.querySelector('.u-lb')).fontSize : ''
     })));
     check(tag + ' game: every utility button carries an inline icon and an 11px label', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px'), JSON.stringify(ubar));
-    // KP10: the stage IS the board. A square, as tall as it is wide, so
-    // zero stage background can pad the game above or below the board,
-    // and no view toggle exists to bring any other framing back.
+    // KP11: the tall stage is restored (the KP10 square is gone), the
+    // frame assembly (table, platform, rim) is deleted from the scene,
+    // and the tile ring itself fills the box: the layout is built from
+    // the box's own aspect and the camera fits the ring's slab-box
+    // silhouette at exactly 100 percent on both axes. The span checks
+    // keep only a sub-percent allowance for pixel rounding and the
+    // camera settle; the design target is 100/100.
     const stageDims = await MP.evaluate(() => { const s = document.querySelector('.game-stage'); return { w: s.clientWidth, h: s.clientHeight, ih: window.innerHeight }; });
-    console.log('    ' + tag + ' stage: ' + JSON.stringify(stageDims));
-    check(tag + ' game: the stage is square, height within 10px of width', Math.abs(stageDims.h - stageDims.w) <= 10, JSON.stringify(stageDims));
+    console.log('    ' + tag + ' stage: ' + JSON.stringify(stageDims) + ' share ' + (stageDims.h / stageDims.ih * 100).toFixed(1) + '% of screen height');
+    if (W === 390) check('390 game: the tall stage holds at least 58 percent of the screen height', stageDims.h / stageDims.ih >= 0.58, JSON.stringify(stageDims));
     check(tag + ' game: no view toggle element exists', await MP.evaluate(() => !document.getElementById('fullBoardBtn') && !document.querySelector('.board-tools')));
-    // KP10: the board fills its square. Poll the rim's projected pixel
-    // size off the live 3D camera until the settle glide lands (two
-    // reads within 3px): the rig's software GL runs the camera damping
-    // in capped steps, so a fixed sleep reads mid-glide.
+    check(tag + ' game: no frame meshes (table, platform, rim) exist in the scene graph', await MP.evaluate(() => { const d = window.KP3D && window.KP3D.debug ? window.KP3D.debug() : null; return !!d && d.frameMeshes === 0; }));
+    // Poll the ring's projected pixel size off the live 3D camera until
+    // the settle glide lands (two reads within 3px on BOTH axes): the
+    // rig's software GL runs the camera damping in capped steps, so a
+    // fixed sleep reads mid-glide.
     let probe = null;
     {
-      let prevW = -1;
+      let prevW = -1, prevH = -1;
       const end = Date.now() + 25000;
       while (Date.now() < end) {
         probe = await MP.evaluate(() => window.KP3D && window.KP3D.boardProbePx ? window.KP3D.boardProbePx() : null);
-        if (probe && Math.abs(probe.rimWidthPx - prevW) <= 3) break;
-        if (probe) prevW = probe.rimWidthPx;
+        if (probe && Math.abs(probe.rimWidthPx - prevW) <= 3 && Math.abs(probe.rimHeightPx - prevH) <= 3) break;
+        if (probe) { prevW = probe.rimWidthPx; prevH = probe.rimHeightPx; }
         await sleep(700);
       }
     }
     console.log('    ' + tag + ' board probe (settled): ' + JSON.stringify(probe));
-    if (W === 390) check('390 game: the full-board rim renders at least 355px wide', !!probe && probe.rimWidthPx >= 355, JSON.stringify(probe));
-    if (W === 360) check('360 game: the full-board rim renders at least 345px wide', !!probe && probe.rimWidthPx >= 345, JSON.stringify(probe));
-    check(tag + ' game: the rim height matches its width within 12px, so the board fills its square', !!probe && Math.abs(probe.rimHeightPx - probe.rimWidthPx) <= 12, JSON.stringify(probe));
+    check(tag + ' game: the tile ring spans at least 99.5 percent of the box width (design target 100)', !!probe && probe.rimWPct >= 99.5, JSON.stringify(probe));
+    check(tag + ' game: the tile ring spans at least 99.5 percent of the box height (design target 100)', !!probe && probe.rimHPct >= 99.5, JSON.stringify(probe));
     await MP.close();
   }
 } catch (err) {

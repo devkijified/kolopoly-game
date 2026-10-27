@@ -16,11 +16,29 @@ function gridPos(i) {
   if (i <= 30) return { row: 1, col: i - 19 };
   return { row: i - 29, col: 11 };
 }
+// KP11: the 2D board obeys the same law as the 3D one: its canvas fills
+// the presentation box and the track spreads over the box's rectangle.
+// Corners stay 1.6 x 1.6; a tall box pours extra depth into the middle
+// rows, a wide box pours extra width into the middle columns. The DOM
+// fills its box exactly, so no camera correction applies here.
+let L2D = { TW: TOTALW, TD: TOTALW, colX: COLW.slice(), rowD: COLW.slice() };
+function trackLayout2D(boxAspect) {
+  let TW, TD;
+  if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect; }
+  else { TD = TOTALW; TW = TOTALW / boxAspect; }
+  const wm = (TW - 3.2) / 9, dm = (TD - 3.2) / 9;
+  const colX = [], rowD = [];
+  for (let k = 0; k < 11; k++) {
+    colX.push(k === 0 || k === 10 ? 1.6 : wm);
+    rowD.push(k === 0 || k === 10 ? 1.6 : dm);
+  }
+  return { TW, TD, colX, rowD };
+}
 function spaceCenter(i) {
   const { row, col } = gridPos(i);
-  let px = 0; for (let c = 1; c < col; c++) px += COLW[c - 1];
-  let py = 0; for (let r = 1; r < row; r++) py += COLW[r - 1];
-  return { x: (px + COLW[col - 1] / 2) / TOTALW, y: (py + COLW[row - 1] / 2) / TOTALW };
+  let px = 0; for (let c = 1; c < col; c++) px += L2D.colX[c - 1];
+  let py = 0; for (let r = 1; r < row; r++) py += L2D.rowD[r - 1];
+  return { x: (px + L2D.colX[col - 1] / 2) / L2D.TW, y: (py + L2D.rowD[row - 1] / 2) / L2D.TD };
 }
 const TOKEN_SLOTS = [[-0.021, -0.021], [0.021, -0.021], [-0.021, 0.021], [0.021, 0.021], [0, -0.033], [0, 0.033]];
 
@@ -101,7 +119,22 @@ const KPBoard = {
   lastState: null,
   lastDiceKey: null,
 
+  // Fit the grid templates to the board element's own box (KP11): the
+  // track rectangle follows the box, so the DOM board fills it edge to
+  // edge just like the 3D one. No-ops until the element has a real size
+  // and whenever the aspect class has not changed.
+  fitLayout() {
+    const el = this.boardEl;
+    if (!el || !el.clientWidth || !el.clientHeight) return;
+    const L = trackLayout2D(el.clientHeight / el.clientWidth);
+    if (Math.abs(L.TD / L.TW - L2D.TD / L2D.TW) < 0.012 && Math.abs(L.TW - L2D.TW) < 0.05) return;
+    L2D = L;
+    el.style.gridTemplateColumns = L.colX.map((v) => v.toFixed(4) + 'fr').join(' ');
+    el.style.gridTemplateRows = L.rowD.map((v) => v.toFixed(4) + 'fr').join(' ');
+  },
+
   build(boardEl) {
+    this.boardEl = boardEl;
     boardEl.innerHTML = '';
     this.els = [];
     for (let i = 0; i < 40; i++) {
@@ -157,6 +190,7 @@ const KPBoard = {
   },
 
   render(state) {
+    this.fitLayout();
     this.lastState = state;
     const byId = {};
     for (const p of state.players) byId[p.id] = p;
@@ -490,5 +524,9 @@ function wrapText(x, text, cx, y, maxW, lh) {
 }
 window.KPBoard = KPBoard;
 window.addEventListener('resize', () => {
-  if (KPBoard.lastState) KPBoard.applyCamera(KPBoard.lastState);
+  KPBoard.fitLayout();
+  if (KPBoard.lastState) {
+    KPBoard.applyCamera(KPBoard.lastState);
+    KPBoard.renderTokens(KPBoard.lastState);
+  }
 });

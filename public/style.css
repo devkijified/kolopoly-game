@@ -710,8 +710,13 @@ select.textin { appearance: none; }
     display: grid; grid-template-columns: minmax(0, 1fr) var(--rail-w);
     height: calc(100dvh - var(--topbar-h));
   }
-  .game-stage { display: flex; align-items: center; justify-content: center; padding: 10px; padding-left: max(10px, env(safe-area-inset-left)); min-width: 0; }
-  .board-outer { width: min(100%, calc(100dvh - var(--topbar-h) - 20px)); max-width: none; }
+  /* KP11: the landscape board fills its whole stage box beside the
+     rail, edge to edge, same law as portrait: no stage padding inside
+     the box, no wrap frame, no square cap on the outer. */
+  .game-stage { display: flex; align-items: stretch; justify-content: center; padding: 0; padding-left: env(safe-area-inset-left); min-width: 0; }
+  .board-outer { flex: 1 1 auto; width: 100%; height: 100%; max-width: none; margin: 0; }
+  .board-wrap { --frame: 0px; padding: 0; border-radius: 0; box-shadow: none; background: none; aspect-ratio: auto; height: 100%; }
+  .board { border-radius: 0; }
   .game-rail {
     padding-bottom: 0; padding-right: env(safe-area-inset-right); height: 100%; min-height: 0;
     border-left: 1px solid var(--line);
@@ -911,20 +916,23 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .topbar .iconbtn { width: 34px; height: 34px; border-radius: 10px; }
   .topbar .iconbtn svg { width: 18px; height: 18px; }
 
-  /* Game: [stage is the board] [rail scrolls in what is left] [dock
-     pinned]. KP9 took the stage full-bleed; KP10 makes it SQUARE and
-     final: one view only, the full board, so the stage is exactly as
-     tall as it is wide, the board's own silhouette is the whole picture
-     edge to edge on all four sides, and zero stage background shows
-     around it. No side padding, no wrap frame, no rounded bezel. The
-     rail flexes to absorb whatever height the square leaves, so the
-     dock stays pinned at the bottom. The board is held, not shrinked. */
+  /* Game: [tall stage] [rail at natural height] [dock pinned]. KP11
+     restores the tall stage (about 60 to 65 percent of the screen) that
+     KP10's square stage broke, and the board itself fills that tall
+     box: the stage flex-grows into every leftover pixel of height, the
+     wrap fills it completely, and the track is laid out as the box's
+     own rectangle (board3d trackLayout, board.js fitLayout), edge to
+     edge on all four sides, zero frame, zero padding, nothing left
+     over. The rail takes its natural height under the stage and
+     scrolls internally if it must; the dock stays pinned at the
+     bottom. One view only. */
   #view-game.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
-  .game-stage { order: 1; flex: 0 0 auto; padding: 0; display: flex; flex-direction: column; }
+  .game-stage { order: 1; flex: 1 1 0%; min-height: 0; padding: 0; display: flex; flex-direction: column; }
   .game-rail { display: contents; }
-  .board-outer { flex: 0 0 auto; width: 100%; max-width: none; margin: 0; display: flex; }
-  .board-wrap { flex: 0 0 auto; width: 100%; aspect-ratio: 1 / 1; --frame: 0px; padding: 0; border-radius: 0; box-shadow: none; }
-  .rail-top { order: 2; flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
+  .board-outer { flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; display: flex; }
+  .board-wrap { flex: 1 1 auto; width: 100%; aspect-ratio: auto; --frame: 0px; padding: 0; border-radius: 0; box-shadow: none; background: none; }
+  .board { border-radius: 0; }
+  .rail-top { order: 2; flex: 0 1 auto; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
   .rail-top > .caption { display: none; }
   .walletbar { order: 3; position: static; flex: 0 0 auto; width: 100%; padding: 8px var(--sp-3) calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 18px rgba(43, 32, 24, 0.07); }
   .wallet-inner { max-width: none; }

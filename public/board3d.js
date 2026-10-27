@@ -72,11 +72,38 @@ function gridPos(i) {
   if (i <= 30) return { row: 1, col: i - 19 };
   return { row: i - 29, col: 11 };
 }
-function tileRect(i) {
+function tileRect(i, L) {
+  const g = L || { TW: TOTALW, TD: TOTALW, colX: COLW, rowD: COLW };
   const { row, col } = gridPos(i);
-  let x = 0; for (let c = 1; c < col; c++) x += COLW[c - 1];
-  let z = 0; for (let r = 1; r < row; r++) z += COLW[r - 1];
-  return { x: x - TOTALW / 2, z: z - TOTALW / 2, w: COLW[col - 1], d: COLW[row - 1] };
+  let x = 0; for (let c = 1; c < col; c++) x += g.colX[c - 1];
+  let z = 0; for (let r = 1; r < row; r++) z += g.rowD[r - 1];
+  return { x: x - g.TW / 2, z: z - g.TD / 2, w: g.colX[col - 1], d: g.rowD[row - 1] };
+}
+// KP11: the board is a rectangle built from the presentation box itself.
+// There is no plinth, platform, rim or table under the tile ring: the
+// ring's own outer edge is the board's silhouette, and the layout spreads
+// the track over a footprint whose depth-to-width ratio equals the box
+// aspect (corrected for the fitted camera's elevation, so the projected
+// silhouette binds both box axes at once at 100 percent). Corners stay
+// square (1.6 x 1.6) in every layout: a tall box pours its extra depth
+// into the nine middle rows (near/far tiles keep their depth, side tiles
+// gain length); a wide box pours its extra width into the nine middle
+// columns (side tiles keep their width, near/far tiles gain breadth).
+// Tile local depth (lz) is 1.6 in every layout, so only local width (lx)
+// varies, and tile face textures are generated for the tile's own lx.
+function trackLayout(boxAspect) {
+  const camAspect = 1 / boxAspect;
+  const sinEl = camAspect < 1.2 ? 0.99862 : 0.95083; // fullDir depth factors: 87 or 71.9 degrees
+  let TW, TD;
+  if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
+  else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
+  const wm = (TW - 3.2) / 9, dm = (TD - 3.2) / 9;
+  const colX = [], rowD = [];
+  for (let k = 0; k < 11; k++) {
+    colX.push(k === 0 || k === 10 ? 1.6 : wm);
+    rowD.push(k === 0 || k === 10 ? 1.6 : dm);
+  }
+  return { TW, TD, colX, rowD, boxAspect };
 }
 // Texture top (the colour band) always points toward the board centre, so a
 // name reads correctly from its own side of the table on all four edges.
@@ -290,12 +317,17 @@ function emblem(x, id, cx, cy, s, accent) {
 // Tile face textures, drawn in reading space (name reads from the board edge)
 // ---------------------------------------------------------------------------
 const tileTexCache = {};
-function tileTexture(i, mortgaged) {
-  const key = i + (mortgaged ? 'm' : '');
-  if (tileTexCache[key]) return tileTexCache[key];
+// KP11: the canvas is generated for the tile's own rectangular
+// proportions in the current layout (wPx from the tile's local width at
+// 210px per unit, bucketed to 8px), so the face art never stretches when
+// the track spreads. Height is constant: local depth is 1.6 in every
+// layout, so H stays 336 and every painter constant below stays true.
+function tileTexture(i, mortgaged, wPx) {
   const sp = D.SPACES[i];
   const corner = i % 10 === 0;
-  const W = corner ? 336 : 208, H = corner ? 336 : 336;
+  const W = corner ? 336 : (wPx || 208), H = 336;
+  const key = i + (mortgaged ? 'm' : '') + 'w' + W;
+  if (tileTexCache[key]) return tileTexCache[key];
   const [c, x] = cnvS(W, H, TIER.texScale);
   const band = bandColorFor(i, sp);
   const art = artFor(i, sp);
@@ -860,19 +892,26 @@ function textSprite(text, opts) {
 // ---------------------------------------------------------------------------
 // Centre floor texture (wordmark, skyline strip, pot and deck labels)
 // ---------------------------------------------------------------------------
-function centreTexture() {
-  const S = 1024; const [c, x] = cnvS(S, S, TIER.texScale);
-  const g = x.createRadialGradient(S / 2, S / 2, 80, S / 2, S / 2, S * 0.72);
+// KP11: the centre field is the rectangle inside the rectangular track.
+// The canvas is generated for the field's own proportions at a constant
+// 114px per world unit, so the wordmark, pot and labels stay true-sized
+// and undistorted at any box aspect; only the canvas shape and the
+// skyline's baseline (tied to the field's north edge) move.
+function centreTexture(innerW, innerD) {
+  const K = 114;
+  const W = Math.round(innerW * K), H = Math.round(innerD * K);
+  const [c, x] = cnvS(W, H, TIER.texScale);
+  const g = x.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, Math.max(W, H) * 0.72);
   g.addColorStop(0, '#fdf3d8'); g.addColorStop(1, '#f0dfba');
-  x.fillStyle = g; x.fillRect(0, 0, S, S);
-  x.strokeStyle = 'rgba(160,116,32,0.55)'; x.lineWidth = 5; x.strokeRect(26, 26, S - 52, S - 52);
-  x.strokeStyle = 'rgba(160,116,32,0.25)'; x.lineWidth = 2; x.strokeRect(44, 44, S - 88, S - 88);
-  const px = (wx) => (wx / 9 + 0.5) * S, pz = (wz) => (wz / 9 + 0.5) * S;
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.strokeStyle = 'rgba(160,116,32,0.55)'; x.lineWidth = 5; x.strokeRect(26, 26, W - 52, H - 52);
+  x.strokeStyle = 'rgba(160,116,32,0.25)'; x.lineWidth = 2; x.strokeRect(44, 44, W - 88, H - 88);
+  const px = (wx) => (wx / innerW + 0.5) * W, pz = (wz) => (wz / innerD + 0.5) * H;
   // skyline silhouette along the north edge
   x.fillStyle = 'rgba(46,80,66,0.30)';
   const hs = [70, 120, 88, 150, 96, 132, 74, 118, 84, 140, 92];
-  let bx0 = px(-4.3);
-  for (const h of hs) { const w = 52 + (h % 40); x.fillRect(bx0, pz(-3.15) - h, w, h); bx0 += w + 14; }
+  let bx0 = px(-innerW / 2 + 0.2);
+  for (const h of hs) { const w = 52 + (h % 40); x.fillRect(bx0, pz(1.35 - innerD / 2) - h, w, h); bx0 += w + 14; }
   x.strokeStyle = 'rgba(43,32,24,0.4)'; x.lineWidth = 7;
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.45)); x.quadraticCurveTo(px(0), pz(-3.6), px(4.2), pz(-2.45)); x.stroke();
   x.strokeStyle = 'rgba(63,127,191,0.5)'; x.lineWidth = 4;
@@ -918,11 +957,24 @@ class GameScene {
   constructor() {
     const s = this.scene = new THREE.Scene();
     s.background = new THREE.Color(0x2a1a0e);
-    s.fog = new THREE.Fog(0x2a1a0e, 30, 52);
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
-    this.camera.position.set(0, 22.1, 7.7);
-    this.camPos = new THREE.Vector3(0, 22.1, 7.7);
-    this.camTgt = new THREE.Vector3(0, 0, 0.5);
+    // Fog pushed far beyond the board (KP11): the rectangular board now
+    // fills the whole box, so a fog band at 30 to 52 units would tint the
+    // far tiles toward the void colour. The board (under ~40 units away)
+    // sits entirely inside the clear range; the fog remains only as the
+    // phase-tinted void past the board's edge.
+    s.fog = new THREE.Fog(0x2a1a0e, 60, 140);
+    // KP11: the game camera is ORTHOGRAPHIC, fitted to the board. This
+    // is the honest route to the owner's 100/100 law: a perspective
+    // camera at any finite distance projects the near edge larger than
+    // the far edge (measured: width binds at 100 percent only by
+    // leaving height at 98.2), so both axes can never coincide with
+    // the box at once. Under parallel projection the layout's own
+    // proportions are the projection's proportions: the ring spans
+    // exactly the frustum, which is the box, on both axes. The view
+    // stays the near-plan 87 degree read the game already had.
+    this.camera = new THREE.OrthographicCamera(-6.1, 6.1, 6.1, -6.1, 0.1, 120);
+    this.camDir = new THREE.Vector3(0, 26.6, 1.4).normalize();
+    this.zoomK = 1; // frustum scale: 1 = fitted to the board; <1 = tighter (countdown pass)
     this.hemi = new THREE.HemisphereLight(0xfff2d8, 0x5a4028, 0.8); s.add(this.hemi);
     this.key = new THREE.DirectionalLight(0xffd9a0, 1.55);
     this.key.position.set(7, 13, 8);
@@ -936,17 +988,13 @@ class GameScene {
     this.keyLight = this.key;
     const fill = new THREE.DirectionalLight(0xbfd9ff, 0.32); fill.position.set(-7, 9, -6); s.add(fill);
     this.accent = new THREE.PointLight(0xffc857, 0, 12); this.accent.position.set(0, 2.5, 0); s.add(this.accent);
-    // table (KP9): the old radius-26 disc filled the lower half of the
-    // follow frame with dark wood and made the board read shrinked inside
-    // its own furniture. The table is now a slim plinth: the board rim
-    // (14.15 across) plus about 6 percent, its top flush under the
-    // platform. Beyond it the scene background (the same dark tone)
-    // takes over, so the slim table edge reads clean.
-    const table = bx(15.0, 0.3, 15.0, std(0x1d1208, 1), 0, -0.77, 0); table.receiveShadow = true; s.add(table);
-    // platform and rim
-    const wood = new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.8 });
-    const platform = bx(13.7, 0.62, 13.7, wood, 0, -0.31, 0); s.add(platform);
-    const rim = bx(14.15, 0.16, 14.15, std(0x1c1006, 0.7), 0, -0.55, 0); s.add(rim);
+    // KP11: no table, no plinth, no platform, no rim. The owner circled
+    // the whole framed assembly and struck it: the tile ring stands on
+    // its own, its outer edge is the board's silhouette, and the layout
+    // (trackLayout) spreads that ring over the presentation box itself.
+    // The layout starts square and reflows to the live box aspect the
+    // first time the game stage is fitted (see maybeRelayout).
+    this.layout = trackLayout(1);
     this.buildTiles(s);
     this.buildCentre(s);
     this.tokens = new Map();
@@ -959,69 +1007,134 @@ class GameScene {
     this.diceAnim = null; this.cardAnim = null; this.deedAnim = null;
     this.lastDiceKey = ''; this.lastCardSeq = -1; this.lastFeedSeq = -1;
     this.bankruptSeen = new Set();
-    this.fullDist = null; this.fullAspect = 0; // Lesson 6: fitted full distance cache
     this.countdownZoom = 0;
     this.phaseLook = 0; this.phaseLookCur = { key: new THREE.Color(0xffd9a0), int: 1.55, bg: new THREE.Color(0x2a1a0e) };
   }
   host() { return $('boardWrap'); }
+
+  // Texture width for a tile's face: its local width at 210px per unit,
+  // bucketed to 8px, so the generated canvas matches the tile's own
+  // rectangular proportions in the live layout (no stretched art).
+  texW(t) { return Math.max(160, Math.min(420, Math.round(t.lx * 210 / 8) * 8)); }
 
   buildTiles(s) {
     this.tiles = [];
     const pickMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true });
     this.pickables = [];
     for (let i = 0; i < 40; i++) {
-      const sp = D.SPACES[i];
-      const rect = tileRect(i);
+      const rect = tileRect(i, this.layout);
       const th = tileRotY(i);
       const { lx, lz } = tileLocal(rect, i);
       const grp = new THREE.Group();
       grp.position.set(rect.x + rect.w / 2, 0, rect.z + rect.d / 2);
       grp.rotation.y = th;
       const slabMat = MAT.slabSide.clone();
-      const slab = bx(lx - 0.05, 0.22, lz - 0.05, slabMat, 0, 0.11, 0);
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(1, 0.22, 1), slabMat);
+      slab.position.y = 0.11;
       grp.add(slab);
-      const topMat = new THREE.MeshStandardMaterial({ map: tileTexture(i, false), roughness: 0.82 });
-      const top = new THREE.Mesh(new THREE.PlaneGeometry(lx - 0.05, lz - 0.05), topMat);
+      const topMat = new THREE.MeshStandardMaterial({ roughness: 0.82 });
+      const top = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), topMat);
       top.rotation.x = -Math.PI / 2; top.position.y = 0.221; top.receiveShadow = true;
       grp.add(top);
       // owner frame and plaque (hidden until owned), centre edge plaque thicker
       const frame = new THREE.Group();
       const fm = std(0xffffff, 0.5);
-      const fh = 0.05, fw = 0.075;
-      const mkBar = (w, d, px2, pz) => { const b = bx(w, fh, d, fm, px2, 0.245, pz); frame.add(b); return b; };
-      mkBar(lx - 0.02, fw, 0, -lz / 2 + fw / 2 + 0.015);
-      mkBar(lx - 0.02, fw + 0.035, 0, lz / 2 - (fw + 0.035) / 2 - 0.015);
-      mkBar(fw, lz - 0.02, -lx / 2 + fw / 2 + 0.015, 0);
-      mkBar(fw, lz - 0.02, lx / 2 - fw / 2 - 0.015, 0);
+      const bars = [];
+      for (let k = 0; k < 4; k++) { const b = new THREE.Mesh(new THREE.BoxGeometry(1, 0.05, 1), fm); b.position.y = 0.245; frame.add(b); bars.push(b); }
       frame.visible = false;
       grp.add(frame);
       const bld = new THREE.Group(); grp.add(bld);
       const pledge = makeCardMesh(0.44, 0.62, cardBackTexture(null), cardBackTexture(null));
-      pledge.position.set(lx * 0.22, 0.42, lz * 0.16); pledge.rotation.set(-0.5, 0.3, 0.12); pledge.visible = false;
+      pledge.rotation.set(-0.5, 0.3, 0.12); pledge.visible = false;
       grp.add(pledge);
-      const pick = new THREE.Mesh(new THREE.PlaneGeometry(lx, lz), pickMat);
+      const pick = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), pickMat);
       pick.rotation.x = -Math.PI / 2; pick.position.y = 0.30;
       pick.userData.space = i;
       grp.add(pick); this.pickables.push(pick);
       s.add(grp);
-      this.tiles.push({ i, grp, topMat, slabMat, frame, frameMat: fm, bld, pledge, sig: '', bSig: -1, rect, th, lx, lz });
+      const t = { i, grp, topMat, slabMat, frame, frameMat: fm, bld, pledge, sig: '', bSig: -1, rect, th, lx, lz, slab, top, pick, bars };
+      this.tiles.push(t);
+      topMat.map = tileTexture(i, false, this.texW(t));
+      this._fitTileParts(t);
     }
   }
 
+  // (Re)build one tile's sized geometry from its current rect: slab, top
+  // face, pick plane, the four owner-frame bars and the pledge offset.
+  // Buildings are NOT touched here; relayout clears them and the next
+  // sync rebuilds them unscaled at the new proportions.
+  _fitTileParts(t) {
+    const { lx, lz } = t;
+    t.slab.geometry.dispose();
+    t.slab.geometry = new THREE.BoxGeometry(lx - 0.05, 0.22, lz - 0.05);
+    t.top.geometry.dispose();
+    t.top.geometry = new THREE.PlaneGeometry(lx - 0.05, lz - 0.05);
+    t.pick.geometry.dispose();
+    t.pick.geometry = new THREE.PlaneGeometry(lx, lz);
+    const fw = 0.075, fh = 0.05;
+    const specs = [
+      [lx - 0.02, fw, 0, -lz / 2 + fw / 2 + 0.015],
+      [lx - 0.02, fw + 0.035, 0, lz / 2 - (fw + 0.035) / 2 - 0.015],
+      [fw, lz - 0.02, -lx / 2 + fw / 2 + 0.015, 0],
+      [fw, lz - 0.02, lx / 2 - fw / 2 - 0.015, 0]
+    ];
+    t.bars.forEach((b, k) => {
+      const [w, d, px2, pz] = specs[k];
+      b.geometry.dispose();
+      b.geometry = new THREE.BoxGeometry(w, fh, d);
+      b.position.set(px2, 0.245, pz);
+    });
+    t.pledge.position.set(lx * 0.22, 0.42, lz * 0.16);
+  }
+
+  // KP11 reflow: spread the existing tile ring over a new box aspect.
+  // Geometry is rebuilt per tile (never scaled, so tokens, buildings and
+  // faces keep true proportions); the centre floor and skyline follow.
+  relayout(boxAspect) {
+    const L = trackLayout(boxAspect);
+    const cur = this.layout;
+    if (cur && Math.abs(L.TD / L.TW - cur.TD / cur.TW) < 0.012 && Math.abs(L.TW - cur.TW) < 0.05) return false;
+    this.layout = L;
+    for (const t of this.tiles) {
+      t.rect = tileRect(t.i, L);
+      const { lx, lz } = tileLocal(t.rect, t.i);
+      t.lx = lx; t.lz = lz;
+      t.grp.position.set(t.rect.x + t.rect.w / 2, 0, t.rect.z + t.rect.d / 2);
+      this._fitTileParts(t);
+      t.bld.clear(); t.bSig = -1; t.sig = ''; // forces texture + building rebuild on next sync
+    }
+    this._fitCentre();
+    for (const o of this.tokens.values()) if (!o.anim) o.grp.position.copy(this.worldFor(o.pos, o.slot));
+    if (this.lastState) this.sync(this.lastState);
+    return true;
+  }
+  maybeRelayout(boxAspect) {
+    if (!boxAspect || !isFinite(boxAspect) || boxAspect < 0.2 || boxAspect > 5) return;
+    if (!this.tiles || !this.tiles.length) return;
+    this.relayout(boxAspect);
+  }
+
   buildCentre(s) {
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), new THREE.MeshStandardMaterial({ map: centreTexture(), roughness: 0.9 }));
+    const L = this.layout;
+    const innerW = L.TW - 3.2, innerD = L.TD - 3.2;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(innerW + 0.34, innerD + 0.34), new THREE.MeshStandardMaterial({ map: centreTexture(innerW, innerD), roughness: 0.9 }));
     floor.rotation.x = -Math.PI / 2; floor.position.y = 0.02; floor.receiveShadow = true; s.add(floor);
+    this.floorMesh = floor;
     // skyline row
     const winMats = [0x39594a, 0x51606e, 0x6e5a41].map((col, k) => new THREE.MeshStandardMaterial({ map: windowTexture('#' + col.toString(16).padStart(6, '0'), 0.4), roughness: 0.85 }));
-    // Skyline kept low (tallest 0.52) and pulled inward (z -3.22, span inside
-    // x +-3.95) so it stays strictly inside the centre island and never
-    // crowds the top track from the full-board camera.
+    // Skyline kept low (tallest 0.52) and riding the centre field's north
+    // edge (z = 1.28 - innerD/2, span inside x +-3.95 at the square
+    // layout) so it stays strictly inside the centre island and never
+    // crowds the top track from the full-board camera. _fitCentre
+    // re-seats the row when the layout reflows.
     const hs = [0.25, 0.43, 0.32, 0.52, 0.35, 0.47, 0.28, 0.4, 0.3, 0.48, 0.33];
+    this.skylineBars = [];
     let sx = -3.3;
     hs.forEach((h, k) => {
       const w = 0.42 + (k % 3) * 0.1;
-      const b = bx(w, h, 0.44, winMats[k % 3], sx + w / 2, h / 2 + 0.02, -3.22);
-      sx += w + 0.16; s.add(b);
+      const b = bx(w, h, 0.44, winMats[k % 3], sx + w / 2, h / 2 + 0.02, 1.28 - innerD / 2);
+      b.userData.baseX = sx + w / 2;
+      sx += w + 0.16; s.add(b); this.skylineBars.push(b);
     });
     // water and bridge
     const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x3f7fbf, roughness: 0.15, metalness: 0.3 }));
@@ -1068,6 +1181,27 @@ class GameScene {
     this.deedCard.visible = false; s.add(this.deedCard);
   }
 
+  // Refit the centre field to the current layout: the floor plane grows
+  // into the rectangle (its texture regenerated at the field's own
+  // proportions, so the wordmark stays true-sized) and the skyline row
+  // spreads along the field's north edge. The bridge, pot, decks and
+  // dice keep their fixed centre positions and true sizes.
+  _fitCentre() {
+    if (!this.floorMesh) return;
+    const L = this.layout;
+    const innerW = L.TW - 3.2, innerD = L.TD - 3.2;
+    this.floorMesh.geometry.dispose();
+    this.floorMesh.geometry = new THREE.PlaneGeometry(innerW + 0.34, innerD + 0.34);
+    if (this.floorMesh.material.map) this.floorMesh.material.map.dispose();
+    this.floorMesh.material.map = centreTexture(innerW, innerD);
+    this.floorMesh.material.needsUpdate = true;
+    const spread = innerW / 9;
+    for (const b of this.skylineBars || []) {
+      b.position.x = b.userData.baseX * spread;
+      b.position.z = 1.28 - innerD / 2;
+    }
+  }
+
   setPot(pot) {
     const tier = pot <= 0 ? 0 : pot < 100000 ? 1 : pot < 300000 ? 2 : pot < 600000 ? 3 : pot < 1000000 ? 4 : 5;
     if (tier !== this.potTier) {
@@ -1109,12 +1243,12 @@ class GameScene {
         const owner = byId[pr.o];
         t.frame.visible = true;
         t.frameMat.color.set(owner ? owner.color : '#ffffff');
-        t.topMat.map = tileTexture(i, !!pr.m);
+        t.topMat.map = tileTexture(i, !!pr.m, this.texW(t));
         t.topMat.color.set(pr.m ? 0x8f8f8f : 0xffffff);
         t.topMat.needsUpdate = true;
       } else {
         t.frame.visible = false;
-        t.topMat.map = tileTexture(i, false);
+        t.topMat.map = tileTexture(i, false, this.texW(t));
         t.topMat.color.set(0xffffff);
         t.topMat.needsUpdate = true;
       }
@@ -1196,7 +1330,7 @@ class GameScene {
     // phase relight targets
     const look = PHASE_LOOKS[state.inf ? state.inf.phase - 1 : 0];
     this.phaseTarget = { key: new THREE.Color(look.key), int: look.int, bg: new THREE.Color(look.bg) };
-    if (state.status === 'countdown' && !this.countedFor) { this.countedFor = state.code; this.countdownZoom = 2.4; this.camPos.set(0, 20, 18); }
+    if (state.status === 'countdown' && !this.countedFor) { this.countedFor = state.code; this.countdownZoom = 2.4; this.camDir.set(0, 20, 18).normalize(); this.zoomK = 0.7; }
     if (state.status === 'playing') this.countedFor = null;
   }
 
@@ -1323,58 +1457,34 @@ class GameScene {
     }
   }
 
-  // Lesson 6: the full board fit is computed from the LIVE stage aspect,
-  // not tuned for one screen. Binary search the camera distance along the
-  // fixed full view direction until the island rim corners (the board's
-  // true silhouette: rim box 14.15 wide at y -0.47, tiles inside it)
-  // project inside the fit bound on both axes, centred, in portrait and
-  // landscape alike, with mansion tops still inside the frame.
-  // KP9: the bound rose 0.96 to 0.98 and the stage went full-bleed, so
-  // the rim now renders at about 98 percent of the stage width: the
-  // board is fitted to the BOARD, edge to edge, not shrunk inside a
-  // table and a frame.
-  // KP10: one view only, and on a square portrait stage the camera
-  // rides near plan (about 87 degrees instead of 72) aimed at the rim's
-  // own centre. The geometry is unforgiving: a tilted square projects
-  // shorter than it is wide (72 degrees: 382 wide, 329 tall; 80 degrees:
-  // 356 tall), and the old target sat half a unit north of centre,
-  // throwing the projection off-centre as well. At 87 degrees on centre
-  // the rim projects about 381 by 374 inside its 390 square: the board
-  // fills the stage on both axes, tiles read at their boldest, and no
-  // background band survives above or below. Wider stages keep the
-  // KP9 framing untouched.
+  // The fitted view direction per stage shape: near plan (about 87
+  // degrees) for portrait and squarish stages, a lower 72 degrees for
+  // wide landscape stages. trackLayout's elevation factors mirror these
+  // two directions exactly.
   fullDir(aspect) {
     if (aspect < 1.2) return new THREE.Vector3(0, 26.6, 1.4).normalize();
     return new THREE.Vector3(0, 22.1, 7.2).normalize();
   }
-  fullTarget(aspect) {
-    if (aspect < 1.2) return new THREE.Vector3(0, 0, 0);
-    return new THREE.Vector3(0, 0, 0.5);
-  }
-  fitFull() {
-    const aspect = this.camera.aspect || 1;
-    if (this.fullDist && Math.abs(aspect - this.fullAspect) < 0.01) return this.fullDist;
-    const dir = this.fullDir(aspect);
-    const tgt = this.fullTarget(aspect);
+  // KP11 fit: set the orthographic frustum to the board itself. The
+  // frustum's width span is the track width; its height span is the
+  // track depth times the view direction's depth factor (the component
+  // of the world z axis that survives projection). Because trackLayout
+  // built the footprint from the box's own aspect with that same
+  // factor, the frustum's aspect IS the box's aspect, so the renderer
+  // maps it onto the canvas with no stretch and the ring's silhouette
+  // coincides with the box edges at exactly 100 percent on both axes:
+  // nothing cut, nothing left over. zoomK tightens the frustum for the
+  // countdown pass only; the fitted game sits at zoomK 1.
+  _applyCam() {
     const cam = this.camera;
-    const corners = [];
-    for (const cx of [-7.08, 7.08]) for (const cz of [-7.08, 7.08]) corners.push(new THREE.Vector3(cx, -0.47, cz));
-    let lo = 10, hi = 60;
-    for (let it = 0; it < 14; it++) {
-      const mid = (lo + hi) / 2;
-      cam.position.copy(tgt).addScaledVector(dir, mid);
-      cam.lookAt(tgt);
-      cam.updateMatrixWorld(true);
-      let fits = true;
-      for (const c of corners) {
-        const v = c.clone().project(cam);
-        if (Math.abs(v.x) > 0.98 || Math.abs(v.y) > 0.98) { fits = false; break; }
-      }
-      if (fits) hi = mid; else lo = mid;
-    }
-    this.fullDist = hi;
-    this.fullAspect = aspect;
-    return hi;
+    const L = this.layout || trackLayout(1);
+    const d = this.camDir;
+    const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
+    const halfW = (L.TW / 2) * this.zoomK, halfH = (L.TD * f / 2) * this.zoomK;
+    cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
+    cam.position.copy(d).multiplyScalar(30);
+    cam.lookAt(0, 0, 0);
+    cam.updateProjectionMatrix();
   }
 
   update(dt, tNow) {
@@ -1522,27 +1632,26 @@ class GameScene {
     }
     if (this.accentT > 0) { this.accentT = Math.max(0, this.accentT - dt * 1.4); this.accent.intensity = this.accentT * 14; }
     // camera
-    let wantPos, wantTgt, damp = 2.4;
+    let wantDir, wantZoom, damp = 2.4;
     if (this.countdownZoom > 0) {
-      // The 3-2-1 countdown opens on a closer angled pass, then the
-      // camera glides out to the one fitted full-board framing and stays.
+      // The 3-2-1 countdown opens on a closer angled pass (a tighter
+      // frustum on a lower direction), then the camera glides out to
+      // the one fitted full-board framing and stays.
       this.countdownZoom -= dt;
-      wantPos = new THREE.Vector3(0, 12.6, 11.4); wantTgt = new THREE.Vector3(0, 0, -0.4); damp = 1.1;
+      wantDir = new THREE.Vector3(0, 12.6, 11.4).normalize(); wantZoom = 0.62; damp = 1.1;
     } else {
-      // KP10: THE camera. One view only: the full board, fitted by
-      // fitFull from the live stage aspect (Lesson 6), centred on the
-      // island, steady. It never follows, zooms to, or chases a token:
+      // KP11: THE camera. One view only: the full board under the
+      // fitted orthographic frustum (see _applyCam), centred on the
+      // board, steady. It never follows, zooms to, or chases a token:
       // token hops, the turn ring, landing flashes and the pot label
       // all play out on the board in plain sight.
-      const dist = this.fitFull();
-      wantTgt = this.fullTarget(this.camera.aspect || 1);
-      wantPos = wantTgt.clone().addScaledVector(this.fullDir(this.camera.aspect || 1), dist);
+      wantDir = this.fullDir(this.camera.aspect || 1); wantZoom = 1;
     }
     const kk = 1 - Math.exp(-dt * damp);
-    this.camPos.lerp(wantPos, kk); this.camTgt.lerp(wantTgt, kk);
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camTgt);
-    this.camGlide = this.camPos.distanceTo(wantPos) > 0.05 || this.camTgt.distanceTo(wantTgt) > 0.05;
+    this.camDir.lerp(wantDir, kk).normalize();
+    this.zoomK += (wantZoom - this.zoomK) * kk;
+    this._applyCam();
+    this.camGlide = this.camDir.angleTo(wantDir) > 0.004 || Math.abs(this.zoomK - wantZoom) > 0.004;
     // Owambe pot label: keep the chip fully on stage. The pot sits at the
     // board centre; when framing ever pushed it toward an edge the label
     // followed it out and clipped ("ambe Pot NO"). Project the
@@ -1558,9 +1667,9 @@ class GameScene {
       const cw = hostEl ? hostEl.clientWidth : 0, ch = hostEl ? hostEl.clientHeight : 0;
       let placed = false;
       if (cw > 0 && ch > 0 && v.z < 1) {
-        const depth = cam.position.distanceTo(home);
-        const visH = 2 * depth * Math.tan(cam.fov * Math.PI / 360);
-        const visW = visH * cam.aspect;
+        // Orthographic frustum: the visible world size is the frustum
+        // itself, at every depth.
+        const visW = cam.right - cam.left, visH = cam.top - cam.bottom;
         const limX = Math.max(0, 1 - this.potLabel.scale.x / visW - 12 / cw);
         const limY = Math.max(0, 1 - this.potLabel.scale.y / visH - 12 / ch);
         const dx = Math.min(limX, Math.max(-limX, v.x)) - v.x;
@@ -1891,6 +2000,10 @@ function fitCanvas(force) {
   let w = host.clientWidth, h = host.clientHeight;
   if (activeName === 'landing') { w = window.innerWidth; h = window.innerHeight; }
   if (!w || !h) return;
+  // KP11: the game board's layout is built from this box's own aspect;
+  // reflow it whenever the fitted size says the aspect class changed
+  // (first activation, rotation, a rail that grows or shrinks).
+  if (activeName === 'game' && SCENES.game) SCENES.game.maybeRelayout(h / w);
   if (!force && w === lastFitW && h === lastFitH) return;
   lastFitW = w; lastFitH = h;
   renderer.setSize(w, h, false);
@@ -1970,10 +2083,11 @@ KP3D.onCardDrawn = function (card) {
   motion(3);
 };
 KP3D.onCardResolved = function (card) { if (SCENES.game) { SCENES.game.resolveCard(card); motion(1.6); } };
-// KP9 proof probe: project the board rim corners (the fitFull silhouette,
-// rim box 14.15 wide at y -0.47) through the LIVE game camera and report
-// their on-canvas pixel extent, so tests measure the rendered board
-// instead of guessing from CSS sizes.
+// KP11 proof probe: project the tile ring's own slab box (the fitted
+// silhouette: footprint corners at slab bottom and top) through the LIVE
+// game camera and report its on-canvas pixel extent plus its span as a
+// percentage of the canvas on each axis, so tests measure the rendered
+// board against the owner's 100 percent law instead of guessing sizes.
 KP3D.boardProbePx = function () {
   const g = SCENES.game;
   if (!g || !renderer || !renderer.domElement) return null;
@@ -1981,14 +2095,19 @@ KP3D.boardProbePx = function () {
   cam.updateMatrixWorld(true);
   const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
   if (!w || !h) return null;
+  const L = g.layout || { TW: 12.2, TD: 12.2 };
   const xs = [], ys = [];
-  for (const cx of [-7.08, 7.08]) for (const cz of [-7.08, 7.08]) {
-    const v = new THREE.Vector3(cx, -0.47, cz).project(cam);
+  for (const cx of [-L.TW / 2, L.TW / 2]) for (const cz of [-L.TD / 2, L.TD / 2]) for (const cy of [0, 0.22]) {
+    const v = new THREE.Vector3(cx, cy, cz).project(cam);
     xs.push((v.x + 1) / 2 * w); ys.push((1 - v.y) / 2 * h);
   }
+  const rimWidthPx = Math.max(...xs) - Math.min(...xs);
+  const rimHeightPx = Math.max(...ys) - Math.min(...ys);
   return {
-    rimWidthPx: Math.round(Math.max(...xs) - Math.min(...xs)),
-    rimHeightPx: Math.round(Math.max(...ys) - Math.min(...ys)),
+    rimWidthPx: Math.round(rimWidthPx),
+    rimHeightPx: Math.round(rimHeightPx),
+    rimWPct: Math.round(rimWidthPx / w * 1000) / 10,
+    rimHPct: Math.round(rimHeightPx / h * 1000) / 10,
     canvasW: w, canvasH: h
   };
 };
@@ -2113,8 +2232,15 @@ function initGL() {
   KP3D.debug = function () {
     const g = SCENES.game;
     if (!g) return { active: true, scene: activeName, tier: TIER.name, tierAuto: TIER.auto };
+    // KP11 proof: the frame assembly (table, platform, rim) is gone from
+    // the scene graph. Any mesh ever flagged as a frame part is counted;
+    // the count is structurally zero because the parts are never built.
+    let frameMeshes = 0;
+    g.scene.traverse((o) => { if (o.userData && o.userData.framePart) frameMeshes += 1; });
     return {
       active: true, scene: activeName,
+      frameMeshes,
+      layout: g.layout ? { tw: Math.round(g.layout.TW * 100) / 100, td: Math.round(g.layout.TD * 100) / 100 } : null,
       tier: TIER.name, tierAuto: TIER.auto, glRenderer: glRendererName,
       dpr: renderer ? renderer.getPixelRatio() : 0, shadowSize: TIER.shadowSize, texScale: TIER.texScale,
       frames: statFrames, fps: statFps,
