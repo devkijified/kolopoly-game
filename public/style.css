@@ -31,6 +31,8 @@
   --fs-lead: 16px; --fs-body: 14px; --fs-caption: 12px; --fs-meta: 11px;
   --radius: 16px;
   --shadow: 0 10px 30px rgba(43, 32, 24, 0.16);
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --btn-h: 43px; --btn-h-s: 38px; --chip-h: 28px;
   --topbar-h: 59px;
   --rail-w: 344px;
 }
@@ -71,7 +73,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--paper); border: 1px solid var(--line); border-radius: 999px;
-  padding: 7px 12px; min-height: 36px; font-size: 13px; font-weight: 700;
+  padding: 3px 10px; min-height: var(--chip-h); font-size: 12px; font-weight: 700;
 }
 
 .iconbtn {
@@ -83,8 +85,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 /* Buttons */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: none; border-radius: 14px; padding: 12px 16px; min-height: 44px;
-  font-size: var(--fs-lead); font-weight: 800;
+  border: none; border-radius: 14px; padding: 10px 14px; min-height: var(--btn-h);
+  font-size: 15px; font-weight: 800;
   background: linear-gradient(180deg, #ffd97a, var(--gold));
   color: var(--ink);
   box-shadow: 0 3px 0 var(--gold-deep), 0 6px 14px rgba(232, 169, 12, 0.25);
@@ -95,11 +97,12 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .btn.red { background: linear-gradient(180deg, #e25858, var(--red)); color: #fff; box-shadow: 0 3px 0 var(--red-deep); }
 .btn.ghost { background: var(--paper); color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
 .btn.dark { background: linear-gradient(180deg, #3d2d1e, var(--ink)); color: var(--cream); box-shadow: 0 3px 0 #120d09; }
-.btn.small { padding: 10px 13px; min-height: 44px; font-size: var(--fs-body); border-radius: 11px; }
+.btn.small { padding: 7px 10px; min-height: var(--btn-h-s); font-size: 13px; border-radius: 11px; }
 .btn.block { width: 100%; }
-/* Button type pass (Kijitech scale): action bar primaries stay lead (16px);
-   sheet and dialog buttons are secondary at 15px; small utilities 13-14px;
-   tap targets never shrink below 44px, padding carries the height. */
+/* Button type pass (KP8 compact density, owner correction): primaries are
+   43px tall with 15px labels, utilities 38px with 13px labels, chips and
+   pills 28px with 12px labels. Hit comfort comes from the 6px dead gaps
+   between controls, not from inflating every control to desktop size. */
 .sheet .btn, .modal-card .btn { font-size: 15px; }
 @media (hover: hover) { .btn:hover { filter: brightness(1.05); } }
 
@@ -420,8 +423,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .wallet-cash small { font-size: var(--fs-caption); color: var(--ink-soft); font-family: 'Figtree', sans-serif; font-weight: 700; display: block; line-height: 1; }
 .denoms { display: flex; gap: 0; margin-left: auto; align-items: center; padding-left: 8px; }
 .denom {
-  font-size: 9.5px; font-weight: 900; padding: 5px 7px; border-radius: 4px; color: #fff;
-  background: var(--board-green); margin-left: -7px;
+  font-size: 9.5px; font-weight: 900; padding: 4px 6px; border-radius: 4px; color: #fff;
+  background: var(--board-green); margin-left: -14px;
   border: 1px solid rgba(0, 0, 0, 0.28); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.22);
   transform: rotate(-4deg);
 }
@@ -441,9 +444,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
    (Lesson 4), and the chip pulses with each beep in the last 10s (Lesson 7). */
 .clock-chip {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  min-height: 44px; min-width: 52px; padding: 6px 10px; border-radius: 999px;
+  min-height: 34px; min-width: 46px; padding: 4px 9px; border-radius: 999px;
   background: var(--ink); color: var(--cream);
-  font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 13px;
 }
 .turn-timer.pulse, .clock-chip.pulse { animation: clockpulse 0.32s ease; }
 @keyframes clockpulse { 0% { transform: scale(1); } 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
@@ -474,9 +477,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   background: var(--ink); color: var(--gold);
   display: flex; align-items: center; justify-content: center;
 }
-.alert-bank-name { font-size: 10.5px; font-weight: 900; letter-spacing: 1.2px; color: var(--ink-soft); }
+.alert-bank-name { font-size: 11px; font-weight: 900; letter-spacing: 1.2px; color: var(--ink-soft); }
 .alert-pill {
-  margin-left: auto; font-size: 9.5px; font-weight: 900; letter-spacing: 0.8px;
+  margin-left: auto; font-size: 11px; font-weight: 900; letter-spacing: 0.8px;
   padding: 2.5px 7px; border-radius: 999px; background: #e7f7ee; color: var(--green-deep);
 }
 .alert-card.debit .alert-pill { background: #fdeaea; color: var(--red-deep); }
@@ -549,7 +552,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .deed-head > * { position: relative; z-index: 1; }
 .deed-seal { width: 46px; height: 46px; flex: none; color: rgba(255, 255, 255, 0.92); }
 .deed-seal svg { width: 100%; height: 100%; display: block; }
-.deed-kicker { font-size: 9.5px; font-weight: 900; letter-spacing: 1.6px; opacity: 0.88; }
+.deed-kicker { font-size: 11px; font-weight: 900; letter-spacing: 1.4px; opacity: 0.88; }
 .deed-head .title { color: #fff; font-size: 23px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
 .deed-sub { font-size: var(--fs-caption); opacity: 0.94; margin: 2px 0 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
 .deed-body {
@@ -870,4 +873,161 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .wordmark { font-size: 16px; letter-spacing: 0; }
   .chip { padding: 3px 6px; min-height: 30px; font-size: 11px; white-space: nowrap; }
   .iconbtn { width: 30px; height: 30px; flex: none; }
+}
+
+/* ================= KP8 MOBILE OVERHAUL =================
+   Owner correction, binding: compact density with a native mobile game
+   feel, not desktop slabs scaled down. Primary 43px/15px, utility
+   38px/13px, chips and pills 28px/12px, page padding 12px, card padding
+   12px, section gaps 8px, stage padding 4px. The board wins the space:
+   the portrait game is one column [stage grows][rail scrolls][dock in
+   flow at the bottom], so the dock never covers rail content and no
+   JavaScript measures it. Hard invariant: nothing may push
+   document.scrollWidth past innerWidth (the browser suite asserts it). */
+
+/* Shared compact pieces for the portrait column and the landscape rail. */
+@media (max-width: 940px) {
+  /* Mode and phase bars: one row, the clock always visible. The Classic
+     explainer sentence and the Inflation salary span and note are
+     desktop luxuries; the phase, index, water gauge and clock stay. */
+  #classicBar, #infBar { padding: 7px 10px; border-radius: 12px; gap: 6px; }
+  #classicBar > span:not(.ph):not(.clk) { display: none; }
+  #infBar > span:not(.ph):not(.idx):not(.water-chip):not(.clk) { display: none; }
+  #infBar .idx, #infBar .water-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 8px; font-size: 11px; border-radius: 999px; }
+  #infBar button { min-height: 26px; padding: 3px 8px; font-size: 11px; }
+  .msgbar { padding: 7px 10px; min-height: 34px; border-radius: 12px; }
+  /* The rail is a scroll column: children keep their natural height and
+     the column scrolls, instead of flex shrinking a bar and its text
+     spilling out of its background (seen on the landscape message bar). */
+  .rail-top > * { flex: none; }
+  /* Players: one snapping row that scrolls sideways, never a tower. */
+  .players-strip { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; gap: 6px; padding-bottom: 2px; scrollbar-width: none; }
+  .players-strip::-webkit-scrollbar { display: none; }
+  .players-strip .pchip { flex: 0 0 auto; scroll-snap-align: start; padding: 4px 10px 4px 5px; gap: 6px; }
+  .players-strip .pchip .avatar { width: 24px; height: 24px; }
+  .players-strip .pchip .meta { display: none; }
+  /* Dock internals at the compact scale. The note fan is decoration: at
+     phone widths it shows the five biggest notes and no more, because
+     seven notes plus the cash figure outgrew the row and stretched the
+     whole page sideways (measured: a 402px layout demand on a 390px
+     phone). The cash figure itself always stays exact and complete. */
+  .denom:nth-child(n+6) { display: none; }
+  .wallet-cash { font-size: 19px; }
+  .actionbar { gap: 6px; margin-top: 6px; }
+  .actionbar .btn { min-height: var(--btn-h); height: var(--btn-h); padding: 0 14px; font-size: 15px; border-radius: 12px; }
+  #secondaryBar { gap: 6px; margin-top: 6px !important; }
+  #secondaryBar .btn { flex: 1 1 auto; min-width: 0; min-height: var(--btn-h-s); height: var(--btn-h-s); padding: 0 8px; font-size: 13px; border-radius: 11px; white-space: nowrap; }
+  #secondaryBar .btn .ic { width: 15px; height: 15px; }
+  .auction-card { padding: 10px 12px; border-radius: 14px; }
+  .toolbtn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+  .board-tools { right: 6px; bottom: 6px; }
+}
+
+/* Portrait phones: the whole layout system. */
+@media (max-width: 699px) {
+  :root { --topbar-h: 48px; }
+  .topbar { padding: 6px var(--sp-3); gap: 6px; }
+  .wordmark { font-size: 17px; }
+  .topbar .chip { min-height: var(--chip-h); padding: 3px 9px; font-size: 12px; }
+  .topbar .iconbtn { width: 34px; height: 34px; border-radius: 10px; }
+  .topbar .iconbtn svg { width: 18px; height: 18px; }
+
+  /* Game: [stage grows] [rail scrolls in what is left] [dock pinned]. */
+  #view-game.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
+  .game-stage { order: 1; flex: 1 1 auto; min-height: 0; padding: 4px 4px 0; display: flex; flex-direction: column; }
+  .game-rail { display: contents; }
+  .board-outer { flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; display: flex; }
+  .board-wrap { flex: 1 1 auto; width: 100%; min-height: 0; --frame: 5px; border-radius: 14px; }
+  body:not(.gl-on) .board-wrap { aspect-ratio: 1 / 1; flex: 0 1 auto; margin: auto; max-height: 100%; }
+  body.gl-on .board-wrap { aspect-ratio: auto; }
+  .rotate-hint { flex: 0 0 auto; margin: 6px auto 2px; padding: 5px 10px; font-size: 11px; animation: none; }
+  .rail-top { order: 2; flex: 0 1 auto; max-height: 30dvh; overflow-y: auto; min-height: 0; padding: 6px var(--sp-3) 2px; gap: 6px; }
+  .rail-top > .caption { display: none; }
+  .walletbar { order: 3; position: static; flex: 0 0 auto; width: 100%; padding: 8px var(--sp-3) calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 18px rgba(43, 32, 24, 0.07); }
+  .wallet-inner { max-width: none; }
+  .toast { bottom: calc(156px + env(safe-area-inset-bottom)); }
+
+  /* Lobby: compact header, slots scroll in their own region, Start pinned. */
+  #view-lobby.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
+  .lobby-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 10px var(--sp-3) calc(10px + env(safe-area-inset-bottom)); }
+  .lobby-wrap > p.caption { flex: none; }
+  .code-hero { flex: none; padding: 2px 0 0; }
+  .code-big { font-size: 36px; letter-spacing: 8px; }
+  #lobbyModeLine { flex: none; margin: 2px 0 6px; font-size: 14px; }
+  .invite-actions { flex: none; margin: 0 0 6px; gap: 6px; }
+  /* The QR leaves portrait phones: Copy invite and Share already do its
+     job in a thumb column, and its 98px was the difference between a
+     pinned Start and a scrolled one at 360x740. It stays on desktop and
+     landscape, where the column has room for it. */
+  .qr-box { display: none; }
+  #lobbyStage { flex: none; height: 112px; margin: 6px 0; border-radius: 14px; }
+  .bot-prompt { flex: none; margin: 6px 0 0; padding: 8px var(--sp-3); border-radius: 14px; }
+  .bot-prompt .bp-title { font-size: 15px; margin-bottom: 2px; }
+  .bot-prompt .btnrow { margin-top: 8px; gap: 6px; }
+  .bot-prompt .btn { min-height: var(--btn-h-s); font-size: 13px; padding: 7px 10px; }
+  .lobby-wrap .mt14 { margin-top: 8px; }
+  #lobbyHint { margin-top: 6px; }
+  .slots { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; gap: 6px; margin: 8px 0 0; padding: 1px; }
+  .slot { padding: 8px 10px; min-height: 46px; border-radius: 13px; }
+  #passAddBox { flex: none; margin-top: 8px; }
+  .settings-chips { flex: none; margin: 8px 0 0; gap: 6px; }
+  #chaosNote { flex: none; margin: 6px 0 0; }
+  .lobby-wrap .mt14 { flex: none; }
+  #startBtn { min-height: var(--btn-h); font-size: 15px; }
+
+  /* Landing: one thumb column, compact hero and cards. */
+  .landing-hero { padding: var(--sp-3) var(--sp-3) 0; }
+  .landing-hero .display { font-size: 32px; }
+  .landing-hero .tagline { margin-top: 4px; }
+  .hero-board { height: 150px; }
+  .token-rain { margin: 10px 0 0; }
+  .join-card { margin: 8px var(--sp-3) 16px; padding: var(--sp-3); border-radius: 18px; }
+  .join-card label { margin: 10px 0 5px; }
+  .token-grid { gap: 6px; }
+  .token-pick { padding: 7px 4px; border-radius: 12px; }
+  .mode-row { gap: 6px; }
+  .mode-pick { padding: 9px 10px; border-radius: 12px; }
+  .toggle-row { padding: 8px 0; }
+  .banner { margin: 8px var(--sp-3) 0; padding: 10px var(--sp-3); }
+  .btnrow { gap: var(--sp-2); }
+
+  /* Sheets and dialogs: tight padding, full width actions. */
+  .sheet { padding: 10px var(--sp-3) calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; }
+  .sheet .grab { margin-bottom: 8px; }
+  .modal-scrim { padding: var(--sp-3); }
+  .modal-card { padding: var(--sp-4); border-radius: 16px; }
+  .deed-head { padding: var(--sp-3); }
+  .deed-head .title { font-size: 20px; }
+  .deed-seal { width: 38px; height: 38px; }
+  .deed-body { padding: 4px var(--sp-3) var(--sp-3); }
+  .meaning { padding: 9px 10px 9px 34px; margin: 8px 0; }
+  .ladder td, .ladder th { padding: 5px 4px; font-size: 13px; }
+  .alerts { top: calc(var(--topbar-h) + 6px); }
+  .alert-card .amt { font-size: 21px; }
+  .alert-card.credit .amt { font-size: 23px; }
+}
+
+/* Narrow phones: the mode pill and the graphics tier leave the top bar.
+   The mode still reads in the rail mode bar and the lobby mode line, and
+   the room code never truncates. Utility icons drop, labels stay. */
+@media (max-width: 520px) {
+  #modePill, #tierBtn { display: none; }
+  #secondaryBar .btn .ic { display: none; }
+}
+
+/* Landscape rail: the note fan trims to three so cash plus fan fit the
+   rail, and utility buttons go text only at this width. */
+@media (orientation: landscape) and (min-width: 700px) and (max-width: 940px) {
+  .denom:nth-child(n+4) { display: none; }
+  #secondaryBar .btn .ic { display: none; }
+}
+
+/* Short landscape: the lobby stays a plain scrolling page (the pinned
+   column is a portrait system), just with the compact pieces. */
+@media (orientation: landscape) and (min-width: 700px) and (max-height: 500px) {
+  .code-big { font-size: 34px; }
+  .qr-box svg { width: 84px; height: 84px; }
+  #lobbyStage { height: 140px; margin: 6px 0; }
+  .bot-prompt { padding: 8px var(--sp-3); }
+  .bot-prompt .btn { min-height: var(--btn-h-s); font-size: 13px; padding: 7px 10px; }
 }

@@ -42,6 +42,13 @@ function autoTierName(rendererStr) {
   const smallScreen = Math.min(window.screen.width || 9999, window.screen.height || 9999) <= 480;
   if (rendererStr && /swiftshader|llvmpipe|software rasterizer|paravirtual/i.test(rendererStr)) return 'low';
   if (cores <= 2 || (mem > 0 && mem <= 1)) return 'low';
+  // KP8: phone-class devices never auto-start at high. The 1024px shadow
+  // map plus DPR 2 is the frame rate killer on phone GPUs; mid holds the
+  // picture, low drops shadows entirely, and the manual pick still wins.
+  if (smallScreen) {
+    if (cores <= 4 || (mem > 0 && mem <= 2)) return 'low';
+    return 'mid';
+  }
   if ((cores <= 4 && mem > 0 && mem <= 2) || (smallScreen && mem > 0 && mem <= 2)) return 'low';
   if (cores >= 8 && (mem === 0 || mem >= 4)) return 'high';
   if (cores >= 6 && mem === 0 && !smallScreen) return 'high';
@@ -1034,6 +1041,7 @@ class GameScene {
     this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.30, 2.35); s.add(this.potNotes);
     this.potTier = -1;
     this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 1.05, 2.35); s.add(this.potLabel);
+    this.potLabelHome = this.potLabel.position.clone(); // anchor for the stage clamp in update()
     // decks and discards
     this.deckPos = { wahala: new THREE.Vector3(-2.95, 0.02, -0.9), family: new THREE.Vector3(2.95, 0.02, -0.9) };
     this.discardPos = { wahala: new THREE.Vector3(-1.90, 0.02, -0.9), family: new THREE.Vector3(1.90, 0.02, -0.9) };
@@ -1073,7 +1081,7 @@ class GameScene {
     const label = 'Owambe Pot ' + D.fmtN(pot);
     if (this.potLabelText !== label) {
       this.potLabelText = label;
-      const nl = textSprite(label); nl.position.copy(this.potLabel.position);
+      const nl = textSprite(label); nl.position.copy(this.potLabelHome || this.potLabel.position);
       this.scene.remove(this.potLabel); this.potLabel = nl; this.scene.add(nl);
     }
   }
@@ -1534,6 +1542,37 @@ class GameScene {
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camTgt);
     this.camGlide = this.camPos.distanceTo(wantPos) > 0.05 || this.camTgt.distanceTo(wantTgt) > 0.05;
+    // Owambe pot label: keep the chip fully on stage. The pot sits at the
+    // board centre, so in Follow framing it projects off the left edge and
+    // the label followed it out and clipped ("ambe Pot NO"). Project the
+    // home anchor; when the label would cross a stage edge, slide it back
+    // inside with a 6px margin, moving along the camera plane so its depth
+    // and size hold. The pot amount is a headline number: it stays readable.
+    if (this.potLabel && this.potLabelHome) {
+      const cam = this.camera;
+      cam.updateMatrixWorld(true);
+      const home = this.potLabelHome;
+      const v = home.clone().project(cam);
+      const hostEl = this.host();
+      const cw = hostEl ? hostEl.clientWidth : 0, ch = hostEl ? hostEl.clientHeight : 0;
+      let placed = false;
+      if (cw > 0 && ch > 0 && v.z < 1) {
+        const depth = cam.position.distanceTo(home);
+        const visH = 2 * depth * Math.tan(cam.fov * Math.PI / 360);
+        const visW = visH * cam.aspect;
+        const limX = Math.max(0, 1 - this.potLabel.scale.x / visW - 12 / cw);
+        const limY = Math.max(0, 1 - this.potLabel.scale.y / visH - 12 / ch);
+        const dx = Math.min(limX, Math.max(-limX, v.x)) - v.x;
+        const dy = Math.min(limY, Math.max(-limY, v.y)) - v.y;
+        if (dx || dy) {
+          const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+          const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+          this.potLabel.position.copy(home).addScaledVector(right, dx * visW * 0.5).addScaledVector(up, dy * visH * 0.5);
+          placed = true;
+        }
+      }
+      if (!placed) this.potLabel.position.copy(home);
+    }
   }
   isBusy() {
     if (this.diceAnim || this.cardAnim) return true;

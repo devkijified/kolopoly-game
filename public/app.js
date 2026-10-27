@@ -1076,15 +1076,15 @@ function renderActionBar(room) {
     sendAs('declare_bankruptcy', {});
   });
   // Secondary row: deeds, trade, gist
-  let secHtml = '<button class="btn small ghost" id="sbDeeds">' + window.icon('book', 16) + ' My deeds</button>';
-  if (!spectator) secHtml += '<button class="btn small ghost" id="sbTrade">' + window.icon('swap', 16) + ' ' + (room.inf ? 'Swap contract' : 'Trade') + '</button>';
+  let secHtml = '<button class="btn small ghost" id="sbDeeds">' + window.icon('book', 16) + ' Deeds</button>';
+  if (!spectator) secHtml += '<button class="btn small ghost" id="sbTrade">' + window.icon('swap', 16) + ' ' + (room.inf ? 'Swap' : 'Trade') + '</button>';
   if (room.inf && !spectator) secHtml += '<button class="btn small ghost" id="sbContracts">' + window.icon('card', 16) + ' Contracts</button>';
-  secHtml += '<button class="btn small ghost" id="sbGist">' + window.icon('eye', 16) + ' Game gist</button>';
+  secHtml += '<button class="btn small ghost" id="sbGist">' + window.icon('eye', 16) + ' Gist</button>';
   // Lesson 11: a way out, with an honest two tap confirm. The host also
   // carries the room ending option.
   if (!spectator && me && !me.bankrupt && room.status === 'playing') {
-    secHtml += '<button class="btn small ghost" id="sbLeave">' + window.icon('leave', 16) + ' ' + (leaveArmed ? 'You wan give up this game? Tap again to leave.' : 'Leave game') + '</button>';
-    if (myId === room.hostId) secHtml += '<button class="btn small ghost" id="sbEndRoom">' + (endRoomArmed ? 'End the room for everybody? Tap again.' : 'End room') + '</button>';
+    secHtml += '<button class="btn small ghost" id="sbLeave">' + window.icon('leave', 16) + ' ' + (leaveArmed ? 'Sure?' : 'Leave') + '</button>';
+    if (myId === room.hostId) secHtml += '<button class="btn small ghost" id="sbEndRoom">' + (endRoomArmed ? 'Sure?' : 'End') + '</button>';
   }
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());

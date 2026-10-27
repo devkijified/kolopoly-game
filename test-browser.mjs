@@ -612,6 +612,59 @@ try {
   }
   check('the bot completes its first turn unaided and the board state advances', botMoved);
   await BP.close();
+
+  console.log('B9: KP8 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, dock pinned and compact');
+  const overflowOf = (page) => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
+  for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844]]) {
+    const MP = await newPage(tag);
+    // Emulate from birth, never resize a loaded page: a mid-session
+    // setViewport leaves the layout viewport stale in this Chrome build
+    // and the geometry checks read phantom sizes.
+    await MP.emulate({ viewport: { width: W, height: H, deviceScaleFactor: 1, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+    await MP.goto(BASE, { waitUntil: 'networkidle0' });
+    let ov = await overflowOf(MP);
+    check(tag + ' landing: scrollWidth never exceeds innerWidth', ov.sw <= ov.iw, JSON.stringify(ov));
+    await typeName(MP, 'Mobi');
+    await MP.click('#createBtn');
+    await waitState(MP, (s) => s.status === 'lobby', tag + ' in lobby');
+    await sleep(800);
+    ov = await overflowOf(MP);
+    check(tag + ' lobby: scrollWidth never exceeds innerWidth', ov.sw <= ov.iw, JSON.stringify(ov));
+    if (W === 360) {
+      const sb = await MP.evaluate(() => {
+        const r = document.getElementById('startBtn').getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, ih: window.innerHeight, sy: window.scrollY, docH: document.documentElement.scrollHeight };
+      });
+      check('360x740 lobby: Start is visible without any page scroll', sb.sy === 0 && sb.docH <= sb.ih + 1 && sb.top >= 0 && sb.bottom <= sb.ih + 1, JSON.stringify(sb));
+    }
+    await clickId(MP, 'botAdd1');
+    await waitState(MP, (s) => s.players.length === 2, tag + ' bot seated');
+    await MP.click('#startBtn');
+    await waitState(MP, (s) => s.status === 'playing', tag + ' game playing', 15000);
+    await sleep(4000);
+    ov = await overflowOf(MP);
+    check(tag + ' game: scrollWidth never exceeds innerWidth', ov.sw <= ov.iw, JSON.stringify(ov));
+    const dock = await MP.evaluate(() => {
+      const r = document.querySelector('.walletbar').getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: r.height, ih: window.innerHeight };
+    });
+    check(tag + ' game: the dock sits inside the viewport and stays compact', dock.top >= 0 && dock.bottom <= dock.ih + 1 && dock.h <= 160, JSON.stringify(dock));
+    const strip = await MP.evaluate(() => {
+      const chips = [...document.querySelectorAll('#playersStrip .pchip')];
+      if (!chips.length) return { n: 0, spread: 999 };
+      const tops = chips.map((c) => Math.round(c.getBoundingClientRect().top));
+      return { n: chips.length, spread: Math.max(...tops) - Math.min(...tops) };
+    });
+    check(tag + ' game: player chips form one row, never a tower', strip.n >= 2 && strip.spread <= 2, JSON.stringify(strip));
+    const prim = await MP.evaluate(() => {
+      const b = document.querySelector('#actionBar .btn');
+      return b ? Math.round(b.getBoundingClientRect().height) : 0;
+    });
+    check(tag + ' game: the primary action is 40 to 46px tall', prim >= 40 && prim <= 46, 'h=' + prim);
+    const bw = await MP.evaluate(() => ({ wrap: document.getElementById('boardWrap').clientWidth, iw: window.innerWidth }));
+    check(tag + ' game: the board stage runs edge to edge', bw.wrap >= bw.iw - 16, JSON.stringify(bw));
+    await MP.close();
+  }
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);
