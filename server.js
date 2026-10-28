@@ -23,6 +23,11 @@ const MAX_PLAYERS = 6;
 // survives a grace window (the host closed a tab, a train entered a tunnel)
 // and only dies when the window passes with nobody back.
 const ROOM_GRACE_MS = TEST ? 3000 : 600000;
+// AFK: warn, then bot-takeover (capped), before the seat stalls the table.
+const AFK_WARN1_MS = TEST ? 2500 : 45000;
+const AFK_WARN2_MS = TEST ? 5000 : 90000;
+const AFK_TAKEOVER_MS = TEST ? 8000 : 150000;
+const AFK_MAX_TAKEOVERS = 2;
 
 const rooms = new Map();
 let nextPlayerId = 1;
@@ -284,7 +289,8 @@ function newPlayer(name, token, colorIdx) {
     bot: false, botBrain: null,
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
     peakCash: D.START_CASH, purchases: [], salaryNote2: false,
-    resigned: false
+    resigned: false,
+    lastActive: 0, afkWarn: 0, afkTaken: false, humanName: null
   };
 }
 // A persistent per-device id (localStorage UUID on the client). It lets a
@@ -300,8 +306,10 @@ function bindSeat(ctx, ws, room, player, send) {
   // Close code 4001 tells the old client its seat was taken on purpose, so
   // it must not auto-reconnect and start a tab war over the seat.
   if (player.ws && player.ws !== ws && player.ws.readyState === 1) { try { player.ws.close(4001, 'seat taken'); } catch (e) { } }
+  if (player.afkTaken && player.bot) reclaimAfkBot(room, player, ws);
   player.ws = ws;
   player.connected = true;
+  touchActive(player);
   ctx.room = room; ctx.player = player; ctx.spectator = false;
   room.emptyAt = null;
   // Lesson 1: while the room is still a lobby, the host seat is held in
@@ -338,7 +346,8 @@ function newRoom(code, isPublic, mode, settings) {
     diceQueue: [], forcedCards: { wahala: null, family: null },
     feed: [], feedSeq: 0, message: '', messageSeq: 0, banner: null,
     winner: null, endTable: null, startedAt: null,
-    endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null
+    endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null,
+    afkTakeovers: 0
   };
 }
 function connectedSolvent(room) {
@@ -408,7 +417,7 @@ function publicRoom(room) {
     feed: room.feed.slice(-14),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
-      isHost: p.id === room.hostId, bot: !!p.bot, cash: p.cash, position: p.position,
+      isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
       inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
       sapa: room.inf ? sapaFor(room, p) : null,
@@ -1222,6 +1231,8 @@ function startGame(room) {
   room.turnPlayerId = startId;
   room.status = 'playing';
   room.startedAt = now();
+  for (const p of room.players) { if (!p.bot) { p.lastActive = room.startedAt; p.afkWarn = 0; p.afkTaken = false; } }
+  room.afkTakeovers = 0;
   room.gameEndsAt = room.settings.timed ? now() + 3600 * 1000 : null;  const first = curPlayer(room);
   room.phase = 'roll';
   setDeadline(room);
@@ -1668,6 +1679,27 @@ setInterval(() => {
       setMessage(room, 'Still waiting: ' + room.debt.reason + ' needs ' + D.fmtN(room.debt.amount) + '. Sell, mortgage, trade, or declare bankruptcy.');
       changed = true;
     }
+    // AFK grace: warn twice, then bot-takeover (capped) so one phone-down seat cannot hang the table.
+    if (room.status === 'playing' && !room.paused) {
+      for (const p of room.players) {
+        if (p.bot || p.bankrupt || p.resigned || !p.connected) continue;
+        if (!p.lastActive) p.lastActive = room.startedAt || now();
+        const idle = now() - p.lastActive;
+        if (idle >= AFK_TAKEOVER_MS) {
+          if (room.afkTakeovers < AFK_MAX_TAKEOVERS && convertHumanToAfkBot(room, p)) { changed = true; }
+          else if (room.afkTakeovers >= AFK_MAX_TAKEOVERS && p.afkWarn < 3) {
+            p.afkWarn = 3;
+            try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', message: 'You don stay quiet too long. Move or the table go move without you.' })); } catch (e) { }
+          }
+        } else if (idle >= AFK_WARN2_MS && p.afkWarn < 2) {
+          p.afkWarn = 2;
+          try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', message: 'Still dey there? Tap any control sharp, or a bot go hold your seat.' })); } catch (e) { }
+        } else if (idle >= AFK_WARN1_MS && p.afkWarn < 1) {
+          p.afkWarn = 1;
+          try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', message: 'You dey quiet. Make hand shake the screen before the seat go AFK.' })); } catch (e) { }
+        }
+      }
+    }
     if (changed) broadcast(room);
   }
 }, 500);
@@ -1810,6 +1842,67 @@ function cleanName(v) { return String(v || '').trim().slice(0, 20); }
 // a fake socket, playing the same intents a human client sends. Bots fill a
 // room to at most BOT_SEAT_CAP seats so a table always stays human led.
 const BOT_SEAT_CAP = 4;
+
+function touchActive(player) {
+  if (!player || player.bot) return;
+  player.lastActive = now();
+  player.afkWarn = 0;
+}
+
+function convertHumanToAfkBot(room, player) {
+  if (!player || player.bot || player.bankrupt || player.resigned) return false;
+  if (room.afkTakeovers >= AFK_MAX_TAKEOVERS) return false;
+  const others = room.players.filter((p) => p.id !== player.id && !p.bankrupt);
+  if (!others.length) return false;
+  if (player.ws && !player.ws.__bot) {
+    const oldWs = player.ws;
+    try { oldWs.__detached = true; } catch (e) { }
+    player.ws = null;
+    try { oldWs.close(4002, 'afk bot'); } catch (e) { }
+  }
+  player.humanName = player.humanName || player.name;
+  player.afkTaken = true;
+  player.bot = true;
+  room.afkTakeovers = (room.afkTakeovers || 0) + 1;
+  const fake = new EventEmitter();
+  fake.readyState = 1;
+  fake.__bot = true;
+  fake.__botPlayer = player;
+  const brain = new BotBrain({
+    playerId: player.id,
+    test: TEST,
+    send: (obj) => { if (fake.readyState === 1) fake.emit('message', Buffer.from(JSON.stringify(obj))); }
+  });
+  player.botBrain = brain;
+  fake.send = (data) => brain.handleRaw(data);
+  fake.close = () => {
+    if (fake.readyState === 3) return;
+    fake.readyState = 3;
+    brain.kill();
+    fake.emit('close');
+  };
+  handleConnection(fake);
+  fake.emit('message', Buffer.from(JSON.stringify({ type: 'bot_claim', code: room.code })));
+  setMessage(room, player.name + ' don go AFK. A bot dey hold the seat till dem return.');
+  pushFeed(room, 'timeout', player.name + ' seat don convert to bot (AFK).', { playerId: player.id, auto: true, reason: 'afk' });
+  updatePause(room);
+  return true;
+}
+
+function reclaimAfkBot(room, player, ws) {
+  if (!player || !player.afkTaken) return;
+  if (player.botBrain) { try { player.botBrain.kill(); } catch (e) { } player.botBrain = null; }
+  if (player.ws && player.ws.__bot) {
+    try { player.ws.__detached = true; player.ws.readyState = 3; } catch (e) { }
+  }
+  player.bot = false;
+  player.afkTaken = false;
+  player.ws = ws;
+  player.connected = true;
+  touchActive(player);
+  setMessage(room, player.name + ' don return. Bot don comot for the seat.');
+}
+
 function spawnBot(room) {
   const usedNames = new Set(room.players.map((p) => p.name));
   const name = BOT_NAMES.find((n) => !usedNames.has(n)) || ('BOT ' + room.players.length);
@@ -1864,6 +1957,11 @@ function handleConnection(ws) {
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
     if (!msg || typeof msg.type !== 'string') return;
+    if (msg.type === 'heartbeat' || msg.type === 'presence') {
+      if (ctx.player && !ctx.spectator) { touchActive(ctx.player); send({ type: 'pong', t: now() }); }
+      return;
+    }
+    if (ctx.player && !ctx.spectator && !ctx.player.bot) touchActive(ctx.player);
 
     // ---- Test hooks (KP_TEST=1 only; used by test-engine.mjs) -------------
     if (TEST && msg.type.startsWith('test_') && ctx.room) {
@@ -1894,6 +1992,25 @@ function handleConnection(ws) {
       }
       if (msg.type === 'test_bot_hold') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p && p.botBrain) p.botBrain.hold = !!msg.hold; broadcast(room); return; }
       broadcast(room);
+      return;
+    }
+
+    // Mid-game AFK claim: fake socket takes over an existing human seat.
+    if (msg.type === 'bot_claim') {
+      if (!ws.__bot || !ws.__botPlayer) return fail('Bots only enter when the server sends them.');
+      const target = rooms.get(String(msg.code || '').trim().toUpperCase());
+      const player = ws.__botPlayer;
+      if (!target || !player || target.players.indexOf(player) < 0) {
+        send({ type: 'rejoin_failed' });
+        return;
+      }
+      player.ws = ws;
+      player.connected = true;
+      player.bot = true;
+      ctx.room = target; ctx.player = player; ctx.spectator = false;
+      target.emptyAt = null;
+      updatePause(target);
+      broadcast(target);
       return;
     }
 
@@ -2018,7 +2135,9 @@ function handleConnection(ws) {
       }
       const player = target.players.find((p) => p.id === Number(msg.playerId));
       if (!player || !msg.token || msg.token !== player.reconnectToken) { send({ type: 'rejoin_failed' }); return; }
+      if (player.afkTaken) reclaimAfkBot(target, player, ws);
       bindSeat(ctx, ws, target, player, send);
+      touchActive(player);
       return;
     }
 
@@ -2126,6 +2245,20 @@ function handleConnection(ws) {
         } else if (lr.status === 'playing' && !lp.bankrupt) {
           const blocked = lr.auction || (lr.buildPlace && lr.buildPlace.playerId !== lp.id) || (lr.debt && lr.debt.playerId !== lp.id);
           if (!blocked) { doResign(lr, lp); broadcast(lr); }
+        } else if (lr.status === 'ended') {
+          // End-screen Leave must free the seat so a refresh cannot hang on the result card.
+          const ix = lr.players.indexOf(lp);
+          if (ix >= 0) lr.players.splice(ix, 1);
+          if (!lr.players.some((p) => !p.bot)) {
+            for (const p of lr.players) { if (p.botBrain) try { p.botBrain.kill(); } catch (e) { } }
+            rooms.delete(lr.code);
+          } else {
+            if (lr.hostId === lp.id) {
+              const next = lr.players.find((p) => !p.bot) || lr.players[0];
+              if (next) lr.hostId = next.id;
+            }
+            broadcast(lr);
+          }
         }
       }
       ws.close();
@@ -2579,7 +2712,7 @@ function handleConnection(ws) {
       broadcast(room);
       return;
     }
-    setMessage(room, me.name + ' disconnected.');
+    setMessage(room, me.name + ' dey away. Seat dey held.');
     // Lesson 1: in the lobby the host seat is held, not migrated: the room
     // is waiting for its host, and guests see the hostAway state.
     if (room.status !== 'lobby' && room.hostId === me.id) {

@@ -83,7 +83,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 
 .iconbtn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; border-radius: 12px;
+  width: 40px; height: 40px; min-width: 40px; min-height: 40px; border-radius: 12px;
   background: var(--paper); border: 1px solid var(--line); color: var(--ink);
 }
 /* KP14: the one audio button's lit and silenced states. State 1 (sound
@@ -595,10 +595,59 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 #view-game.is-paused .walletbar { opacity: 0.45; pointer-events: none; filter: saturate(0.6); }
 .count-num { font-family: 'Aeonik Pro', sans-serif; font-size: 110px; color: var(--gold); animation: countpop 0.55s ease; }
 @keyframes countpop { from { transform: scale(1.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.end-table { width: 100%; max-width: 460px; border-collapse: collapse; margin: 14px 0; }
-.end-table td, .end-table th { padding: 9px 8px; border-bottom: 1px solid rgba(245, 239, 226, 0.25); text-align: left; }
+.end-table { width: 100%; border-collapse: collapse; margin: 8px 0 0; }
+.end-table td, .end-table th { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; color: var(--ink); font-size: 14px; }
+.end-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); font-weight: 800; }
 .end-table td:last-child, .end-table th:last-child { text-align: right; }
-.end-table .winner-row { color: var(--gold); font-weight: 800; }
+.end-table .winner-row { color: var(--gold-deep); font-weight: 800; background: #fdf0cd; }
+.end-table .winner-row td { border-bottom-color: #f0d58a; }
+.end-worth { font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+.end-title { color: var(--ink-soft); opacity: 1; }
+.end-lessons { display: block; margin-top: 4px; font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+#endOverlay {
+  align-items: stretch; justify-content: flex-start; overflow-y: auto;
+  -webkit-overflow-scrolling: touch; padding: 16px 12px 28px;
+  background: rgba(24, 15, 8, 0.72);
+}
+#endOverlay.show { display: flex; }
+.end-card {
+  background: var(--card); color: var(--ink); border-radius: 22px;
+  padding: 18px 16px 20px; margin: auto; width: min(100%, 520px);
+  box-shadow: var(--shadow); text-align: left;
+}
+.end-kicker {
+  margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--gold-deep);
+}
+.end-headline {
+  margin: 6px 0 8px; font-family: 'Aeonik Pro', sans-serif; font-size: 26px;
+  line-height: 1.15; color: var(--ink); font-weight: 800;
+}
+.end-reason { margin: 0 0 10px; color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+.end-tables { display: flex; flex-direction: column; gap: 12px; }
+.end-panel {
+  background: var(--paper); border-radius: 16px; padding: 12px 12px 10px;
+  border: 1px solid var(--line);
+}
+.end-panel-title { margin: 0; font-size: 15px; font-weight: 800; color: var(--ink); }
+.end-panel-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+.end-note { margin: 8px 0 0; font-size: 12px; color: var(--ink-soft); line-height: 1.35; }
+.end-deal { margin: 12px 0 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+.end-actions { max-width: none; width: 100%; margin-top: 14px; gap: 8px; }
+.end-actions .btn { min-height: 48px; }
+.end-leave { width: 100%; min-height: 44px; }
+@media (min-width: 700px) {
+  .end-tables { flex-direction: row; align-items: flex-start; }
+  .end-panel { flex: 1; min-width: 0; }
+}
+/* Soft reconnect / AFK banner: never scream disconnected. */
+#connBanner {
+  position: fixed; top: calc(var(--topbar-h, 52px) + 8px); left: 50%; transform: translateX(-50%);
+  z-index: 96; display: none; max-width: min(94vw, 420px); padding: 10px 16px;
+  border-radius: 999px; background: var(--ink); color: var(--cream);
+  font-weight: 700; font-size: 13px; text-align: center; box-shadow: var(--shadow);
+}
+#connBanner.show { display: block; animation: alertin 0.22s ease; }
 .pass-banner {
   position: fixed; top: calc(var(--topbar-h) + 6px); left: 50%; transform: translateX(-50%); z-index: 85;
   background: var(--ink); color: var(--cream); border-radius: 999px; padding: 11px 20px;
@@ -814,7 +863,7 @@ body.gl-on .slot { padding: 7px 10px; border-radius: 13px; }
 body.gl-on .slot .avatar { width: 26px; height: 26px; }
 
 /* End screen: podium scene behind the DOM final table */
-body.gl-on #endOverlay { background: rgba(24, 15, 8, 0.42); }
+body.gl-on #endOverlay { background: rgba(24, 15, 8, 0.72); }
 body.gl-on #endOverlay > *:not(.gl-canvas) { position: relative; z-index: 1; }
 
 /* Card faces (drawn cards, choices, proposals): the DOM reading layer */
@@ -859,7 +908,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .topbar { gap: 4px; padding-left: 6px; padding-right: 6px; flex-wrap: nowrap; }
   .wordmark { font-size: 16px; letter-spacing: 0; }
   .chip { padding: 3px 6px; min-height: 30px; font-size: 11px; white-space: nowrap; }
-  .iconbtn { width: 30px; height: 30px; flex: none; }
+  .iconbtn { width: 40px; height: 40px; min-width: 40px; min-height: 40px; flex: none; }
 }
 
 /* ================= KP8 MOBILE OVERHAUL =================
@@ -907,7 +956,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .topbar { padding: 6px var(--sp-3); gap: 6px; }
   .wordmark { font-size: 17px; }
   .topbar .chip { min-height: var(--chip-h); padding: 3px 9px; font-size: 12px; }
-  .topbar .iconbtn { width: 34px; height: 34px; border-radius: 10px; }
+  .topbar .iconbtn { width: 40px; height: 40px; min-width: 40px; min-height: 40px; border-radius: 12px; }
   .topbar .iconbtn svg { width: 18px; height: 18px; }
 
   /* Game: [tall stage] [rail at natural height] [dock pinned]. KP11
@@ -1679,4 +1728,14 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 #infBar .water-chip .ic { margin-right: 2px; }
 @media (max-width: 380px) {
   #infBar .idx, #infBar .water-chip { padding: 2px 4px; }
+}
+
+
+/* Rebuild polish: denser player strip + premium end card already above.
+   Keep chips from eating the stage on short phones. */
+@media (max-width: 699px) {
+  .players-strip { gap: 6px; padding: 4px 8px; }
+  .players-strip .pchip { min-height: 40px; }
+  .pchip .cash { font-size: 12px; }
+  .walletbar .actionbar .btn { min-height: 48px; }
 }
