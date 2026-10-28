@@ -1430,13 +1430,9 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
 .hs-roadband::after { content: ''; position: absolute; left: 0; right: 0; top: 34px; height: 3px; background: repeating-linear-gradient(90deg, rgba(243, 230, 200, 0.55) 0 26px, transparent 26px 54px); }
 .hs-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: linear-gradient(180deg, rgba(245, 239, 226, 0), #f5efe2 85%); }
 .hs-vignette { position: absolute; inset: 0; background: radial-gradient(118% 92% at 50% 36%, transparent 56%, rgba(26, 14, 4, 0.36) 100%); }
-/* KP16: calm ground behind the text stack. A soft radial scrim sits
-   over the scene but under the type (the type carries z-index 2 in
-   the hero flow), and the lit windows that fall inside the text zone
-   are dimmed at the source; windows outside the zone keep their
-   full life. */
-.hs-scrim { position: absolute; inset: 0; background: radial-gradient(125% 72% at 50% 30%, rgba(29, 15, 3, 0.4), rgba(29, 15, 3, 0.15) 55%, rgba(29, 15, 3, 0) 78%); }
-.hs-near use.tz-dim { opacity: 0.22; }
+/* KP16 added a text-zone scrim and dimmed windows here; KP17 removed
+   both (see the KP17 block at the end of this file): the type left
+   the picture entirely, so the scene needs no calming. */
 .hs-grain { position: absolute; inset: 0; opacity: 0.05; mix-blend-mode: overlay; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E"); }
 /* Hero type on the dusk scene. The scene is always dark now, GL or
    not, so the light colours are unconditional; the slogan is the
@@ -1544,3 +1540,51 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   .st-flag1, .st-flag2 { opacity: 1; transform: none; }
   .st-crown { opacity: 1; }
 }
+
+/* ================= KP17: type leaves the picture =================
+   Owner ruling: text over the hero artwork was unreadable, hurt the
+   eyes, and broke the playbook (copy lives on calm surfaces, one
+   type scale, full contrast). The scene band is now pure
+   illustration: no wordmark, taglines or slogan renders over it.
+   KP16's halfway patches are reverted: the .hs-scrim layer and the
+   tz-dim window dimming are deleted, and the far skyline's lit
+   windows are back at their KP15 group opacity (0.75, in the
+   markup). KP16's story scale and timing, okada redraw and kolo
+   clearance stand. The type stack sits under the band on the page
+   cream: wordmark in the header's treatment, taglines in ink, the
+   slogan as the headline in deep amber-brown #8a5a00 (about 5.1 to 1
+   on cream; the pale gold family is illustration gold, never text
+   on cream). The band pays for the stack by slimming from 212px to
+   172px and the join card no longer overlaps the hero at all, so
+   nothing can cover the kolo or the words. */
+.landing-hero { min-height: 0; padding: 0; }
+.hero-scene { position: relative; inset: auto; height: 172px; }
+/* The composition re-seated in the slimmer band: the near buildings
+   keep their width-driven scale (element height unchanged) and
+   stand 26px up the road; the far skyline's baseline drops to 60px
+   so its rooftops land just under the band's top edge; the road
+   narrows to 46px and the traffic lanes follow it down. */
+.hs-far { bottom: 60px; }
+.hs-near { bottom: 26px; }
+.hs-roadband { height: 46px; }
+.hs-roadband::after { top: 28px; }
+.hs-fade { height: 26px; }
+.hs-kolo-zone { bottom: 20px; }
+.hs-veh.danfo { bottom: 22px; }
+.hs-veh.keke { bottom: 15px; }
+/* The type stack on calm ground. */
+.hero-type { padding: 12px 18px 14px; text-align: center; }
+#view-landing .hero-wordmark {
+  font-size: var(--fs-display); letter-spacing: 0.5px;
+  color: var(--ink); text-shadow: none;
+}
+.hero-wordmark .gold { color: var(--gold-deep); }
+#view-landing .tagline { color: var(--ink); font-weight: 600; text-shadow: none; margin-bottom: 0; }
+#view-landing .hero-slogan {
+  position: static; z-index: auto;
+  color: #8a5a00; text-shadow: none; margin: 8px 0 0;
+}
+/* No overlap anymore: the card starts below the type stack on the
+   normal rhythm (the invite-shown rule above still spaces it 12px
+   under the banner). */
+#view-landing .join-card { margin-top: 0; }
