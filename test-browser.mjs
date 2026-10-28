@@ -944,7 +944,7 @@ try {
   check('Gist still renders the messages glyph', gist13.gist === gist13.messages, gist13.gist.slice(0, 60));
   await W.close();
 
-  console.log('B14: KP14 landing: the join card, picks and inputs carry no hard borders; the selected mode card wears the gold ring; the slogan line rides the hero');
+  console.log('B14: KP14 landing: the join card, picks and inputs carry no hard borders; the selected mode card wears the gold ring; the slogan line rides the hero; KP17: the type sits under the scene on cream and the scene band is pure illustration');
   const LND = await newPage('LND');
   await LND.goto(BASE, { waitUntil: 'networkidle0' });
   await sleep(400);
@@ -956,13 +956,19 @@ try {
     const tok = cs(document.querySelector('.token-pick'));
     const inp = cs(document.getElementById('nameIn'));
     const slogan = document.querySelector('.hero-slogan');
+    const sceneTextEls = document.querySelectorAll('.hero-scene h1, .hero-scene p, .hero-scene .display').length;
     return {
       cardBorder: card.borderTopStyle + '/' + card.borderTopWidth,
       pickBorder: pick.borderTopStyle + '/' + pick.borderTopWidth,
       tokBorder: tok ? tok.borderTopStyle + '/' + tok.borderTopWidth : 'missing',
       inpBorder: inp.borderTopStyle + '/' + inp.borderTopWidth,
       selShadow: sel.boxShadow,
-      slogan: slogan ? slogan.textContent.trim() : ''
+      slogan: slogan ? slogan.textContent.trim() : '',
+      scrim: !!document.querySelector('.hs-scrim'),
+      tzDim: document.querySelectorAll('.tz-dim').length,
+      sceneTextEls,
+      sloganColor: slogan ? cs(slogan).color : '',
+      wmGold: (document.querySelector('.hero-wordmark .gold') || {}).textContent || ''
     };
   });
   check('the join card has no hard border', ld.cardBorder === 'none/0px', ld.cardBorder);
@@ -971,6 +977,11 @@ try {
   check('the name input has no hard border', ld.inpBorder === 'none/0px', ld.inpBorder);
   check('the selected mode card wears the gold ring', ld.selShadow.includes('255, 200, 87'), ld.selShadow.slice(0, 90));
   check('the hero carries the settled slogan', ld.slogan === 'Break your kolo, buy the street.', ld.slogan);
+  check('KP17: the scene band carries no copy (no heading or paragraph renders inside it)', ld.sceneTextEls === 0, String(ld.sceneTextEls));
+  check('KP17: the scrim layer is gone from the hero', ld.scrim === false, String(ld.scrim));
+  check('KP17: no dimmed windows remain in the scene', ld.tzDim === 0, String(ld.tzDim));
+  check('KP17: the slogan reads in deep amber on cream', ld.sloganColor === 'rgb(138, 90, 0)', ld.sloganColor);
+  check('KP17: the wordmark splits ink and gold like the header', ld.wmGold === 'POLY', ld.wmGold);
   check('the landing has no horizontal overflow at 390', await LND.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'scrollWidth ' + (await LND.evaluate(() => document.documentElement.scrollWidth)));
   // KP14 structure pass: the landing is one spacing system, the mode
   // cards share their edges, the preset explainer is chips plus two
@@ -1196,6 +1207,17 @@ try {
   const fs360 = await firstScreen(F2);
   check('360: the join row sits inside the first viewport on load', !!fs360.join && fs360.join.top >= 0 && fs360.join.bottom <= fs360.vh, JSON.stringify(fs360));
   await F2.close();
+  // KP17 diagnostic (logged, not asserted): the type stack that left
+  // the picture costs more at 360x740 than the slimmed scene band
+  // repays, so the mode cards end below the fold at this size by the
+  // margin printed here. The number stays on record; the owner rules
+  // on the trade (card structure is KP14's, out of KP17 scope).
+  const F3 = await newPage('F3');
+  await F3.emulate({ viewport: { width: 360, height: 740, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-A145F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+  await F3.goto(BASE, { waitUntil: 'networkidle0' });
+  const fs360s = await firstScreen(F3);
+  console.log('KP17 diagnostic: 360x740 mode cards bottom ' + fs360s.modeBottom + ' against viewport ' + fs360s.vh);
+  await F3.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);
