@@ -1018,11 +1018,12 @@ try {
   await sleep(600);
   const ipDbg = await IP.evaluate(() => {
     const d = window.KP3D.debug();
-    const c = document.getElementById('glLandingCanvas');
-    return { profile: d.profile, probe: d.probe, backRatio: c ? c.width / c.clientWidth : 0, tierTitle: document.getElementById('tierBtn').title, startCap: d.startCap };
+    // KP15: the landing has no GL canvas anymore (DOM/SVG hero), so the
+    // granted ratio is read from the renderer itself via debug().
+    return { profile: d.profile, probe: d.probe, backRatio: d.pixelRatio || 0, tierTitle: document.getElementById('tierBtn').title, startCap: d.startCap };
   });
   check('Best View: the iPhone class resolves ULTRA', ipDbg.profile === 'ultra', JSON.stringify({ profile: ipDbg.profile, probe: ipDbg.probe }));
-  check('Best View: the iPhone class backs its canvas at the granted DSF (2.9x+)', ipDbg.backRatio >= 2.9, 'ratio ' + ipDbg.backRatio);
+  check('Best View: the iPhone class renders at the granted DSF (2.9x+)', ipDbg.backRatio >= 2.9, 'ratio ' + ipDbg.backRatio);
   check('Best View: the graphics button labels the detection', ipDbg.tierTitle === 'Graphics: Auto (Ultra)', ipDbg.tierTitle);
   check('Best View: the probe reports the class signals', !!ipDbg.probe && ipDbg.probe.dpr === 3 && ipDbg.probe.cores === 8, JSON.stringify(ipDbg.probe));
   // (d) the pure detection table
@@ -1054,11 +1055,10 @@ try {
   await sleep(1000);
   const wkDbg = await WK.evaluate(() => {
     const d = window.KP3D.debug();
-    const c = document.getElementById('glLandingCanvas');
-    return { profile: d.profile, backRatio: c ? c.width / c.clientWidth : 0 };
+    return { profile: d.profile, backRatio: d.pixelRatio || 0 };
   });
   check('Best View: the weak class resolves LITE', wkDbg.profile === 'lite', JSON.stringify(wkDbg));
-  check('Best View: the weak class backs at or below 1.5x', wkDbg.backRatio > 0 && wkDbg.backRatio <= 1.5, 'ratio ' + wkDbg.backRatio);
+  check('Best View: the weak class renders at or below 1.5x', wkDbg.backRatio > 0 && wkDbg.backRatio <= 1.5, 'ratio ' + wkDbg.backRatio);
   await WK.close();
   // (c) the learned ceiling steers the next start
   const LN = await newPage('LN');
