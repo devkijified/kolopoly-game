@@ -143,6 +143,10 @@ let autoPrCap = PROFILE_PARAMS.high.dprCap, autoStartCap = PROFILE_PARAMS.high.d
 let autoWinStart = 0, autoWinFrames = 0;
 let autoSlowWins = 0, autoFastWins = 0, autoStableWins = 0, autoGraceUntil = 0;
 let learnSessionCounted = false;
+// KP15: the stepper DECIDES immediately (autoPrCap above) but the buffer
+// resize is gated: a decided step waits in this flag until a scene entry
+// or a game turn boundary applies it, never mid-motion.
+let pendingAutoPr = false;
 // The pixel ratio cap actually in force: Auto adapts, manual picks do not.
 function prCap() { return TIER.auto ? autoPrCap : TIER.dprCap; }
 function applyTier(name, auto) {
@@ -168,6 +172,7 @@ function applyTier(name, auto) {
     autoPrCap = TIER.dprCap;
   }
   autoSlowWins = 0; autoFastWins = 0; autoStableWins = 0; autoWinStart = 0; autoWinFrames = 0;
+  pendingAutoPr = false; // KP15: a fresh tier supersedes any gated step
   learnSessionCounted = false;
   autoGraceUntil = (typeof performance !== 'undefined' ? performance.now() : 0) + 6000;
   KP3D.tier = TIER.name;
@@ -1398,6 +1403,11 @@ class GameScene {
 
   sync(state) {
     this.lastState = state;
+    // KP15: a turn boundary is a gated moment: a pending Auto step is
+    // applied here, in the same beat as the state-driven redraw that
+    // follows a turn change, never in the middle of a hop or a cascade.
+    const turnKey = (state.status || '') + ':' + (state.turnPlayerId || '');
+    if (this._turnKey !== turnKey) { this._turnKey = turnKey; flushPendingAutoPr(); }
     // tiles: ownership, mortgage, buildings, pledges
     const byId = {}; for (const p of state.players) byId[p.id] = p;
     for (let i = 0; i < 40; i++) {
@@ -1921,97 +1931,21 @@ function bigMoment(kicker, name, amount, line) {
 }
 
 // ---------------------------------------------------------------------------
-// LANDING SCENE: a Lagos street behind the glass join card
+// LANDING: no GL scene (KP15). The hero is a DOM/SVG street in index.html
+// now (see .hero-scene in style.css): a layered panorama with a 12 second
+// story loop around the slogan. The old WebGL landing street is gone for
+// two reasons proven from the code that used to live here:
+//  1. Its danfo took its x from absolute time while the render loop only
+//     draws ambient scenes in bursts (TIER.ambientOn, then a rest), so
+//     the bus froze every rest and teleported forward on resume: the
+//     flicker the owner saw whenever the bus crossed.
+//  2. The Auto FPS stepper counted only drawn frames over wall-clock
+//     windows, so the duty cycle read as ~20fps forever and kept
+//     stepping the pixel ratio down, reallocating the fullscreen
+//     canvas backing store mid-session: a full-screen flash per step.
+// setScene treats the landing as a no-GL view and keeps the canvas
+// hidden until the lobby or the game claims it.
 // ---------------------------------------------------------------------------
-class LandingScene {
-  constructor() {
-    const s = this.scene = new THREE.Scene();
-    s.background = new THREE.Color(0x35200f);
-    // Fog matches the backdrop colour, so the skyline melts into the dusk
-    // at its ends instead of tinting peach against the sky.
-    s.fog = new THREE.Fog(0x35200f, 13, 42);
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
-    this.camera.position.set(0, 3.1, 10.5);
-    s.add(new THREE.HemisphereLight(0xffe6c0, 0x6a4a28, 0.95));
-    const sun = new THREE.DirectionalLight(0xffc37a, 1.5); sun.position.set(-6, 9, 7); s.add(sun);
-    // KP14 structure pass: the hero backdrop is a composed panorama, not
-    // scattered props. The old staging put a sun disc at x -7.5 (outside
-    // the portrait frustum, so only its edge ever showed, cropped), a
-    // bridge arc whose quadrant slashed diagonally across the frame,
-    // cloud blobs at uneven heights, and building blocks on two depths
-    // with no shared baseline. Owner verdict: rough. The restage:
-    // - a dusk gradient backdrop (canvas texture, no shapes) fills the
-    //   sky: deep brown up top warming to amber at the horizon line;
-    // - ONE skyline row on ONE baseline (every base at y 0 on z -8),
-    //   heights in a calm rhythm, warm palette only, so the portrait
-    //   window reads three to five towers behind the hero text;
-    // - the sun disc and the clouds are fully OUT, and the bridge arc
-    //   is gone: nothing is half-cropped by the canvas edge anywhere.
-    //   The join card occludes the street level by design, which is
-    //   composition, not cropping.
-    const skyC = cnv(64, 512), sg = skyC.getContext('2d');
-    const grad = sg.createLinearGradient(0, 0, 0, 512);
-    grad.addColorStop(0, '#241305');
-    grad.addColorStop(0.45, '#3a2110');
-    grad.addColorStop(0.72, '#6e451a');
-    grad.addColorStop(0.82, '#8a5a24');
-    grad.addColorStop(0.9, '#4a2c12');
-    grad.addColorStop(1, '#2e1a0a');
-    sg.fillStyle = grad; sg.fillRect(0, 0, 64, 512);
-    const skyTex = new THREE.CanvasTexture(skyC);
-    skyTex.colorSpace = THREE.SRGBColorSpace;
-    const sky = new THREE.Mesh(new THREE.PlaneGeometry(120, 60), new THREE.MeshBasicMaterial({ map: skyTex, fog: false }));
-    sky.position.set(0, 10, -24); s.add(sky);
-    // ground and road
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(70, 40), std(0x4a3626, 1));
-    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; s.add(ground);
-    const road = bx(46, 0.04, 3.1, std(0x2e2a26, 0.95), 0, 0.0, 2.6); road.castShadow = false; s.add(road);
-    for (let k = -9; k <= 9; k++) { const dash = bx(1.1, 0.045, 0.14, std(0xf3e6c8, 0.8), k * 2.4, 0.005, 2.6); dash.castShadow = false; s.add(dash); }
-    // the skyline: one row, one baseline, a calm height rhythm. It sits
-    // far enough back to read as a panorama behind the hero, in the
-    // warm dusk palette only (a saturated green tower at centre read
-    // as a toy block in the first restage frame).
-    const cols = [0x8a5a3b, 0x74522f, 0x9c6b35, 0x5d4a33, 0x6b4a2c, 0x7d5836];
-    const row = [
-      [-14.0, 2.6], [-11.5, 3.2], [-9.0, 2.8], [-6.5, 3.3], [-4.0, 2.7],
-      [-1.5, 3.1], [1.0, 2.8], [3.5, 3.3], [6.0, 2.6], [8.5, 3.1],
-      [11.0, 2.7], [13.5, 3.2]
-    ];
-    row.forEach(([px2, h], ix) => {
-      const mat = new THREE.MeshStandardMaterial({ map: skylineTexture('#' + cols[ix % cols.length].toString(16).padStart(6, '0'), 0.42), roughness: 0.95 });
-      s.add(bx(2.3, h, 2.0, mat, px2, h / 2, -13.5));
-    });
-    // palms flank the street, kept inside the panorama's edges
-    for (const [px2, pz] of [[-5.6, 0.6], [5.9, 0.4], [-3.1, 5.6], [3.4, 5.8]]) {
-      const trunk = cyl(0.06, 0.09, 1.6, std(0x7a5a38, 1), px2, 0.8, pz, 8); s.add(trunk);
-      for (let f = 0; f < 5; f++) {
-        const frond = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.15, 6), std(0x3f7a3a, 0.9));
-        frond.position.set(px2 + Math.cos(f * 1.26) * 0.42, 1.75, pz + Math.sin(f * 1.26) * 0.42);
-        frond.rotation.z = Math.cos(f * 1.26) * 1.15; frond.rotation.x = -Math.sin(f * 1.26) * 1.15;
-        s.add(frond);
-      }
-    }
-    // traffic: the danfo loop and a parked keke
-    this.danfo = buildDanfo(1.25); this.danfo.position.set(-8, 0.03, 2.05); this.danfo.rotation.y = Math.PI / 2; s.add(this.danfo);
-    this.danfo.add(new THREE.Mesh(new THREE.CircleGeometry(0.55, 18), MAT.shadow));
-    this.danfo.children[this.danfo.children.length - 1].rotation.x = -Math.PI / 2;
-    this.danfo.children[this.danfo.children.length - 1].position.y = -0.01;
-    const keke = buildKeke(1.1); keke.position.set(6.4, 0.03, 5.6); keke.rotation.y = -0.5; s.add(keke);
-    const gen = buildGenerator(1.0); gen.position.set(-6.2, 0.02, 5.4); gen.rotation.y = 0.4; s.add(gen);
-  }
-  host() { return $('view-landing'); }
-  update(dt, t) {
-    const d = this.danfo;
-    const span = 21;
-    let x = ((t * 1.55) % span) - span / 2;
-    d.position.x = x;
-    d.position.y = 0.03 + Math.abs(Math.sin(t * 9)) * 0.012;
-    // The camera barely breathes now: a composed frame must stay
-    // composed, so the sway is a whisper, not a pan.
-    this.camera.position.set(Math.sin(t * 0.07) * 0.45, 3.1 + Math.sin(t * 0.11) * 0.14, 10.5);
-    this.camera.lookAt(0, 1.15, -1.2);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // LOBBY SCENE: players gather around the plaza
@@ -2188,23 +2122,34 @@ function currentView() {
   return 'landing';
 }
 function setScene(name) {
+  activeName = name;
+  // KP15: a pending Auto step lands HERE, at a scene entry (game turn
+  // boundaries flush it too, see GameScene.sync), never mid-motion:
+  // resizing the drawing buffer on a live scene clears it for a frame,
+  // which read as a full-screen flash when the stepper fired mid-game.
+  flushPendingAutoPr();
+  const cv = renderer.domElement;
+  if (name === 'landing') {
+    // KP15: the landing hero is a DOM/SVG street now; the GL canvas has
+    // no stage here and stays hidden until the lobby or the game.
+    cv.style.display = 'none';
+    return;
+  }
+  cv.style.display = '';
   const sc = SCENES[name];
   if (!sc) return;
-  activeName = name;
   const host = sc.host();
-  if (host && renderer.domElement.parentElement !== host) host.appendChild(renderer.domElement);
-  const cv = renderer.domElement;
-  if (name === 'landing') { cv.id = 'glLandingCanvas'; cv.className = ''; }
-  else { cv.id = ''; cv.className = 'gl-canvas'; }
+  if (host && cv.parentElement !== host) host.appendChild(cv);
+  cv.id = ''; cv.className = 'gl-canvas';
   lastFitW = 0; lastFitH = 0;
   fitCanvas(true);
 }
 function fitCanvas(force) {
   if (!renderer || !activeName) return;
+  if (activeName === 'landing') return; // KP15: no GL stage on the landing
   const host = renderer.domElement.parentElement;
   if (!host) return;
   let w = host.clientWidth, h = host.clientHeight;
-  if (activeName === 'landing') { w = window.innerWidth; h = window.innerHeight; }
   if (!w || !h) return;
   // KP11: the game board's layout is built from this box's own aspect;
   // reflow it whenever the fitted size says the aspect class changed
@@ -2250,8 +2195,18 @@ function noteFrame(ts) {
 // learned ceiling and holds its start cap, the higher cap is learned.
 // If it started exactly at the learned ceiling, the stable-session
 // counter grows toward the next retry.
-function applyAutoPr() {
-  if (!renderer) return;
+// KP15 gating: autoAdapt calls applyAutoPr() exactly as before, but all
+// it does now is raise the pending flag: the logical cap (and everything
+// the learning below derives from it) updates at decision time, while
+// the renderer resize lands only at a gated moment. On the old WebGL
+// landing this same resize was the fullscreen flash; in the game it
+// could clear the board for a frame mid-hop. A deliberate manual tier
+// pick still applies immediately (visible feedback for a user action)
+// and clears any pending step.
+function applyAutoPr() { pendingAutoPr = true; }
+function flushPendingAutoPr() {
+  if (!pendingAutoPr || !renderer) return;
+  pendingAutoPr = false;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, autoPrCap));
   lastFitW = 0; lastFitH = 0; fitCanvas(true);
 }
@@ -2482,7 +2437,6 @@ function initGL() {
     motion(3);
   });
   try {
-    SCENES.landing = new LandingScene();
     SCENES.game = new GameScene();
     SCENES.lobby = new LobbyScene();
     SCENES.end = new EndScene();
@@ -2519,6 +2473,7 @@ function initGL() {
       aniso: { max: maxAniso(), tile: tileMap ? tileMap.anisotropy : 0, centre: centreMap ? centreMap.anisotropy : 0 },
       mipmaps: tileMap ? { generate: tileMap.generateMipmaps, minFilter: tileMap.minFilter } : null,
       autoPrCap,
+      autoPending: pendingAutoPr,
       // KP14 Best View probe: the resolved profile, the session start
       // cap, the learned ceiling on file, and the raw signals the
       // profile was decided from
