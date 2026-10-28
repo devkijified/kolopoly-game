@@ -914,6 +914,43 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
+  console.log('KP14-WSC1: play-again: a spectator cannot bounce the room, and a seated rematch clears the finished game fully');
+  {
+    const g = await makeGame({ gameMode: 'inflation', preset: 'quick', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const key1 = g.S().startedKey;
+    check('the start carries a per-game startedKey', typeof key1 === 'string' && key1.length > 0, String(key1));
+    check('the inflation game carries its phase state', !!g.S().inf && g.S().inf.phase >= 1);
+    const spec = new Client('Watcher');
+    await spec.connect();
+    spec.send('join_room', { code: g.code, name: 'Watcher', token: 'fila' });
+    await spec.waitFor((s) => s.status === 'playing', 'spectator seated in the running game');
+    check('the late joiner is a spectator (no seat)', spec.playerId == null);
+    await nullTurn(g);
+    const feedAtEnd0 = g.S().feed.length;
+    const [pa, pb] = g.S().players;
+    // The guest leaves, deterministically: picking the leaver by whose
+    // turn it happened to be made the host the leaver on some runs, and
+    // the leaver's closed socket can never observe the rematch lobby.
+    const loser = pb;
+    g.byId(loser.id).send('leave', {});
+    await g.host.waitFor((s) => s.status === 'ended', 'game ended');
+    check('the finished game had feed history worth clearing', g.S().feed.length >= feedAtEnd0 && g.S().feed.length > 0, 'feed=' + g.S().feed.length);
+    spec.send('play_again', {});
+    await sleep(450);
+    check('a spectator play-again is refused and the room stays ended', g.S().status === 'ended' && spec.errors.some((e) => /Spectators/.test(e)), JSON.stringify(spec.errors));
+    // The winner drives the rematch: the leaver's socket was closed by
+    // the leave resolution itself, so their client is already gone.
+    g.byId(g.S().winner.playerId).send('play_again', {});
+    await g.host.waitFor((s) => s.status === 'lobby', 'seated play-again returns the room to the lobby');
+    const s = g.S();
+    check('the rematch lobby is clean: no old feed, no stale phase state, no clock, no dice, no end table', s.feed.length === 0 && s.inf === null && s.gameEndsAt == null && s.dice == null && s.endTable == null, JSON.stringify({ feed: s.feed.length, inf: !!s.inf, ends: s.gameEndsAt, dice: s.dice }));
+    g.host.send('start_game', {});
+    await g.host.waitFor((s2) => s2.status === 'playing', 'rematch started');
+    check('the rematch gets a fresh startedKey (the countdown ceremony runs again)', typeof g.S().startedKey === 'string' && g.S().startedKey !== key1, String(g.S().startedKey));
+    spec.ws.close();
+    for (const c of g.clients) c.ws.close();
+  }
+
   console.log('L1: lobby grace: the room survives the host tab closing, guests see hostAway, the host reclaims as host');
   {
     const host = new Client('GraceHost');

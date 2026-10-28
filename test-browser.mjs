@@ -157,7 +157,9 @@ try {
   await clickId(tp, 'abRoll');
   await tp.waitForFunction(() => {
     const el = document.querySelector('.alert-card.credit');
-    return el && /Salary alert/.test(el.textContent);
+    // KP14: the amount counts up with the coin cascade; the check waits
+    // for the settled figure, which is the exactness the law cares about.
+    return el && /Salary alert/.test(el.textContent) && /₦200,000/.test(el.textContent);
   }, { timeout: 15000 }).catch(() => {});
   const creditAlert = await tp.evaluate(() => {
     const el = document.querySelector('.alert-card.credit');
@@ -297,7 +299,8 @@ try {
   await clickId(payerPage, 'abRoll');
   await payerPage.waitForFunction(() => {
     const el = document.querySelector('.alert-card.debit');
-    return el && /x 2/.test(el.textContent);
+    // KP14 count-up: wait for the settled figure, not the first frame.
+    return el && /x 2/.test(el.textContent) && /₦20,000/.test(el.textContent);
   }, { timeout: 15000 }).catch(() => {});
   const rentAlert = await payerPage.evaluate(() => {
     const el = document.querySelector('.alert-card.debit');
@@ -804,6 +807,15 @@ try {
   console.log('B11: KP13 sharpness: at DSF 2 the game canvas backs at least 1.9x its CSS width and the debug probe reports the KP13 floors');
   const SH = await newPage('SH');
   await SH.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+  // B11 presents a complete Pixel-class device (8 cores, 8GB) to the
+  // Best View probe; the raw rig reports 2 host cores, which honestly
+  // reads as a weak device. KP14 B15 grades the classes themselves.
+  await SH.evaluateOnNewDocument(() => {
+    try {
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 8, configurable: true });
+      Object.defineProperty(navigator, 'deviceMemory', { value: 8, configurable: true });
+    } catch (e) { }
+  });
   await SH.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(SH, 'Shola');
   await pickClassic(SH);
@@ -859,6 +871,331 @@ try {
   await Z.waitForFunction(() => { const v = document.querySelector('#view-landing'); return v && v.classList.contains('active'); }, { timeout: 12000, polling: 250 }).catch(() => {});
   check('the leaver client exits to the landing at once', await Z.evaluate(() => document.querySelector('#view-landing').classList.contains('active')));
   await Y.close(); await Z.close();
+
+  console.log('B13: KP14 header redesign: no voice button; the sound button is one three-state audio control; the freed slot is a Share button carrying the owner invitation copy');
+  const W = await newPage('W');
+  await W.goto(BASE, { waitUntil: 'networkidle0' });
+  await W.evaluate(() => {
+    window.__shared = null; window.__copied = null;
+    Object.defineProperty(navigator, 'share', { value: (p) => { window.__shared = p; return Promise.resolve(); }, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (t) => { window.__copied = t; return Promise.resolve(); } }, configurable: true });
+  });
+  check('there is no voice button in the header', await W.evaluate(() => !document.getElementById('voiceBtn')));
+  check('the share button sits in the header', await W.evaluate(() => !!document.getElementById('shareBtn')));
+  const aud0 = await W.evaluate(() => { const b = document.getElementById('muteBtn'); return { ...window.__kolopolyAudio(), label: b.getAttribute('aria-label'), svg: b.innerHTML }; });
+  check('audio starts at state 1, sound and voice on', aud0.state === 1 && aud0.label === 'Sound and voice on', JSON.stringify(aud0));
+  check('state 1 audibility: sfx live and voice allowed', aud0.muted === false && aud0.voiceOn === true, JSON.stringify(aud0));
+  await W.click('#shareBtn');
+  await sleep(250);
+  const sh0 = await W.evaluate(() => window.__shared);
+  check('landing share carries the game invitation', !!sh0 && sh0.title === 'Kolopoly' && sh0.text === 'Come and play Kolopoly. Break your kolo, buy the street.' && !/join=/.test(sh0.url), JSON.stringify(sh0));
+  await W.click('#muteBtn');
+  const aud1 = await W.evaluate(() => { const b = document.getElementById('muteBtn'); return { ...window.__kolopolyAudio(), label: b.getAttribute('aria-label'), svg: b.innerHTML }; });
+  check('one tap: state 2, sound on voice off', aud1.state === 2 && aud1.label === 'Sound on, voice off', JSON.stringify(aud1));
+  check('state 2 audibility: sfx live, voice not allowed', aud1.muted === false && aud1.voiceOn === false, JSON.stringify(aud1));
+  await W.click('#muteBtn');
+  const aud2 = await W.evaluate(() => { const b = document.getElementById('muteBtn'); return { ...window.__kolopolyAudio(), label: b.getAttribute('aria-label'), svg: b.innerHTML }; });
+  check('two taps: state 3, sound off', aud2.state === 3 && aud2.label === 'Sound off', JSON.stringify(aud2));
+  check('state 3 audibility: everything silent', aud2.muted === true && aud2.voiceOn === false, JSON.stringify(aud2));
+  check('the three states wear three different glyphs', aud0.svg !== aud1.svg && aud1.svg !== aud2.svg && aud0.svg !== aud2.svg);
+  await W.click('#muteBtn');
+  check('three taps: back to state 1', (await W.evaluate(() => window.__kolopolyAudio().state)) === 1);
+  // The stored legacy pair migrates: a phone that had mute on lands on 3.
+  const W2 = await newPage('W2');
+  await W2.evaluateOnNewDocument(() => { try { localStorage.setItem('kolopolyMute', '1'); localStorage.setItem('kolopolyVoice', '0'); } catch (e) { } });
+  await W2.goto(BASE, { waitUntil: 'networkidle0' });
+  check('legacy stored mute migrates to state 3', (await W2.evaluate(() => window.__kolopolyAudio().state)) === 3);
+  await W2.close();
+  const W3 = await newPage('W3');
+  await W3.evaluateOnNewDocument(() => { try { localStorage.setItem('kolopolyVoice', '0'); } catch (e) { } });
+  await W3.goto(BASE, { waitUntil: 'networkidle0' });
+  check('legacy stored voice-off migrates to state 2', (await W3.evaluate(() => window.__kolopolyAudio().state)) === 2);
+  await W3.close();
+  // In a room: the invite payload through the share sheet, then the copy fallback.
+  await typeName(W, 'Wande');
+  await W.click('#createBtn');
+  await waitState(W, (s) => s.status === 'lobby', 'W in lobby');
+  const code13 = (await S(W)).code;
+  await W.evaluate(() => { window.__shared = null; });
+  await W.click('#shareBtn');
+  await sleep(250);
+  const sh1 = await W.evaluate(() => window.__shared);
+  check('room share carries the room invitation and the join URL', !!sh1 && sh1.title === 'Kolopoly' && sh1.text === 'Join me to play Kolopoly. Room ' + code13 + ' dey wait for you. Break your kolo, buy the street.' && sh1.url.includes('?join=' + code13), JSON.stringify(sh1));
+  await W.evaluate(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); window.__copied = null; });
+  await W.click('#shareBtn');
+  await sleep(250);
+  const cp1 = await W.evaluate(() => window.__copied);
+  check('without a share sheet the fallback copies the invitation text plus the URL', typeof cp1 === 'string' && cp1.includes('Join me to play Kolopoly. Room ' + code13 + ' dey wait for you.') && cp1.includes('?join=' + code13), String(cp1));
+  // Gist still owns the messages glyph, now with no bubble anywhere near the header.
+  await clickId(W, 'botAdd1');
+  await waitState(W, (s) => s.players.length === 2, 'W bot seated');
+  await W.click('#startBtn');
+  await waitState(W, (s) => s.status === 'playing', 'B13 game playing', 15000);
+  await sleep(600);
+  const gist13 = await W.evaluate(() => {
+    const g = document.querySelector('#sbGist .u-ic');
+    const tmp = document.createElement('div');
+    tmp.innerHTML = window.icon('messages', 21);
+    // Compare parser readback to parser readback: innerHTML serialization
+    // expands self-closing SVG tags, so the raw icon string never equals
+    // a live element's innerHTML even for the identical glyph.
+    return { gist: g ? g.innerHTML : '', messages: tmp.innerHTML };
+  });
+  check('Gist still renders the messages glyph', gist13.gist === gist13.messages, gist13.gist.slice(0, 60));
+  await W.close();
+
+  console.log('B14: KP14 landing: the join card, picks and inputs carry no hard borders; the selected mode card wears the gold ring; the slogan line rides the hero');
+  const LND = await newPage('LND');
+  await LND.goto(BASE, { waitUntil: 'networkidle0' });
+  await sleep(400);
+  const ld = await LND.evaluate(() => {
+    const cs = (el) => (el ? getComputedStyle(el) : null);
+    const card = cs(document.getElementById('joinCard'));
+    const pick = cs(document.querySelector('#gameModeRow .mode-pick:not(.sel)'));
+    const sel = cs(document.querySelector('#gameModeRow .mode-pick.sel'));
+    const tok = cs(document.querySelector('.token-pick'));
+    const inp = cs(document.getElementById('nameIn'));
+    const slogan = document.querySelector('.hero-slogan');
+    return {
+      cardBorder: card.borderTopStyle + '/' + card.borderTopWidth,
+      pickBorder: pick.borderTopStyle + '/' + pick.borderTopWidth,
+      tokBorder: tok ? tok.borderTopStyle + '/' + tok.borderTopWidth : 'missing',
+      inpBorder: inp.borderTopStyle + '/' + inp.borderTopWidth,
+      selShadow: sel.boxShadow,
+      slogan: slogan ? slogan.textContent.trim() : ''
+    };
+  });
+  check('the join card has no hard border', ld.cardBorder === 'none/0px', ld.cardBorder);
+  check('an unselected mode card has no hard border', ld.pickBorder === 'none/0px', ld.pickBorder);
+  check('a token pick has no hard border', ld.tokBorder === 'none/0px', ld.tokBorder);
+  check('the name input has no hard border', ld.inpBorder === 'none/0px', ld.inpBorder);
+  check('the selected mode card wears the gold ring', ld.selShadow.includes('255, 200, 87'), ld.selShadow.slice(0, 90));
+  check('the hero carries the settled slogan', ld.slogan === 'Break your kolo, buy the street.', ld.slogan);
+  check('the landing has no horizontal overflow at 390', await LND.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'scrollWidth ' + (await LND.evaluate(() => document.documentElement.scrollWidth)));
+  // KP14 structure pass: the landing is one spacing system, the mode
+  // cards share their edges, the preset explainer is chips plus two
+  // short lines, and the tagline breaks on its two written lines.
+  const st14 = await LND.evaluate(() => {
+    // KP14 re-engineer: room type and preset live behind the Room
+    // settings disclosure now; open it before measuring their geometry.
+    document.getElementById('settingsToggle').click();
+    const rect = (el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height) }; };
+    const picks = [...document.querySelectorAll('#gameModeRow .mode-pick')].map(rect);
+    const roomPicks = [...document.querySelectorAll('#roomModeRow .mode-pick')].map(rect);
+    const labelTops = [...document.querySelectorAll('#joinCard label')].map((l) => getComputedStyle(l).marginTop);
+    const chips = [...document.querySelectorAll('.phase-chip')].map((c) => c.textContent.replace(/\s+/g, ' ').trim());
+    const tls = [...document.querySelectorAll('.tagline .tl')].map((s) => Math.round(s.getBoundingClientRect().height));
+    const cells = [...document.querySelectorAll('#tokenGrid .token-pick')].map((s) => rect(s));
+    const badge = document.querySelector('.mode-badge');
+    return { picks, roomPicks, labelTops, chips, tls, cells, badgePos: badge ? getComputedStyle(badge).position : '' };
+  });
+  check('structure: the two mode cards share top and bottom edges', st14.picks.length === 2 && st14.picks[0].top === st14.picks[1].top && st14.picks[0].bottom === st14.picks[1].bottom, JSON.stringify(st14.picks));
+  check('structure: the room type cards share their edges too', st14.roomPicks.length === 2 && st14.roomPicks[0].h === st14.roomPicks[1].h && st14.roomPicks[0].h > 0, JSON.stringify(st14.roomPicks));
+  check('structure: every section label takes the same 22px section gap (first label 0)', st14.labelTops[0] === '0px' && st14.labelTops.slice(1).every((m) => m === '22px'), JSON.stringify(st14.labelTops));
+  check('structure: the phase salaries are four stat chips with exact amounts', st14.chips.length === 4 && st14.chips[0].includes('₦200,000') && st14.chips[1].includes('₦100,000') && st14.chips[2].includes('₦50,000') && st14.chips[3].includes('₦25,000'), JSON.stringify(st14.chips));
+  check('structure: the tagline lines each sit on one line', st14.tls.length === 2 && st14.tls.every((h) => h > 0 && h <= 24), JSON.stringify(st14.tls));
+  check('structure: the token pick is one compact strip of six even cells in a single row', st14.cells.length === 6 && st14.cells.every((c) => c.h === st14.cells[0].h && c.top === st14.cells[0].top), JSON.stringify(st14.cells));
+  check('structure: the MOST PLAYED badge is out of flow', st14.badgePos === 'absolute', st14.badgePos);
+  await LND.close();
+
+  console.log('B15: KP14 Best View: profiles resolve by device class, the learned ceiling steers the start cap, detection is a pure function of the probe');
+  const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  const stubHw = (page, cores, mem) => page.evaluateOnNewDocument((c, m) => {
+    try {
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: c, configurable: true });
+      Object.defineProperty(navigator, 'deviceMemory', { value: m, configurable: true });
+    } catch (e) { }
+  }, cores, mem);
+  // (a) iPhone class: DSF 3, Apple UA, flagship-class core count
+  const IP = await newPage('IP');
+  await IP.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, userAgent: IPHONE_UA });
+  await stubHw(IP, 8, 0);
+  await IP.goto(BASE, { waitUntil: 'load' });
+  // Read the granted backing promptly: the FPS stepper's grace is 6s,
+  // and on this software-GL rig the frames are honestly slow, so a
+  // late read would catch the stepper mid-rescue instead of the grant.
+  await IP.waitForFunction(() => window.KP3D && window.KP3D.active && window.KP3D.debug, { timeout: 15000, polling: 200 }).catch(() => {});
+  await sleep(600);
+  const ipDbg = await IP.evaluate(() => {
+    const d = window.KP3D.debug();
+    const c = document.getElementById('glLandingCanvas');
+    return { profile: d.profile, probe: d.probe, backRatio: c ? c.width / c.clientWidth : 0, tierTitle: document.getElementById('tierBtn').title, startCap: d.startCap };
+  });
+  check('Best View: the iPhone class resolves ULTRA', ipDbg.profile === 'ultra', JSON.stringify({ profile: ipDbg.profile, probe: ipDbg.probe }));
+  check('Best View: the iPhone class backs its canvas at the granted DSF (2.9x+)', ipDbg.backRatio >= 2.9, 'ratio ' + ipDbg.backRatio);
+  check('Best View: the graphics button labels the detection', ipDbg.tierTitle === 'Graphics: Auto (Ultra)', ipDbg.tierTitle);
+  check('Best View: the probe reports the class signals', !!ipDbg.probe && ipDbg.probe.dpr === 3 && ipDbg.probe.cores === 8, JSON.stringify(ipDbg.probe));
+  // (d) the pure detection table
+  const table = await IP.evaluate(() => {
+    const d = window.KP3D.detectProfile;
+    return {
+      iphone15: d({ dpr: 3, cores: 6, mem: 0, gl: 'Apple GPU', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', conn: {} }),
+      pixel8: d({ dpr: 2.625, cores: 9, mem: 8, gl: 'ANGLE (Google, Vulkan 1.3.0, Mali-G715)', ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)', conn: {} }),
+      iphoneSE: d({ dpr: 2, cores: 6, mem: 0, gl: 'Apple GPU', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)', conn: {} }),
+      weak: d({ dpr: 1, cores: 2, mem: 1, gl: 'Mali-400 MP', ua: 'Mozilla/5.0 (Linux; Android 9; SM-J260F)', conn: {} }),
+      saveData: d({ dpr: 3, cores: 6, mem: 0, gl: 'Apple GPU', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', conn: { saveData: true } }),
+      slow2g: d({ dpr: 2.625, cores: 9, mem: 8, gl: 'ANGLE (Google, Vulkan 1.3.0, Mali-G715)', ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)', conn: { effectiveType: '2g' } }),
+      desktopVM: d({ dpr: 1, cores: 8, mem: 8, gl: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device))', ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', conn: {} })
+    };
+  });
+  check('detectProfile: iPhone 15 class lands ULTRA', table.iphone15 === 'ultra', table.iphone15);
+  check('detectProfile: Pixel 8 class lands ULTRA', table.pixel8 === 'ultra', table.pixel8);
+  check('detectProfile: iPhone SE class lands HIGH', table.iphoneSE === 'high', table.iphoneSE);
+  check('detectProfile: weak class lands LITE', table.weak === 'lite', table.weak);
+  check('detectProfile: save-data starts one profile conservative', table.saveData === 'high', table.saveData);
+  check('detectProfile: a 2g link also drops exactly one profile', table.slow2g === 'high', table.slow2g);
+  check('detectProfile: software GL on a desktop UA never lands above BALANCED', table.desktopVM === 'balanced' || table.desktopVM === 'lite', table.desktopVM);
+  await IP.close();
+  // (b) the weak class: DSF 1, low cores, little memory
+  const WK = await newPage('WK');
+  await WK.emulate({ viewport: { width: 360, height: 740, deviceScaleFactor: 1, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 9; SM-J260F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+  await stubHw(WK, 2, 1);
+  await WK.goto(BASE, { waitUntil: 'networkidle0' });
+  await sleep(1000);
+  const wkDbg = await WK.evaluate(() => {
+    const d = window.KP3D.debug();
+    const c = document.getElementById('glLandingCanvas');
+    return { profile: d.profile, backRatio: c ? c.width / c.clientWidth : 0 };
+  });
+  check('Best View: the weak class resolves LITE', wkDbg.profile === 'lite', JSON.stringify(wkDbg));
+  check('Best View: the weak class backs at or below 1.5x', wkDbg.backRatio > 0 && wkDbg.backRatio <= 1.5, 'ratio ' + wkDbg.backRatio);
+  await WK.close();
+  // (c) the learned ceiling steers the next start
+  const LN = await newPage('LN');
+  await LN.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, userAgent: IPHONE_UA });
+  await stubHw(LN, 8, 0);
+  await LN.evaluateOnNewDocument(() => { try { localStorage.setItem('kolopolyViewLearn', JSON.stringify({ v: 1, cap: 2, ok: 0 })); } catch (e) { } });
+  await LN.goto(BASE, { waitUntil: 'networkidle0' });
+  await sleep(900);
+  const lnDbg = await LN.evaluate(() => { const d = window.KP3D.debug(); return { startCap: d.startCap, learned: d.learned, profile: d.profile }; });
+  check('Best View: a learned ceiling of 2 caps the start below the ULTRA profile cap', lnDbg.profile === 'ultra' && lnDbg.startCap === 2, JSON.stringify(lnDbg));
+  await LN.close();
+  const LN2 = await newPage('LN2');
+  await LN2.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, userAgent: IPHONE_UA });
+  await stubHw(LN2, 8, 0);
+  await LN2.evaluateOnNewDocument(() => { try { localStorage.setItem('kolopolyViewLearn', JSON.stringify({ v: 1, cap: 2, ok: 3 })); } catch (e) { } });
+  await LN2.goto(BASE, { waitUntil: 'networkidle0' });
+  await sleep(900);
+  const ln2Dbg = await LN2.evaluate(() => { const d = window.KP3D.debug(); return { startCap: d.startCap }; });
+  check('Best View: three stable sessions earn one retry step (2.5), not a leap', ln2Dbg.startCap === 2.5, JSON.stringify(ln2Dbg));
+  await LN2.close();
+
+  console.log('B16: KP14 sound sync: dice, hop, land and money sounds schedule within ~120ms of their animation beats, and every mapped event has a sound');
+  const M1 = await newPage('M1');
+  const M2 = await newPage('M2');
+  await M1.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(M1, 'Musa');
+  await pickClassic(M1);
+  await M1.click('#createBtn');
+  await waitState(M1, (s) => s.status === 'lobby', 'M1 in lobby');
+  const code16 = (await S(M1)).code;
+  await M2.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(M2, 'Moren');
+  // Set the code by value + input event, not keystrokes: the rig's
+  // keyboard path is the flakiest surface on this shared VM.
+  await M2.evaluate((c) => { const el = document.getElementById('codeIn'); el.value = c; el.dispatchEvent(new Event('input', { bubbles: true })); }, code16);
+  await waitState(M2, (s) => s.status === 'lobby' && s.players.length === 2, 'M2 joined');
+  await M1.click('#startBtn');
+  await waitState(M1, (s) => s.status === 'playing', 'B16 game playing', 15000);
+  const mPages = [M1, M2];
+  const mIds = (await S(M1)).players.map((p) => p.id);
+  const mTurnId = (await S(M1)).turnPlayerId;
+  const mTp = mPages[mIds.indexOf(mTurnId)];
+  await front(mTp);
+  await send(mTp, 'test_set_position', { playerId: mTurnId, space: 38 });
+  await send(mTp, 'test_dice', { rolls: [[2, 3]] });
+  await clickId(mTp, 'abRoll');
+  // The rig renders in software at a few frames a second, so the move
+  // takes seconds of wall time: wait for the landing beat itself
+  // rather than sleeping a fixed span and reading a half-played move.
+  await mTp.waitForFunction(() => window.__kpSfxLog && window.__kpSfxLog.some((e) => e.event === 'land'), { timeout: 25000, polling: 250 }).catch(() => {});
+  await sleep(400);
+  const sfxLog = await mTp.evaluate(() => window.__kpSfxLog.slice());
+  const evs = (n) => sfxLog.filter((e) => e.event === n);
+  const near = (e) => !!e && Math.abs(e.scheduledAt - e.beatT) <= 120;
+  check('sync: the dice rattle is scheduled at the tumble beat', near(evs('diceStart')[0]), JSON.stringify(evs('diceStart')[0] || null));
+  check('sync: the dice settle knock lands as the dice stop', near(evs('diceSettle')[0]), JSON.stringify(evs('diceSettle')[0] || null));
+  check('sync: every hop of the move got its felt tap', evs('hop').length >= 4, 'hops logged: ' + evs('hop').length);
+  check('sync: hop sounds ride their step beats', evs('hop').every(near), JSON.stringify(evs('hop').map((e) => Math.round(e.scheduledAt - e.beatT))));
+  check('sync: the landing knock fires on the landing beat', near(evs('land')[0]), JSON.stringify(evs('land')[0] || null));
+  const cred = evs('credit').find((e) => e.beat === 'alert');
+  check('sync: the salary coin cascade starts with its alert card', !!cred && near(cred), JSON.stringify(cred || evs('credit')[0] || null));
+  const man = await mTp.evaluate(() => window.KPSfxEvents);
+  const REQUIRED = ['diceStart', 'diceSettle', 'hop', 'land', 'credit', 'debit', 'buy', 'buildDuplex', 'buildMansion', 'stamp', 'siren', 'clang', 'cardSwish', 'cardSnap', 'auctionTick', 'gavel', 'phaseLetter', 'newsSting', 'phaseToll', 'turnRise', 'cheer', 'chime', 'tap'];
+  check('the sound manifest covers every mapped event', Array.isArray(man) && REQUIRED.every((n) => man.includes(n)), JSON.stringify(man));
+  await M1.close(); await M2.close();
+
+  console.log('B17: KP14 audit fixes in the browser: the pass-and-play lobby hides its dead invite block, a cold-start entry tap survives the socket gap, create options persist, the lobby share speaks the approved copy');
+  const P1 = await newPage('P1');
+  await P1.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(P1, 'Papa');
+  await P1.click('#settingsToggle'); // KP14 re-engineer: room type lives behind the disclosure
+  await P1.click('#roomModeRow [data-rmode="pass"]');
+  await P1.click('#createBtn');
+  await waitState(P1, (s) => s.status === 'lobby' && s.mode === 'pass', 'pass-and-play lobby');
+  await sleep(700);
+  const passVis = await P1.evaluate(() => ({
+    cap: !document.getElementById('lobbyCodeCap').classList.contains('hidden'),
+    hero: !document.getElementById('lobbyCodeHero').classList.contains('hidden'),
+    qr: !document.getElementById('inviteQr').classList.contains('hidden'),
+    actions: !document.querySelector('#view-lobby .invite-actions').classList.contains('hidden'),
+    modeLine: document.getElementById('lobbyModeLine').textContent
+  }));
+  check('the pass lobby hides the whole invite block (caption, code, buttons, QR)', !passVis.cap && !passVis.hero && !passVis.qr && !passVis.actions, JSON.stringify(passVis));
+  check('the pass lobby still says what it is', /pass and play/.test(passVis.modeLine), passVis.modeLine);
+  await P1.screenshot({ path: SHOTS + 'kp14-wsc-passlobby.png' });
+  await P1.close();
+  const C9 = await newPage('C9');
+  await C9.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(C9, 'Cold');
+  await C9.evaluate(() => {
+    window.__kolopolyDrop();
+    window.__kolopolySend('create_room', { name: 'Cold', token: 'danfo', clientId: 'cold-1', mode: 'online', settings: { gameMode: 'inflation', preset: 'standard', timed: true, doubleStart: false, noRentInJail: false, firstLapNoBuy: false, chaos: false, voiceAlerts: true, turnTimerSec: 60 } });
+  });
+  const queued = await C9.evaluate(() => window.__kolopolySession().queued);
+  check('an entry tap during the socket gap is queued, not lost', queued >= 1, 'queued=' + queued);
+  await waitState(C9, (s) => s.status === 'lobby', 'the queued entry created the room after reconnect', 25000);
+  check('the queued cold-start entry created the room on reconnect', (await S(C9)).status === 'lobby');
+  const code17 = (await S(C9)).code;
+  await C9.evaluate(() => { window.__shared = null; Object.defineProperty(navigator, 'share', { value: (p) => { window.__shared = p; return Promise.resolve(); }, configurable: true }); });
+  await C9.click('#shareInviteBtn');
+  await sleep(250);
+  const shC = await C9.evaluate(() => window.__shared);
+  check('the lobby share carries the approved invitation copy', !!shC && shC.title === 'Kolopoly' && shC.text === 'Join me to play Kolopoly. Room ' + code17 + ' dey wait for you. Break your kolo, buy the street.', JSON.stringify(shC));
+  await C9.close();
+  const O1 = await newPage('O1');
+  await O1.goto(BASE, { waitUntil: 'networkidle0' });
+  await O1.evaluate(() => {
+    const chaos = document.getElementById('optChaos'); chaos.checked = true; chaos.dispatchEvent(new Event('change'));
+    const timer = document.getElementById('optTimer'); timer.value = '30'; timer.dispatchEvent(new Event('change'));
+  });
+  await O1.reload({ waitUntil: 'networkidle0' });
+  const oBack = await O1.evaluate(() => ({ chaos: document.getElementById('optChaos').checked, timer: document.getElementById('optTimer').value }));
+  check('create options persist across a reload, as the welcome copy promises', oBack.chaos === true && oBack.timer === '30', JSON.stringify(oBack));
+  await O1.close();
+
+  console.log('B18: KP14 landing re-engineer: JOIN WITH CODE AT THE TOP. On load, zero scroll, the first viewport holds the name field, the join row, Quick Play, Create room and the mode cards');
+  const firstScreen = async (page) => page.evaluate(() => {
+    const r = (id) => { const el = document.getElementById(id); if (!el) return null; const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) }; };
+    const mode = document.querySelector('#gameModeRow .mode-pick');
+    const mb = mode ? mode.getBoundingClientRect() : null;
+    return { vh: window.innerHeight, name: r('nameIn'), code: r('codeIn'), join: r('joinBtn'), quick: r('quickBtn'), create: r('createBtn'), modeBottom: mb ? Math.round(mb.bottom) : null, settings: r('settingsToggle'), settingsClosed: document.getElementById('roomSettings').classList.contains('hidden') };
+  });
+  const F1 = await newPage('F1');
+  await F1.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' });
+  await F1.goto(BASE, { waitUntil: 'networkidle0' });
+  const fs390 = await firstScreen(F1);
+  check('390: the join row sits inside the first viewport on load', !!fs390.join && fs390.join.top >= 0 && fs390.join.bottom <= fs390.vh, JSON.stringify(fs390));
+  check('390: name, Quick Play and Create are all in the first screen too', !!fs390.name && fs390.name.bottom <= fs390.vh && !!fs390.quick && fs390.quick.bottom <= fs390.vh && !!fs390.create && fs390.create.bottom <= fs390.vh, JSON.stringify(fs390));
+  check('390: the mode cards end inside the first screen', fs390.modeBottom != null && fs390.modeBottom <= fs390.vh, JSON.stringify(fs390));
+  check('390: the Room settings disclosure starts closed', fs390.settingsClosed === true, JSON.stringify(fs390));
+  await F1.close();
+  const F2 = await newPage('F2');
+  await F2.emulate({ viewport: { width: 360, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-A145F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+  await F2.goto(BASE, { waitUntil: 'networkidle0' });
+  const fs360 = await firstScreen(F2);
+  check('360: the join row sits inside the first viewport on load', !!fs360.join && fs360.join.top >= 0 && fs360.join.bottom <= fs360.vh, JSON.stringify(fs360));
+  await F2.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

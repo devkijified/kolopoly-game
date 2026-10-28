@@ -381,6 +381,7 @@ function publicRoom(room) {
       expiresAt: room.trade.expiresAt || null, honourPass: room.trade.honourPass || []
     } : null,
     turnDeadline: room.turnDeadline, gameEndsAt: room.gameEndsAt,
+    startedKey: room.startedKey || null,
     message: room.message, messageSeq: room.messageSeq,
     banner: room.banner || null,
     winner: room.winner, endTable: room.endTable,
@@ -1159,6 +1160,9 @@ function queueChoice(room, player, spaceIdx) {
 // Start of game
 // ---------------------------------------------------------------------------
 function startGame(room) {
+  // a fresh key per start (including play-again rematches) so the
+  // client's countdown ceremony runs for every game, not just the first
+  room.startedKey = room.code + ':' + now();
   for (const i of D.OWNABLE) room.props[i] = { owner: null, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null };
   room.duplexSupply = 32; room.mansionSupply = 12; room.pot = 0;
   room.decks = { wahala: shuffle(D.WAHALA.map((c) => c.id)), family: shuffle(D.FAMILY.map((c) => c.id)) };
@@ -2072,10 +2076,27 @@ function handleConnection(ws) {
       return;
     }
     if (msg.type === 'play_again') {
+      // KP14 audit: this handler sat outside the spectator guard, so a
+      // watch-only seat could bounce the whole room back to the lobby.
+      if (!ctx.player || ctx.spectator) return fail('Spectators fit only watch.');
       if (room.status !== 'ended') return fail('The game never finish yet.');
       room.status = 'lobby';
       room.phase = 'roll'; room.winner = null; room.endTable = null; room.endReason = null;
       room.auction = null; room.debt = null; room.trade = null; room.lastCard = null;
+      // KP14 audit: the reset used to leave the finished game behind in
+      // the lobby: its feed (the next game's Gist opened on the old
+      // game's events), its inflation state (a stale "Inflation ·
+      // Phase N" pill), open contracts and loan queues, the match
+      // clock and the frozen-game pause state. Clear the full
+      // transient set; startGame re-deals the rest.
+      room.feed = [];
+      room.inf = null;
+      room.contracts = []; room.contractProposal = null; room.dealBreak = null;
+      room.loanDecision = null; room.loanDecisionQueue = [];
+      room.turnDeadline = null; room.gameEndsAt = null;
+      room.paused = false; room.pauseSince = null; room.pauseClockMs = null;
+      room.dealOfGame = null; room.interestLine = null; room.firstBankruptId = null;
+      room.dice = null;
       setMessage(room, 'Back to the lobby. The host fit start a new game with the same players.');
       broadcast(room);
       return;
