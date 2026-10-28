@@ -522,7 +522,7 @@ function tileTexture(i, mortgaged, wPx) {
     x.font = '900 ' + Math.min(36, fitFont(x, lines[0].toUpperCase(), W - 20, 36, '900', '"Aeonik Pro", sans-serif')) + 'px "Aeonik Pro", sans-serif';
     lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.115 + k * H * 0.085));
     emblem(x, art, W / 2, H * 0.55, 104, band);
-    x.fillStyle = INK; x.font = '900 30px "Aeonik Pro", sans-serif';
+    x.fillStyle = INK; x.font = '900 34px "Aeonik Pro", sans-serif';
     x.fillText(D.fmtN(sp.price), W / 2, H * 0.945);
   } else {
     x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.075);
@@ -777,163 +777,160 @@ function filaClothTexture() {
 }
 
 function buildDanfo(scale) {
+  // Yellow Lagos bus: bold body, black waist stripe, route board, readable at ~40px.
   const g = new THREE.Group();
-  const yellow = std(0xf7b733, 0.42);
-  const body = rbox(0.42, 0.30, 0.64, 0.05, yellow); body.position.set(0, 0.10, 0); g.add(body);
-  const roof = rbox(0.40, 0.05, 0.62, 0.02, MAT.white); roof.position.set(0, 0.40, 0); g.add(roof);
-  // roof rack rails
-  for (const rx of [-0.13, 0.13]) g.add(bx(0.025, 0.02, 0.5, MAT.dark, rx, 0.465, 0));
-  for (const rz of [-0.22, 0, 0.22]) g.add(bx(0.32, 0.02, 0.025, MAT.dark, 0, 0.465, rz));
-  // glass: side bands, windshield, rear window
-  for (const sx of [-0.213, 0.213]) g.add(bx(0.012, 0.115, 0.46, glassMat, sx, 0.315, -0.02));
-  g.add(bx(0.34, 0.115, 0.012, glassMat, 0, 0.315, 0.322));
-  g.add(bx(0.30, 0.10, 0.012, glassMat, 0, 0.31, -0.322));
-  // the black danfo stripe, both sides and across the back
-  for (const sx of [-0.214, 0.214]) g.add(bx(0.012, 0.045, 0.63, MAT.dark, sx, 0.20, 0));
-  g.add(bx(0.42, 0.05, 0.02, MAT.dark, 0, 0.115, 0.315)); // front bumper band
-  // grille decal and headlights
-  const grille = decalPlane(0.26, 0.085, danfoGrilleTexture()); grille.position.set(0, 0.175, 0.327); g.add(grille);
-  for (const hx of [-0.155, 0.155]) {
-    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.015, 12), std(0xfff2c0, 0.25));
-    lamp.rotation.x = Math.PI / 2; lamp.position.set(hx, 0.185, 0.325); g.add(lamp);
+  const yellow = std(0xf6b733, 0.38, 0.08);
+  const yellowLite = std(0xffd873, 0.42);
+  const body = rbox(0.46, 0.34, 0.72, 0.05, yellow); body.position.set(0, 0.12, 0); g.add(body);
+  const roof = rbox(0.44, 0.055, 0.70, 0.02, MAT.white); roof.position.set(0, 0.445, 0); g.add(roof);
+  for (const rx of [-0.14, 0.14]) g.add(bx(0.028, 0.022, 0.54, MAT.dark, rx, 0.51, 0));
+  for (const rz of [-0.24, 0, 0.24]) g.add(bx(0.34, 0.022, 0.028, MAT.dark, 0, 0.51, rz));
+  for (const sx of [-0.233, 0.233]) g.add(bx(0.014, 0.13, 0.52, glassMat, sx, 0.34, -0.02));
+  g.add(bx(0.38, 0.13, 0.014, glassMat, 0, 0.34, 0.365));
+  g.add(bx(0.34, 0.11, 0.014, glassMat, 0, 0.335, -0.365));
+  for (const sx of [-0.234, 0.234]) g.add(bx(0.014, 0.055, 0.70, MAT.dark, sx, 0.20, 0));
+  g.add(bx(0.46, 0.055, 0.022, MAT.dark, 0, 0.12, 0.36));
+  const grille = decalPlane(0.30, 0.095, danfoGrilleTexture()); grille.position.set(0, 0.185, 0.372); g.add(grille);
+  for (const hx of [-0.17, 0.17]) {
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.018, 12), std(0xfff2c0, 0.22, 0.2));
+    lamp.rotation.x = Math.PI / 2; lamp.position.set(hx, 0.195, 0.368); g.add(lamp);
   }
-  // route board on the front, mirrors on stalks
-  const board = decalPlane(0.30, 0.075, danfoRouteTexture()); board.position.set(0, 0.415, 0.30); board.rotation.x = -0.28; g.add(board);
+  const board = decalPlane(0.34, 0.085, danfoRouteTexture()); board.position.set(0, 0.455, 0.34); board.rotation.x = -0.28; g.add(board);
   for (const sx of [-1, 1]) {
-    g.add(tube(sx * 0.21, 0.36, 0.28, sx * 0.27, 0.40, 0.30, 0.008, MAT.dark));
-    g.add(bx(0.015, 0.07, 0.05, MAT.dark, sx * 0.275, 0.40, 0.30));
+    g.add(tube(sx * 0.23, 0.38, 0.30, sx * 0.295, 0.43, 0.34, 0.009, MAT.dark));
+    g.add(bx(0.018, 0.08, 0.055, MAT.dark, sx * 0.30, 0.43, 0.34));
   }
-  for (const [wx, wz] of [[-0.215, 0.20], [0.215, 0.20], [-0.215, -0.20], [0.215, -0.20]]) {
-    const w = wheel(0.082, 0.05, MAT.white); w.position.set(wx, 0.082, wz); g.add(w);
+  for (const [wx, wz] of [[-0.23, 0.22], [0.23, 0.22], [-0.23, -0.22], [0.23, -0.22]]) {
+    const w = wheel(0.09, 0.055, MAT.white); w.position.set(wx, 0.09, wz); g.add(w);
   }
+  g.add(bx(0.42, 0.04, 0.02, yellowLite, 0, 0.28, 0.0)); // side highlight for phone silhouette
   g.scale.setScalar(scale || 1);
   return g;
 }
 function buildKeke(scale) {
+  // Yellow/green tricycle: canopy shell, front cowl, three wheels.
   const g = new THREE.Group();
-  const yellow = std(0xf2b234, 0.5), green = std(0x1f9d57, 0.6);
-  const body = rbox(0.36, 0.20, 0.48, 0.05, yellow); body.position.set(0, 0.09, 0.03); g.add(body);
-  g.add(bx(0.37, 0.045, 0.49, green, 0, 0.105, 0.03)); // green waist band
-  // front cowl: a squashed sphere with a headlight, front is -Z
-  const cowl = new THREE.Mesh(new THREE.SphereGeometry(0.155, 16, 12), yellow);
-  cowl.scale.set(1.05, 0.85, 0.8); cowl.position.set(0, 0.24, -0.235); cowl.castShadow = true; g.add(cowl);
-  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.02, 12), std(0xfff2c0, 0.25));
-  lamp.rotation.x = Math.PI / 2; lamp.position.set(0, 0.27, -0.345); g.add(lamp);
-  const shield = bx(0.26, 0.17, 0.012, glassMat, 0, 0.40, -0.245); shield.rotation.x = -0.22; g.add(shield);
-  g.add(tube(-0.09, 0.33, -0.21, 0.09, 0.33, -0.21, 0.014, MAT.dark)); // handlebar
-  // canopy: a green half-pipe shell over the cabin (top half, axis front-back)
-  const canopy = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.225, 0.40, 16, 1, true, Math.PI / 2, Math.PI), new THREE.MeshStandardMaterial({ color: 0x1f9d57, roughness: 0.65, side: THREE.DoubleSide }));
-  canopy.rotation.x = Math.PI / 2;
-  canopy.position.set(0, 0.315, 0.05); canopy.castShadow = true; g.add(canopy);
-  for (const [px, pz] of [[-0.165, -0.13], [0.165, -0.13], [-0.165, 0.235], [0.165, 0.235]]) g.add(bx(0.03, 0.19, 0.03, MAT.dark, px, 0.375, pz));
-  g.add(bx(0.28, 0.05, 0.16, MAT.dark, 0, 0.315, 0.13)); // bench
-  g.add(bx(0.20, 0.05, 0.10, MAT.dark, 0, 0.30, -0.10)); // driver seat
-  const wf = wheel(0.075, 0.045, MAT.white); wf.position.set(0, 0.075, -0.31); g.add(wf);
-  for (const sx of [-0.20, 0.20]) { const w = wheel(0.082, 0.05, MAT.white); w.position.set(sx, 0.082, 0.19); g.add(w); }
+  const yellow = std(0xf2b234, 0.45), green = std(0x1f9d57, 0.55);
+  const body = rbox(0.40, 0.22, 0.52, 0.05, yellow); body.position.set(0, 0.10, 0.04); g.add(body);
+  g.add(bx(0.41, 0.055, 0.53, green, 0, 0.12, 0.04));
+  const cowl = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), yellow);
+  cowl.scale.set(1.08, 0.88, 0.82); cowl.position.set(0, 0.26, -0.25); cowl.castShadow = true; g.add(cowl);
+  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.022, 12), std(0xfff2c0, 0.22));
+  lamp.rotation.x = Math.PI / 2; lamp.position.set(0, 0.29, -0.375); g.add(lamp);
+  const shield = bx(0.28, 0.19, 0.014, glassMat, 0, 0.43, -0.26); shield.rotation.x = -0.22; g.add(shield);
+  g.add(tube(-0.10, 0.36, -0.22, 0.10, 0.36, -0.22, 0.016, MAT.dark));
+  const canopy = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.44, 16, 1, true, Math.PI / 2, Math.PI), new THREE.MeshStandardMaterial({ color: 0x1f9d57, roughness: 0.6, side: THREE.DoubleSide }));
+  canopy.rotation.x = Math.PI / 2; canopy.position.set(0, 0.34, 0.06); canopy.castShadow = true; g.add(canopy);
+  for (const [px, pz] of [[-0.18, -0.14], [0.18, -0.14], [-0.18, 0.26], [0.18, 0.26]]) g.add(bx(0.034, 0.21, 0.034, MAT.dark, px, 0.40, pz));
+  g.add(bx(0.30, 0.055, 0.18, MAT.dark, 0, 0.335, 0.14));
+  g.add(bx(0.22, 0.055, 0.11, MAT.dark, 0, 0.32, -0.10));
+  const wf = wheel(0.082, 0.05, MAT.white); wf.position.set(0, 0.082, -0.34); g.add(wf);
+  for (const sx of [-0.22, 0.22]) { const w = wheel(0.09, 0.055, MAT.white); w.position.set(sx, 0.09, 0.21); g.add(w); }
   g.scale.setScalar(scale || 1);
   return g;
 }
 function buildOkada(scale) {
+  // Motorbike + rider silhouette: tank, helmet, wheels that read as a bike at phone size.
   const g = new THREE.Group();
-  const black = std(0x232323, 0.45, 0.3), red = std(0xc22e2e, 0.35, 0.25);
-  const skin = std(0x8a5a3b, 0.7), cloth = std(0x274b63, 0.8);
-  for (const wz of [-0.25, 0.25]) { const w = wheel(0.115, 0.042, std(0xd8d2c2, 0.35, 0.6)); w.position.set(0, 0.115, wz); g.add(w); }
-  // frame: fork, spine, swingarm
-  g.add(tube(0, 0.115, -0.25, 0, 0.40, -0.155, 0.016, black));
-  g.add(tube(0, 0.40, -0.155, 0, 0.335, 0.06, 0.018, black));
-  g.add(tube(0, 0.20, 0.02, 0, 0.115, 0.25, 0.014, black));
-  g.add(bx(0.30, 0.028, 0.028, black, 0, 0.415, -0.165)); // handlebar
-  const tank = new THREE.Mesh(new THREE.SphereGeometry(0.105, 14, 10), red);
-  tank.scale.set(0.72, 0.62, 1.45); tank.position.set(0, 0.345, -0.03); tank.castShadow = true; g.add(tank);
-  g.add(bx(0.13, 0.09, 0.16, black, 0, 0.185, 0.03)); // engine
-  const seat = bx(0.15, 0.045, 0.30, MAT.dark, 0, 0.345, 0.115); seat.rotation.x = 0.05; g.add(seat);
-  g.add(bx(0.17, 0.02, 0.09, std(0xd8d2c2, 0.4, 0.6), 0, 0.36, 0.29)); // rear rack
-  const lampF = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 0.03, 12), std(0xfff2c0, 0.25));
-  lampF.rotation.x = Math.PI / 2 - 0.35; lampF.position.set(0, 0.40, -0.20); g.add(lampF);
-  // rider: torso, arms to the bar, legs to the pegs, red helmet
-  const torso = cyl(0.072, 0.092, 0.30, cloth, 0, 0.545, 0.115); torso.rotation.x = 0.28; g.add(torso);
+  const black = std(0x1e1e20, 0.42, 0.35), red = std(0xc22e2e, 0.32, 0.28);
+  const skin = std(0x8a5a3b, 0.68), cloth = std(0x274b63, 0.75);
+  for (const wz of [-0.27, 0.27]) { const w = wheel(0.125, 0.048, std(0xd8d2c2, 0.35, 0.6)); w.position.set(0, 0.125, wz); g.add(w); }
+  g.add(tube(0, 0.125, -0.27, 0, 0.43, -0.16, 0.018, black));
+  g.add(tube(0, 0.43, -0.16, 0, 0.355, 0.07, 0.02, black));
+  g.add(tube(0, 0.22, 0.03, 0, 0.125, 0.27, 0.016, black));
+  g.add(bx(0.34, 0.032, 0.032, black, 0, 0.445, -0.17));
+  const tank = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), red);
+  tank.scale.set(0.74, 0.64, 1.5); tank.position.set(0, 0.365, -0.03); tank.castShadow = true; g.add(tank);
+  g.add(bx(0.145, 0.10, 0.18, black, 0, 0.20, 0.03));
+  const seat = bx(0.165, 0.05, 0.33, MAT.dark, 0, 0.365, 0.125); seat.rotation.x = 0.05; g.add(seat);
+  g.add(bx(0.19, 0.024, 0.10, std(0xd8d2c2, 0.4, 0.6), 0, 0.38, 0.31));
+  const lampF = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.04, 0.034, 12), std(0xfff2c0, 0.22));
+  lampF.rotation.x = Math.PI / 2 - 0.35; lampF.position.set(0, 0.43, -0.21); g.add(lampF);
+  const torso = cyl(0.078, 0.10, 0.32, cloth, 0, 0.575, 0.12); torso.rotation.x = 0.28; g.add(torso);
   for (const sx of [-1, 1]) {
-    g.add(tube(sx * 0.055, 0.635, 0.065, sx * 0.125, 0.415, -0.155, 0.020, cloth)); // arm
-    g.add(tube(sx * 0.075, 0.36, 0.10, sx * 0.115, 0.155, 0.075, 0.024, std(0x33383e, 0.8))); // leg
+    g.add(tube(sx * 0.06, 0.67, 0.07, sx * 0.14, 0.445, -0.16, 0.022, cloth));
+    g.add(tube(sx * 0.08, 0.385, 0.11, sx * 0.125, 0.17, 0.08, 0.026, std(0x33383e, 0.8)));
   }
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 12), skin);
-  head.position.set(0, 0.745, 0.045); head.castShadow = true; g.add(head);
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.079, 14, 10, 0, Math.PI * 2, 0, 1.35), red);
-  helmet.position.set(0, 0.755, 0.045); helmet.castShadow = true; g.add(helmet);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.078, 14, 12), skin);
+  head.position.set(0, 0.79, 0.05); head.castShadow = true; g.add(head);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.086, 14, 10, 0, Math.PI * 2, 0, 1.35), red);
+  helmet.position.set(0, 0.80, 0.05); helmet.castShadow = true; g.add(helmet);
   g.scale.setScalar(scale || 1);
   return g;
 }
 function buildGenerator(scale) {
+  // Red Tiger-style genset: frame cage, panel face, fuel cap, recoil - household Lagos.
   const g = new THREE.Group();
-  const red = std(0xc22e2e, 0.45);
-  for (const [fx, fz] of [[-0.19, 0.13], [0.19, 0.13], [-0.19, -0.13], [0.19, -0.13]]) g.add(bx(0.07, 0.07, 0.07, MAT.dark, fx, 0.035, fz));
-  const body = rbox(0.44, 0.29, 0.31, 0.04, red); body.position.set(0, 0.07, 0); g.add(body);
-  // front control panel with the drawn grille, sockets, switch and gauge
-  const panel = decalPlane(0.36, 0.225, genPanelTexture()); panel.position.set(0, 0.215, 0.163); g.add(panel);
-  g.add(bx(0.38, 0.24, 0.012, MAT.dark, 0, 0.215, -0.158)); // rear vent block
-  // tubular frame: corner posts and top rails
-  for (const sx of [-0.235, 0.235]) for (const sz of [-0.165, 0.165]) g.add(tube(sx, 0.05, sz, sx, 0.44, sz, 0.016, MAT.dark));
-  for (const sz of [-0.165, 0.165]) g.add(tube(-0.235, 0.44, sz, 0.235, 0.44, sz, 0.016, MAT.dark));
-  for (const sx of [-0.235, 0.235]) g.add(tube(sx, 0.44, -0.165, sx, 0.44, 0.165, 0.016, MAT.dark));
-  const capTop = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12), MAT.dark);
-  capTop.position.set(-0.12, 0.385, 0); g.add(capTop); // fuel cap
-  const starter = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 16), MAT.dark);
-  starter.rotation.z = Math.PI / 2; starter.position.set(0.232, 0.22, 0); g.add(starter); // recoil starter
+  const red = std(0xc22e2e, 0.42, 0.12);
+  for (const [fx, fz] of [[-0.21, 0.14], [0.21, 0.14], [-0.21, -0.14], [0.21, -0.14]]) g.add(bx(0.08, 0.08, 0.08, MAT.dark, fx, 0.04, fz));
+  const body = rbox(0.48, 0.32, 0.34, 0.04, red); body.position.set(0, 0.08, 0); g.add(body);
+  const panel = decalPlane(0.40, 0.25, genPanelTexture()); panel.position.set(0, 0.235, 0.178); g.add(panel);
+  g.add(bx(0.42, 0.26, 0.014, MAT.dark, 0, 0.235, -0.172));
+  for (const sx of [-0.255, 0.255]) for (const sz of [-0.18, 0.18]) g.add(tube(sx, 0.06, sz, sx, 0.48, sz, 0.018, MAT.dark));
+  for (const sz of [-0.18, 0.18]) g.add(tube(-0.255, 0.48, sz, 0.255, 0.48, sz, 0.018, MAT.dark));
+  for (const sx of [-0.255, 0.255]) g.add(tube(sx, 0.48, -0.18, sx, 0.48, 0.18, 0.018, MAT.dark));
+  const capTop = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.034, 12), MAT.dark);
+  capTop.position.set(-0.13, 0.42, 0); g.add(capTop);
+  const starter = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.024, 16), MAT.dark);
+  starter.rotation.z = Math.PI / 2; starter.position.set(0.255, 0.24, 0); g.add(starter);
   g.scale.setScalar(scale || 1);
   return g;
 }
 function buildBoot(scale) {
+  // Studded football boot: sole, toe box, collar, laces - street football Lagos.
   const g = new THREE.Group();
-  const tan = std(0xb07a3f, 0.62), tanDark = std(0x8a5a28, 0.65), soleMat = std(0x3a2a1a, 0.7);
-  const sole = rbox(0.205, 0.045, 0.55, 0.02, soleMat); sole.position.set(0, 0.028, 0.01); g.add(sole);
-  const toe = rbox(0.19, 0.095, 0.30, 0.045, tan); toe.position.set(0, 0.07, -0.115); toe.rotation.x = 0.05; g.add(toe);
-  const heel = rbox(0.185, 0.21, 0.185, 0.04, tan); heel.position.set(0, 0.07, 0.155); heel.rotation.x = -0.06; g.add(heel);
-  const tongue = bx(0.115, 0.02, 0.17, tanDark, 0, 0.175, 0.035); tongue.rotation.x = -0.5; g.add(tongue);
-  for (let k = 0; k < 4; k++) { // laces across the tongue
-    const lace = bx(0.105, 0.012, 0.022, MAT.white, 0, 0.155 + k * 0.026, 0.085 - k * 0.033);
+  const tan = std(0xff7a1a, 0.55), tanDark = std(0xd45e10, 0.58), soleMat = std(0x2a2218, 0.7);
+  const sole = rbox(0.22, 0.05, 0.60, 0.02, soleMat); sole.position.set(0, 0.03, 0.01); g.add(sole);
+  const toe = rbox(0.205, 0.105, 0.33, 0.05, tan); toe.position.set(0, 0.078, -0.125); toe.rotation.x = 0.05; g.add(toe);
+  const heel = rbox(0.20, 0.23, 0.20, 0.045, tan); heel.position.set(0, 0.078, 0.17); heel.rotation.x = -0.06; g.add(heel);
+  const tongue = bx(0.125, 0.022, 0.19, tanDark, 0, 0.19, 0.04); tongue.rotation.x = -0.5; g.add(tongue);
+  for (let k = 0; k < 4; k++) {
+    const lace = bx(0.115, 0.014, 0.024, MAT.white, 0, 0.17 + k * 0.028, 0.09 - k * 0.035);
     lace.rotation.x = -0.5; lace.rotation.y = k % 2 ? 0.16 : -0.16; g.add(lace);
   }
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.095, 0.07, 14, 1, true), new THREE.MeshStandardMaterial({ color: 0x8a5a28, roughness: 0.7, side: THREE.DoubleSide }));
-  collar.position.set(0, 0.295, 0.155); collar.castShadow = true; g.add(collar);
-  const studG = new THREE.CylinderGeometry(0.013, 0.017, 0.03, 8);
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.102, 0.08, 14, 1, true), new THREE.MeshStandardMaterial({ color: 0xd45e10, roughness: 0.65, side: THREE.DoubleSide }));
+  collar.position.set(0, 0.32, 0.17); collar.castShadow = true; g.add(collar);
+  const studG = new THREE.CylinderGeometry(0.015, 0.019, 0.034, 8);
   const studM = std(0xd8d2c2, 0.35, 0.6);
-  for (const [sx, sz] of [[-0.06, -0.20], [0.06, -0.20], [-0.065, 0.02], [0.065, 0.02], [-0.06, 0.21], [0.06, 0.21]]) {
-    const s = new THREE.Mesh(studG, studM); s.position.set(sx, 0.014, sz); g.add(s);
+  for (const [sx, sz] of [[-0.065, -0.22], [0.065, -0.22], [-0.07, 0.02], [0.07, 0.02], [-0.065, 0.23], [0.065, 0.23]]) {
+    const s = new THREE.Mesh(studG, studM); s.position.set(sx, 0.015, sz); g.add(s);
   }
   g.scale.setScalar(scale || 1);
   return g;
 }
 function buildFila(scale) {
+  // Abeti-aja (fila): purple cloth, gold band, dog-ear flaps - readable cap silhouette.
   const g = new THREE.Group();
-  const cloth = new THREE.MeshStandardMaterial({ map: filaClothTexture(), roughness: 0.85 });
-  const purple = std(0x5b2a86, 0.85), purpleDark = std(0x452065, 0.85);
-  const bodyM = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.20, 0.23, 20), cloth);
-  bodyM.position.y = 0.155; bodyM.castShadow = true; g.add(bodyM);
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 10), purple);
-  dome.scale.set(1, 0.48, 1); dome.position.y = 0.27; dome.castShadow = true; g.add(dome);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.203, 0.208, 0.045, 20), std(0xe8c62a, 0.5, 0.3));
-  band.position.y = 0.055; g.add(band);
-  // abeti aja: the two dog-ear folds, standing off the sides
+  const cloth = new THREE.MeshStandardMaterial({ map: filaClothTexture(), roughness: 0.82 });
+  const purple = std(0x5b2a86, 0.82), purpleDark = std(0x452065, 0.82);
+  const bodyM = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.26, 20), cloth);
+  bodyM.position.y = 0.17; bodyM.castShadow = true; g.add(bodyM);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.17, 18, 10), purple);
+  dome.scale.set(1, 0.5, 1); dome.position.y = 0.30; dome.castShadow = true; g.add(dome);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.23, 0.05, 20), std(0xe8c62a, 0.45, 0.35));
+  band.position.y = 0.06; g.add(band);
   for (const sx of [-1, 1]) {
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.082, 0.17, 10), cloth);
-    ear.scale.set(1, 1, 0.42);
-    ear.position.set(sx * 0.175, 0.315, 0);
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.19, 10), cloth);
+    ear.scale.set(1, 1, 0.44);
+    ear.position.set(sx * 0.195, 0.345, 0);
     ear.rotation.z = sx * -0.55;
     ear.castShadow = true; g.add(ear);
   }
-  const fold = bx(0.27, 0.075, 0.035, purpleDark, 0, 0.135, 0.175); fold.rotation.x = 0.35; g.add(fold);
+  const fold = bx(0.30, 0.085, 0.04, purpleDark, 0, 0.15, 0.195); fold.rotation.x = 0.35; g.add(fold);
   g.scale.setScalar(scale || 1);
   return g;
 }
 const TOKEN_BUILDERS = { danfo: buildDanfo, keke: buildKeke, okada: buildOkada, generator: buildGenerator, boot: buildBoot, fila: buildFila };
 function makeToken(tokenId, colorHex, scale) {
   const g = new THREE.Group();
-  const disc = cyl(0.235, 0.25, 0.045, std(new THREE.Color(colorHex).getHex(), 0.5), 0, 0.023, 0, 24);
+  // Phone track: thicker coloured pedestal so the piece reads against cream tiles.
+  const disc = cyl(0.255, 0.27, 0.055, std(new THREE.Color(colorHex).getHex(), 0.48), 0, 0.028, 0, 24);
   g.add(disc);
-  const inner = (TOKEN_BUILDERS[tokenId] || buildDanfo)(scale || 1);
-  inner.position.y = 0.045;
+  const sc = (scale == null ? 1.18 : scale);
+  const inner = (TOKEN_BUILDERS[tokenId] || buildDanfo)(sc);
+  inner.position.y = 0.055;
   g.add(inner);
-  g.add(blobShadow(0.30));
+  g.add(blobShadow(0.34));
   g.userData.inner = inner;
   return g;
 }
@@ -1080,15 +1077,29 @@ function centreTexture(innerW, innerD) {
   x.strokeStyle = 'rgba(160,116,32,0.55)'; x.lineWidth = 5; x.strokeRect(26, 26, W - 52, H - 52);
   x.strokeStyle = 'rgba(160,116,32,0.25)'; x.lineWidth = 2; x.strokeRect(44, 44, W - 88, H - 88);
   const px = (wx) => (wx / innerW + 0.5) * W, pz = (wz) => (wz / innerD + 0.5) * H;
-  // skyline silhouette along the north edge
-  x.fillStyle = 'rgba(46,80,66,0.30)';
+  // Lagos skyline wash: stepped towers with lit windows that still read at phone size
   const hs = [70, 120, 88, 150, 96, 132, 74, 118, 84, 140, 92];
+  const skyCols = ['rgba(46,80,66,0.42)', 'rgba(55,70,88,0.40)', 'rgba(90,70,48,0.38)'];
   let bx0 = px(-innerW / 2 + 0.2);
-  for (const h of hs) { const w = 52 + (h % 40); x.fillRect(bx0, pz(1.35 - innerD / 2) - h, w, h); bx0 += w + 14; }
+  hs.forEach((h, ki) => {
+    const w = 52 + (h % 40);
+    const top = pz(1.35 - innerD / 2) - h;
+    x.fillStyle = skyCols[ki % 3]; x.fillRect(bx0, top, w, h);
+    x.fillStyle = 'rgba(255,233,168,0.55)';
+    for (let r = 0; r < Math.floor(h / 18); r++) for (let c = 0; c < Math.floor(w / 14); c++) {
+      if ((r + c + ki) % 3 === 0) continue;
+      x.fillRect(bx0 + 4 + c * 14, top + 6 + r * 18, 7, 8);
+    }
+    bx0 += w + 14;
+  });
+  // Third Mainland arc + lagoon wash (believable water, not a flat stripe)
   x.strokeStyle = 'rgba(43,32,24,0.4)'; x.lineWidth = 7;
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.45)); x.quadraticCurveTo(px(0), pz(-3.6), px(4.2), pz(-2.45)); x.stroke();
-  x.strokeStyle = 'rgba(63,127,191,0.5)'; x.lineWidth = 4;
-  x.beginPath(); x.moveTo(px(-4.2), pz(-2.05)); x.quadraticCurveTo(px(0), pz(-1.8), px(4.2), pz(-2.05)); x.stroke();
+  const lag = x.createLinearGradient(px(-4.5), pz(-2.8), px(4.5), pz(-1.6));
+  lag.addColorStop(0, 'rgba(40,110,170,0.22)'); lag.addColorStop(0.5, 'rgba(70,160,210,0.38)'); lag.addColorStop(1, 'rgba(40,110,170,0.22)');
+  x.fillStyle = lag; x.beginPath(); x.moveTo(px(-4.4), pz(-2.55)); x.quadraticCurveTo(px(0), pz(-1.55), px(4.4), pz(-2.55)); x.lineTo(px(4.4), pz(-1.85)); x.quadraticCurveTo(px(0), pz(-1.35), px(-4.4), pz(-1.85)); x.closePath(); x.fill();
+  x.strokeStyle = 'rgba(180,220,245,0.45)'; x.lineWidth = 2.5;
+  x.beginPath(); x.moveTo(px(-4.2), pz(-2.05)); x.quadraticCurveTo(px(0), pz(-1.7), px(4.2), pz(-2.05)); x.stroke();
   // wordmark: moved south (Lesson 6c) so the bridge arc and its danfo,
   // which project onto the plate's north rows from the follow camera, can
   // never split KOLOPOLY again. The whole word sits below the bridge line.
@@ -1097,7 +1108,7 @@ function centreTexture(innerW, innerD) {
   x.fillText('KOLO', px(-1.05), pz(0.55));
   x.fillStyle = '#b57f10';
   const wHalf = x.measureText('KOLO').width;
-  x.textAlign = 'left'; x.fillText('POLY', px(-1.05) + wHalf + 6, pz(0.55));
+  x.textAlign = 'left'; x.fillText('POLY', px(-1.05) + wHalf + 1, pz(0.55));
   // The slogan takes the old cities subline's slot, set bold and tracked
   // so it reads at frame size.
   x.fillStyle = 'rgba(30,20,9,0.85)'; x.font = '700 33px "Aeonik Pro", sans-serif'; x.textAlign = 'center';
@@ -1310,7 +1321,7 @@ class GameScene {
     floor.rotation.x = -Math.PI / 2; floor.position.y = 0.02; floor.receiveShadow = true; s.add(floor);
     this.floorMesh = floor;
     // skyline row
-    const winMats = [0x39594a, 0x51606e, 0x6e5a41].map((col, k) => new THREE.MeshStandardMaterial({ map: windowTexture('#' + col.toString(16).padStart(6, '0'), 0.4), roughness: 0.85 }));
+    const winMats = [0x39594a, 0x51606e, 0x6e5a41].map((col, k) => new THREE.MeshStandardMaterial({ map: skylineTexture('#' + col.toString(16).padStart(6, '0'), 0.55), roughness: 0.78 }));
     // Skyline kept low (tallest 0.52) and riding the centre field's north
     // edge (z = 1.28 - innerD/2, span inside x +-3.95 at the square
     // layout) so it stays strictly inside the centre island and never
@@ -1326,7 +1337,7 @@ class GameScene {
       sx += w + 0.16; s.add(b); this.skylineBars.push(b);
     });
     // water and bridge
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x3f7fbf, roughness: 0.15, metalness: 0.3 }));
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x2f6fad, roughness: 0.22, metalness: 0.45, envMapIntensity: 0.6 }));
     water.rotation.x = -Math.PI / 2; water.position.set(0, 0.035, -2.45); water.receiveShadow = true; s.add(water);
     const bridgeMat = std(0x333a40, 0.6, 0.3);
     // Bridge arc shrunk (Lesson 6c): radius 1.1 (peak 1.2), deck 2.6 long,
@@ -1351,7 +1362,7 @@ class GameScene {
     this.discardPos = { wahala: new THREE.Vector3(-1.90, 0.02, -0.9), family: new THREE.Vector3(1.90, 0.02, -0.9) };
     for (const deck of ['wahala', 'family']) {
       const st = deckStack(deck, 7); st.position.copy(this.deckPos[deck]); st.rotation.y = deck === 'wahala' ? 0.12 : -0.12; s.add(st);
-      const dis = makeCardMesh(0.92, 1.30, cardBackTexture(deck), cardBackTexture(deck));
+      const dis = makeCardMesh(0.78, 1.10, cardBackTexture(deck), cardBackTexture(deck));
       dis.rotation.x = -Math.PI / 2; dis.rotation.z = 0.2; dis.position.set(this.discardPos[deck].x, 0.055, this.discardPos[deck].z);
       dis.visible = false; s.add(dis); this['discard_' + deck] = dis;
     }
@@ -1360,13 +1371,13 @@ class GameScene {
     this.diceRest = [new THREE.Vector3(1.55, 0.235, 3.05), new THREE.Vector3(2.35, 0.235, 2.55)];
     this.dice.forEach((d, k) => { d.position.copy(this.diceRest[k]); d.visible = false; s.add(d); });
     // flying card for draws
-    this.flyCard = makeCardMesh(0.92, 1.30, cardBackTexture('wahala'), cardBackTexture(null));
+    this.flyCard = makeCardMesh(0.78, 1.10, cardBackTexture('wahala'), cardBackTexture(null));
     this.flyCard.visible = false; s.add(this.flyCard);
     // held card tray at the centre south edge
     this.tray = new THREE.Group(); s.add(this.tray);
     this.trayCards = new Map();
     // deed card that rises from a tapped tile
-    this.deedCard = makeCardMesh(1.24, 1.74, deedCardTexture(39, null), cardBackTexture(null));
+    this.deedCard = makeCardMesh(1.05, 1.48, deedCardTexture(39, null), cardBackTexture(null));
     this.deedCard.visible = false; s.add(this.deedCard);
   }
 

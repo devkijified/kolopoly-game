@@ -65,6 +65,10 @@ let bidAs = null;
 let bankruptArmed = false;
 let leaveArmed = false;
 let endRoomArmed = false;
+let wakeLock = null;
+let connBannerEl = null;
+let heartbeatTimer = null;
+let lastLocalActive = Date.now();
 const seenPositions = {};
 
 // Reconnect session: a seat (room code + player id + token) survives a
@@ -93,6 +97,9 @@ function saveSeat() {
 function clearSeat() {
   myCode = null; myId = null; myToken = null; hasSeat = false; spectator = false;
   try { sessionStorage.removeItem('kolopolySeat'); localStorage.removeItem('kolopolySeatLS'); } catch (e) { }
+  try { releaseWakeLock(); } catch (e) { }
+  try { stopHeartbeat(); } catch (e) { }
+  try { hideConnBanner(); } catch (e) { }
 }
 function loadSeat() {
   try {
@@ -176,6 +183,30 @@ function duckAmbient() {
   busAmbient.gain.setValueAtTime(0.22, t);
   busAmbient.gain.linearRampToValueAtTime(0.8, t + 0.7);
 }
+// Unlock AudioContext on the first real gesture so SFX are not silent after Start.
+// Default audioState is ON (1). We only unlock/resume; we never force-unmute a
+// player who chose state 3.
+let audioUnlocked = false;
+function unlockAudio() {
+  if (muted) return;
+  try {
+    const ctx = audio();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    audioUnlocked = true;
+  } catch (e) { /* garnish */ }
+}
+function armAudioUnlock() {
+  const once = () => {
+    unlockAudio();
+    window.removeEventListener('pointerdown', once, true);
+    window.removeEventListener('keydown', once, true);
+    window.removeEventListener('touchstart', once, true);
+  };
+  window.addEventListener('pointerdown', once, true);
+  window.addEventListener('keydown', once, true);
+  window.addEventListener('touchstart', once, true);
+}
+armAudioUnlock();
 function tone(o) {
   const ctx = audio(); if (!ctx) return;
   const t = ctx.currentTime + (o.at || 0);
@@ -322,7 +353,7 @@ $('muteBtn').addEventListener('click', () => {
   voiceOn = audioState === 1;
   try { localStorage.setItem('kolopolyAudio', String(audioState)); } catch (e) { }
   renderMuteBtn();
-  if (audioState !== 3) { logSfx('credit', null, 'ui'); sfx.credit(25000, 450); }
+  if (audioState !== 3) { unlockAudio(); logSfx('credit', null, 'ui'); sfx.credit(25000, 450); }
 });
 renderMuteBtn();
 // KP14 part 1: the Share button in the freed header slot carries the
@@ -467,10 +498,69 @@ function nepaFlicker() {
 // ---------------------------------------------------------------------------
 // Connection
 // ---------------------------------------------------------------------------
+async function requestWakeLock() {
+  try {
+    if (!('wakeLock' in navigator)) return;
+    if (document.visibilityState !== 'visible') return;
+    if (wakeLock) return;
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) { wakeLock = null; }
+}
+function releaseWakeLock() {
+  try { if (wakeLock) wakeLock.release(); } catch (e) { }
+  wakeLock = null;
+}
+function syncWakeLock(room) {
+  if (room && room.status === 'playing' && !room.paused) requestWakeLock();
+  else releaseWakeLock();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state && state.status === 'playing' && !state.paused) requestWakeLock();
+  else if (document.visibilityState === 'hidden') releaseWakeLock();
+});
+
+function showConnBanner(text) {
+  if (!connBannerEl) {
+    connBannerEl = document.createElement('div');
+    connBannerEl.id = 'connBanner';
+    connBannerEl.setAttribute('role', 'status');
+    document.body.appendChild(connBannerEl);
+  }
+  connBannerEl.textContent = text;
+  connBannerEl.classList.add('show');
+}
+function hideConnBanner() {
+  if (connBannerEl) connBannerEl.classList.remove('show');
+}
+
+function bumpLocalActive() {
+  lastLocalActive = Date.now();
+  if (sessionLive && ws && ws.readyState === 1) {
+    try { ws.send(JSON.stringify({ type: 'heartbeat' })); } catch (e) { }
+  }
+}
+window.addEventListener('pointerdown', bumpLocalActive, { passive: true });
+window.addEventListener('keydown', bumpLocalActive);
+
+function startHeartbeat() {
+  if (heartbeatTimer) return;
+  heartbeatTimer = setInterval(() => {
+    if (!sessionLive || !ws || ws.readyState !== 1) return;
+    if (Date.now() - lastLocalActive > 20000) return; // idle phone: AFK path owns this
+    try { ws.send(JSON.stringify({ type: 'heartbeat' })); } catch (e) { }
+  }, 15000);
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(proto + '//' + location.host);
   ws.onopen = () => {
+    hideConnBanner();
+    startHeartbeat();
     // Resume the seat on every (re)connect: this is what makes a dropped
     // socket a brief pause instead of a stranger session mid-game. An invite
     // link for a different room wins over the stored seat.
@@ -526,16 +616,27 @@ function connect() {
   };
   ws.onclose = (ev) => {
     sessionLive = false;
+    stopHeartbeat();
     if (ev && ev.code === 4001) {
       // The seat was taken by a newer tab or window on purpose: sign this
       // one out of the game instead of fighting over the seat.
       clearSeat();
       entrySent = false;
+      hideConnBanner();
+      releaseWakeLock();
       showView('view-landing');
       toast('Your seat don open for another tab or window. This one don sign out.', 5200);
       return;
     }
-    setTimeout(connect, 2500);
+    if (ev && ev.code === 4002) {
+      // AFK bot took the seat: keep the seat token so a return can reclaim.
+      showConnBanner('You don go quiet. A bot dey hold your seat. Come back sharp to reclaim.');
+      setTimeout(connect, 1800);
+      return;
+    }
+    // Soft drop: never scream "disconnected" while the seat is still held.
+    if (hasSeat) showConnBanner('Link dey reconnect. Your seat and money dey held.');
+    setTimeout(connect, 1800);
   };
 }
 function flushQueue() {
@@ -828,6 +929,15 @@ function byId(id) { return state ? state.players.find((p) => p.id === id) : null
 function onState(room) {
   const prev = state;
   state = room;
+  hideConnBanner();
+  if (room.status === 'playing') { unlockAudio(); syncWakeLock(room); }
+  else releaseWakeLock();
+  // End hang fix: drop the persisted seat so a refresh returns to landing
+  // instead of rejoining into the result card forever. Keep the live
+  // session so Play again and Leave still work on this tab.
+  if (room.status === 'ended') {
+    try { sessionStorage.removeItem('kolopolySeat'); } catch (e) { }
+  }
   const meNow = room.players.find((p) => p.id === myId);
   if (meNow && meNow.token) { try { localStorage.setItem('kolopolyToken', meNow.token); } catch (e) { } }
   if (prev && prev.auction && !room.auction && room.status === 'playing') { logSfx('gavel', null, 'state'); sfx.gavel(); }
@@ -984,17 +1094,21 @@ function runCountdown() {
   const o = $('countOverlay');
   const num = $('countNum');
   o.classList.add('show');
+  unlockAudio();
   let n = 3;
   num.textContent = n;
+  logSfx('knock', null, 'countdown'); try { sfx.hop(); } catch (e) { }
   const iv = setInterval(() => {
     n -= 1;
     if (n <= 0) {
       clearInterval(iv);
       num.textContent = 'GO';
+      logSfx('horn', null, 'countdown'); try { sfx.horn(); } catch (e) { }
       setTimeout(() => o.classList.remove('show'), 450);
     } else {
       num.textContent = n;
       num.style.animation = 'none'; void num.offsetWidth; num.style.animation = '';
+      logSfx('hop', null, 'countdown'); try { sfx.hop(); } catch (e) { }
     }
   }, 620);
 }
@@ -1161,7 +1275,7 @@ function renderPause(room) {
     '<p class="lead" style="margin-top:8px;">We dey wait for <b>' + esc(missing.join(', ') || 'a player') + '</b> to return.</p>' +
     '<p class="caption" id="pauseElapsed">Waiting don reach 0:00.</p>' +
     '<p class="caption">' + clockTxt + '</p>' +
-    '<p class="caption">Your seat and your money dey held. Controls go wake the moment dem reconnect.</p></div>';
+    '<p class="caption">Your seat and your money dey held. Controls go wake the moment dem return.</p></div>';
   o.classList.add('show');
 }
 
@@ -1236,7 +1350,7 @@ function renderGame(room) {
     const loanMark = room.inf && room.inf.contracts.some((c) => c.type === 'loan' && c.borrower === p.id) ? ' · loan' : '';
     return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '">' +
       '<span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 15) + '</span>' +
-      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span> ' +
+      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span> ' +
       '<span class="cash">' + fmtN(p.cash) + '</span><span class="meta"> · ' + p.deeds + ' deeds' + loanMark + '</span></span></div>';
   }).join('');
   // Board legal highlights for build placement
@@ -1864,28 +1978,38 @@ function openGist() {
 function renderEnd(room) {
   const o = $('endOverlay');
   if (!room.endTable) { o.classList.remove('show'); return; }
+  unlockAudio();
+  releaseWakeLock();
+  try { sessionStorage.removeItem('kolopolySeat'); } catch (e) { }
+  logSfx('cheer', null, 'end');
+  try { sfx.cheer(); } catch (e) { }
   const rows = room.endTable.map((r, idx) =>
-    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.bot ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta" style="color:inherit;opacity:.75;">' + esc(r.title) + '</span>' +
+    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta end-title">' + esc(r.title) + '</span>' +
     (r.lessons && r.lessons.length ? r.lessons.map((l) => '<span class="end-lessons">' + esc(l) + '</span>').join('') : '') +
-    '</td><td>' + fmtN(r.netWorth) + '</td></tr>').join('');
+    '</td><td class="end-worth">' + fmtN(r.netWorth) + '</td></tr>').join('');
   const hasReal = room.endTable.some((r) => r.realNetWorth != null);
   const realRows = hasReal ? room.endTable.slice().sort((a, b) => b.realNetWorth - a.realNetWorth).map((r) =>
-    '<tr><td>' + esc(r.name) + '<br><span class="meta" style="color:inherit;opacity:.75;">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</span></td><td>' + fmtN(r.realNetWorth) + '</td></tr>').join('') : '';
-  o.innerHTML = '<h2 class="headline" style="color:var(--gold);">' + esc(room.winner ? room.winner.name : '') + ' na the real landlord</h2>' +
-    (room.endReason === 'resignation' ? '<p class="caption" style="color:#ffe9c9;">Won by resignation.</p>' : '') +
-    (room.endReason === 'abandoned' ? '<p class="caption" style="color:#ffe9c9;">Everybody leave the table, so the room close.</p>' : '') +
-    (room.endReason === 'host' ? '<p class="caption" style="color:#ffe9c9;">The host end the room.</p>' : '') +
-    '<p class="caption" style="color:#ffe9c9;opacity:.8;">THE NOMINAL TABLE: wetin the numbers talk</p>' +
-    '<table class="end-table"><tr><th>Player and title</th><th>Net worth</th></tr>' + rows + '</table>' +
-    (hasReal ? '<p class="caption" style="color:#ffe9c9;opacity:.8;">THE REAL TABLE: wetin the money fit buy at Phase 1 prices (cash divided by the Inflation Index ' + (room.inf ? room.inf.index : '') + 'x)</p>' +
-      '<table class="end-table"><tr><th>Player</th><th>Real net worth</th></tr>' + realRows + '</table>' +
-      '<p class="caption real-table-note" style="color:#ffe9c9;opacity:.75;">Nominal no be real. The argument between these two tables na the lesson; argue am well.</p>' : '') +
-    (room.dealOfGame ? '<p class="lead" style="max-width:460px;">Deal of the Game: ' + esc(room.dealOfGame) + '</p>' : '') +
-    (room.interestLine ? '<p class="caption" style="color:#ffe9c9;opacity:.85;max-width:460px;">' + esc(room.interestLine) + '</p>' : '') +
-    (room.bankerGhost ? '<p class="caption">Banker: ' + esc(room.bankerGhost) + ', wey inflation first catch. The ghost run the announcements, no money power.</p>' : '') +
-    '<div class="btnrow" style="max-width:460px;width:100%;"><button class="btn" id="endShare">Final Table card</button>' +
+    '<tr><td>' + esc(r.name) + '<br><span class="meta end-title">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</span></td><td class="end-worth">' + fmtN(r.realNetWorth) + '</td></tr>').join('') : '';
+  const winName = room.winner ? room.winner.name : (room.endTable[0] && room.endTable[0].name) || 'Nobody';
+  o.innerHTML = '<div class="end-card">' +
+    '<p class="end-kicker">FINAL TABLE</p>' +
+    '<h2 class="end-headline">' + esc(winName) + ' na the real landlord</h2>' +
+    (room.endReason === 'resignation' ? '<p class="end-reason">Won by resignation.</p>' : '') +
+    (room.endReason === 'abandoned' ? '<p class="end-reason">Everybody leave the table, so the room close.</p>' : '') +
+    (room.endReason === 'host' ? '<p class="end-reason">The host end the room.</p>' : '') +
+    '<div class="end-tables">' +
+      '<section class="end-panel"><h3 class="end-panel-title">Nominal</h3><p class="end-panel-sub">Wetin the numbers talk</p>' +
+        '<table class="end-table"><tr><th>Player and title</th><th>Net worth</th></tr>' + rows + '</table></section>' +
+      (hasReal ? '<section class="end-panel"><h3 class="end-panel-title">Real</h3><p class="end-panel-sub">Phase 1 buying power (Index ' + (room.inf ? room.inf.index : '') + 'x)</p>' +
+        '<table class="end-table"><tr><th>Player</th><th>Real net worth</th></tr>' + realRows + '</table>' +
+        '<p class="end-note">Nominal no be real. The argument between these two tables na the lesson.</p></section>' : '') +
+    '</div>' +
+    (room.dealOfGame ? '<p class="end-deal">Deal of the Game: ' + esc(room.dealOfGame) + '</p>' : '') +
+    (room.interestLine ? '<p class="end-note">' + esc(room.interestLine) + '</p>' : '') +
+    (room.bankerGhost ? '<p class="end-note">Banker: ' + esc(room.bankerGhost) + ', wey inflation first catch. The ghost run the announcements, no money power.</p>' : '') +
+    '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
     '<button class="btn green" id="endAgain">Play again</button></div>' +
-    '<button class="btn ghost mt8" id="endLeave">Leave</button>';
+    '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
   o.classList.add('show');
   $('endShare').addEventListener('click', () => {
     openShare('final', {
@@ -1893,8 +2017,18 @@ function renderEnd(room) {
       deal: room.dealOfGame, code: room.code
     });
   });
-  $('endAgain').addEventListener('click', () => { o.classList.remove('show'); send('play_again', {}); });
-  $('endLeave').addEventListener('click', () => { send('leave', {}); clearSeat(); setTimeout(() => location.reload(), 250); });
+  $('endAgain').addEventListener('click', () => {
+    o.classList.remove('show');
+    // Play again needs a live seat again: rejoin path is not used; host
+    // play_again resets the room and clients keep myId/sessionLive.
+    send('play_again', {});
+  });
+  $('endLeave').addEventListener('click', () => {
+    send('leave', {});
+    clearSeat();
+    releaseWakeLock();
+    setTimeout(() => location.reload(), 200);
+  });
 }
 let shareCanvas = null;
 function openShare(kind, data) {
