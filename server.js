@@ -12,11 +12,24 @@ const { WebSocketServer } = require('ws');
 const { EventEmitter } = require('events');
 const D = require('./public/game-data.js');
 const { BotBrain, BOT_NAMES } = require('./bot.js');
+const { createRetention } = require('./retention');
 
 const PORT = process.env.PORT || 4173;
 const TEST = process.env.KP_TEST === '1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff' };
+const retention = createRetention({
+  test: TEST,
+  env: process.env,
+  file: process.env.KP_RETENTION_FILE || path.join(__dirname, 'data', 'retention.json')
+});
+if (!retention.vapid.enabled) {
+  console.log('Web Push is off until VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are set.');
+}
+const MIME = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff'
+};
 const AUCTION_MS = TEST ? 4000 : 20000;
 const MAX_PLAYERS = 6;
 // Lesson 1: a room with nobody connected is not deleted on the spot. It
@@ -81,7 +94,10 @@ function moveMoney(room, from, to, amount, text, opts) {
   if (amount <= 0) return;
   if (from) { from.cash -= amount; trackMin(from); }
   if (to) { to.cash += amount; if (to.cash > (to.peakCash || 0)) to.peakCash = to.cash; }
-  if (!to && opts.toPot) room.pot += amount;
+  if (!to && opts.toPot) {
+    room.pot += amount;
+    try { retention.onPot(room); } catch (e) { /* a whisper never blocks a payment */ }
+  }
   if (from && opts.stat === 'fine') from.finesPaid.push(amount);
   if (to && opts.stat === 'rent') { to.lastRentReceived = amount; to.rentsReceived += amount; }
   if (from && opts.stat === 'rent') from.rentsPaid += amount;
@@ -319,8 +335,16 @@ function bindSeat(ctx, ws, room, player, send) {
   const hostP = room.players.find((p) => p.id === room.hostId);
   if (room.status !== 'lobby' && (!hostP || !hostP.connected)) room.hostId = player.id;
   updatePause(room);
+  noteIdentity(player);
   send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken, rejoined: true });
   broadcast(room);
+}
+// The shelf key is the device clientId, with the seat reconnect token
+// as the second handle once this room has seen both.
+function noteIdentity(player) {
+  if (!player || player.bot) return;
+  try { retention.link({ clientId: player.clientId, token: player.reconnectToken, name: player.name }); }
+  catch (e) { /* the shelf never blocks a seat */ }
 }
 function newRoom(code, isPublic, mode, settings) {
   const props = {};
@@ -1777,6 +1801,7 @@ function resolveMortgageChoice(room, player, choice) {
 // HTTP static + WebSocket intents
 // ---------------------------------------------------------------------------
 const server = http.createServer((req, res) => {
+  if (retention.accepts(req)) { retention.handle(req, res); return; }
   const cleanUrl = req.url.split('?')[0];
   // Invite landing support: whose room is this, before you join it.
   if (cleanUrl.startsWith('/api/room/')) {
@@ -1860,6 +1885,7 @@ function convertHumanToAfkBot(room, player) {
     player.ws = null;
     try { oldWs.close(4002, 'afk bot'); } catch (e) { }
   }
+  try { retention.onSeatWaiting(player); } catch (e) { /* whisper is optional */ }
   player.humanName = player.humanName || player.name;
   player.afkTaken = true;
   player.bot = true;
@@ -2048,6 +2074,7 @@ function handleConnection(ws) {
       rooms.set(room.code, room);
       ctx.room = room; ctx.player = player; ctx.spectator = false;
       setMessage(room, name + ' created the room. Share the code and wait for friends.');
+      noteIdentity(player);
       send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken });
       broadcast(room);
       return;
@@ -2081,6 +2108,7 @@ function handleConnection(ws) {
       if (!target.hostId) target.hostId = player.id;
       ctx.room = target; ctx.player = player; ctx.spectator = false;
       setMessage(target, name + ' joined the room.');
+      noteIdentity(player);
       send({ type: 'joined', playerId: player.id, code: target.code, token: player.reconnectToken });
       broadcast(target);
       return;
@@ -2107,6 +2135,7 @@ function handleConnection(ws) {
         room.players.push(player);
         ctx.room = room; ctx.player = player; ctx.spectator = false;
         setMessage(room, name + ' joined the room.');
+        noteIdentity(player);
         send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken });
         broadcast(room);
       } else {
@@ -2727,11 +2756,18 @@ function handleConnection(ws) {
       // interval reaps the room when the window passes (ROOM_GRACE_MS).
       room.emptyAt = now();
     }
+    try { retention.onSeatWaiting(me); } catch (e) { /* whisper is optional */ }
     broadcast(room);
   });
 }
 wss.on('connection', handleConnection);
 
+if (!TEST) {
+  // Lagos dawn is not a cron job here. A quiet sweep tells subscribers
+  // whose shelf is still empty for today. One whisper per player per day.
+  setInterval(() => { retention.sweepDrops().catch(() => {}); }, 15 * 60 * 1000);
+  setTimeout(() => { retention.sweepDrops().catch(() => {}); }, 20000);
+}
 server.listen(PORT, () => {
   console.log('Kolopoly listening on port ' + PORT);
 });

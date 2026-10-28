@@ -353,6 +353,7 @@ $('muteBtn').addEventListener('click', () => {
   voiceOn = audioState === 1;
   try { localStorage.setItem('kolopolyAudio', String(audioState)); } catch (e) { }
   renderMuteBtn();
+  if (audioState === 3 && window.KPRetention) window.KPRetention.muteFromSound();
   if (audioState !== 3) { unlockAudio(); logSfx('credit', null, 'ui'); sfx.credit(25000, 450); }
 });
 renderMuteBtn();
@@ -827,6 +828,7 @@ function tokenArtFor(id) {
 function revealForm(focusId) {
   $('joinCard').classList.remove('hidden');
   $('welcomeCard').classList.add('hidden');
+  if (window.KPRetention) window.KPRetention.placeMarket();
   if (focusId) { const el = $(focusId); if (el) el.focus(); }
 }
 // Welcome back: a remembered player acts first; editing is one tap away,
@@ -2029,6 +2031,7 @@ function renderEnd(room) {
     releaseWakeLock();
     setTimeout(() => location.reload(), 200);
   });
+  if (window.KPRetention) window.KPRetention.onWin(!!(room.winner && myId && room.winner.playerId === myId));
 }
 let shareCanvas = null;
 function openShare(kind, data) {
