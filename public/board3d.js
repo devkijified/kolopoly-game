@@ -1283,7 +1283,20 @@ class GameScene {
   maybeRelayout(boxAspect) {
     if (!boxAspect || !isFinite(boxAspect) || boxAspect < 0.2 || boxAspect > 5) return;
     if (!this.tiles || !this.tiles.length) return;
-    this.relayout(boxAspect);
+    // KP18: a portrait WINDOW never takes the wide branch. On a short
+    // portrait viewport the stage box itself comes out squat (the game
+    // chrome below it eats the height), and feeding that squat aspect
+    // to trackLayout built a landscape board inside a portrait layout:
+    // squashed ring, oversized centre, the fixed-size centre furniture
+    // (skyline row, water plane) exposed by the stretched middle. Floor
+    // the effective aspect at 1 (square) whenever the window itself is
+    // portrait, so the layout builds square-or-taller and _applyCam
+    // fits it by height with void margins at the sides. Landscape
+    // windows keep the raw aspect, exactly as before.
+    const portraitWin = window.innerHeight >= window.innerWidth;
+    const effAspect = portraitWin ? Math.max(boxAspect, 1) : boxAspect;
+    this.layoutFloored = portraitWin && effAspect !== boxAspect;
+    this.relayout(effAspect);
   }
 
   buildCentre(s) {
@@ -1668,7 +1681,18 @@ class GameScene {
     const L = this.layout || trackLayout(1);
     const d = this.camDir;
     const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
-    const halfW = (L.TW / 2) * this.zoomK, halfH = (L.TD * f / 2) * this.zoomK;
+    let halfW = (L.TW / 2) * this.zoomK;
+    const halfH = (L.TD * f / 2) * this.zoomK;
+    // KP18: when the layout was floored to square in a portrait window
+    // (see maybeRelayout) but the canvas box is wider than the fitted
+    // frustum, fit by height and widen left and right symmetrically to
+    // the canvas aspect: the board sits centred at true proportions and
+    // the side margins show the scene's void colour (0x2a1a0e, the scene
+    // background). Unfloored layouts keep the exact fit-by-width framing
+    // they have always had; this branch never runs for them.
+    if (this.layoutFloored && cam.aspect && halfW / halfH < cam.aspect * 0.999) {
+      halfW = halfH * cam.aspect;
+    }
     cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
     cam.position.copy(d).multiplyScalar(30);
     cam.lookAt(0, 0, 0);
