@@ -595,6 +595,48 @@ $('settingsToggle').addEventListener('click', () => {
   $('settingsToggle').setAttribute('aria-expanded', String(open));
   $('settingsToggle').classList.toggle('open', open);
 });
+// KP15 hero: the DOM street sleeps when it is off-screen, and its
+// layers drift a few px against pointer and scroll (transform writes
+// to layer wrappers only; the vehicles and the story animate inside
+// their layer on their own clocks). Reduced motion skips all of it.
+(function () {
+  const scene = document.querySelector('.hero-scene');
+  if (!scene) return;
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((es) => {
+      for (const e of es) scene.classList.toggle('hs-off', !e.isIntersecting);
+    }, { threshold: 0.02 }).observe(scene);
+  }
+  const rm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (rm && rm.matches) return;
+  const layers = scene.querySelectorAll('[data-plx]');
+  if (!layers.length) return;
+  let tPX = 0, tPY = 0, cPX = 0, cPY = 0, sY = 0, raf = 0;
+  const apply = () => {
+    raf = 0;
+    cPX += (tPX - cPX) * 0.08; cPY += (tPY - cPY) * 0.08;
+    layers.forEach((l) => {
+      const d = parseFloat(l.getAttribute('data-plx')) || 0;
+      l.style.transform = 'translate3d(' + (cPX * d * 9).toFixed(2) + 'px,' + (cPY * d * 5 + sY * d * 7).toFixed(2) + 'px,0)';
+    });
+    if (Math.abs(tPX - cPX) > 0.001 || Math.abs(tPY - cPY) > 0.001) raf = requestAnimationFrame(apply);
+  };
+  const kick = () => { if (!raf) raf = requestAnimationFrame(apply); };
+  const hero = document.querySelector('.landing-hero');
+  if (hero && window.matchMedia('(pointer: fine)').matches) {
+    hero.addEventListener('pointermove', (e) => {
+      const r = hero.getBoundingClientRect();
+      tPX = ((e.clientX - r.left) / Math.max(1, r.width) - 0.5) * 2;
+      tPY = ((e.clientY - r.top) / Math.max(1, r.height) - 0.5) * 2;
+      kick();
+    });
+    hero.addEventListener('pointerleave', () => { tPX = 0; tPY = 0; kick(); });
+  }
+  window.addEventListener('scroll', () => {
+    sY = Math.min(window.scrollY || 0, 240) / 240;
+    kick();
+  }, { passive: true });
+})();
 $('nameIn').value = localStorage.getItem('kolopolyName') || '';
 $('nameIn').addEventListener('change', () => localStorage.setItem('kolopolyName', $('nameIn').value.trim()));
 paintGameMode();
@@ -1141,7 +1183,7 @@ function renderGame(room) {
   const infBar = $('infBar');
   if (room.inf) {
     infBar.classList.remove('hidden');
-    infBar.innerHTML = '<span class="ph">Phase ' + room.inf.phase + ': ' + esc(room.inf.phaseName) + '</span>' +
+    infBar.innerHTML = '<span class="ph">' + esc(room.inf.phaseName) + '</span>' +
       '<span class="idx">Index ' + room.inf.index + 'x</span>' +
       '<span class="water-chip">Pure water ₦' + [50, 100, 200, 500][room.inf.phase - 1] + '</span>' +
       '<span>Salary ' + fmtN(room.inf.salary) + '</span>' +
@@ -1973,7 +2015,7 @@ setInterval(() => {
   if (clk && state && state.inf) {
     if (state.inf.phaseEndsAt) {
       const s = Math.max(0, Math.floor((state.inf.phaseEndsAt - Date.now()) / 1000));
-      clk.textContent = 'Phase ends ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+      clk.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     } else if (state.inf.hornAt) {
       const s = Math.max(0, Math.floor((state.inf.hornAt - Date.now()) / 1000));
       clk.textContent = 'Horn in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');

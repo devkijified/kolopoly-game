@@ -1588,3 +1588,52 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
    normal rhythm (the invite-shown rule above still spaces it 12px
    under the banner). */
 #view-landing .join-card { margin-top: 0; }
+
+/* ================= KP19: the board takes its space back =================
+   Owner, live frame, 2026-10-28: the stack below the board keeps
+   growing pills and eats the board. The portrait game column pays the
+   board back: the Inflation phase strip collapses from two wrapped
+   rows (72px) to ONE 44px line, the message bar holds its KP13 slim
+   40px cap as a hard cap with an ellipsis, the player pills hold
+   KP12's 34px, and the wallet dock gives back its padding and gap
+   fat. Every action stays one tap away; tap targets stay at or above
+   40px; type floors hold (body 14, meta 11). Game view only, portrait
+   phones only: the landscape rail keeps its KP8/KP13 form, where the
+   column scrolls and height is not the scarce resource. */
+@media (max-width: 699px) {
+  /* Rail rhythm: tighter gaps, a shorter top pad. */
+  .rail-top { padding: 4px var(--sp-3) 2px; gap: 4px; }
+
+  /* The phase strip on one line: phase name, Index chip, Pure water
+     chip, the phase-end countdown as small text, and Deal Break and
+     Contracts as compact ghost buttons, icon only at the 40px floor
+     (their text labels stay in the DOM for assistive tech). The
+     countdown span clips from the left under pressure, so what
+     survives is always the time itself; the phase name is the last
+     flex item and ellipsises only when the line truly runs out. */
+  #infBar { flex-wrap: nowrap; gap: 2px; padding: 2px 5px; min-height: 44px; border-radius: 14px; }
+  #infBar .ph { font-size: 13px; letter-spacing: -0.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+  #infBar .idx, #infBar .water-chip { min-height: 24px; padding: 2px 6px; font-size: 11px; flex: none; }
+  #infBar .clk { margin-left: 0; font-size: 11px; max-width: 32px; flex: none; overflow: hidden; white-space: nowrap; direction: rtl; text-align: right; }
+  #infBar button { min-width: 40px; min-height: 40px; padding: 4px; font-size: 0; gap: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+
+  /* Message bar: the KP13 cap becomes a hard cap, one line, ellipsis. */
+  .msgbar { padding: 6px 10px; min-height: 36px; max-height: 40px; }
+  #msgText { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Player pills hold KP12's 34px; the strip stops paying a bottom pad. */
+  .players-strip { padding-bottom: 0; }
+
+  /* The dock pays back padding and gaps, nothing else: the cash
+     segment, the 44px primary pill and all six ghost utilities stay. */
+  .walletbar { margin: 2px 10px calc(8px + env(safe-area-inset-bottom)); padding: 7px 11px 8px; }
+  .actionbar { margin-top: 5px; }
+  #secondaryBar { margin-top: 2px !important; }
+  .ubtn { min-height: 42px; padding: 4px 2px 3px; }
+}
+
+/* The smallest phones squeeze the chips a touch more; the line, the
+   buttons and the floors do not move. */
+@media (max-width: 380px) {
+  #infBar .idx, #infBar .water-chip { padding: 2px 5px; }
+}

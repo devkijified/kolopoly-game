@@ -214,11 +214,16 @@ function tileRect(i, L) {
 // columns (side tiles keep their width, near/far tiles gain breadth).
 // Tile local depth (lz) is 1.6 in every layout, so only local width (lx)
 // varies, and tile face textures are generated for the tile's own lx.
-function trackLayout(boxAspect) {
+function trackLayout(boxAspect, forceTall) {
   const camAspect = 1 / boxAspect;
-  const sinEl = camAspect < 1.2 ? 0.99862 : 0.95083; // fullDir depth factors: 87 or 71.9 degrees
+  // KP19: in a portrait window the layout ALWAYS takes the tall
+  // construction (near-plan factor, width fixed, depth from the box's
+  // own aspect), even when the stage box itself is squat: the board
+  // then fills its stage exactly at true proportions, the KP11 law at
+  // every portrait size. Landscape windows keep the two-branch rule.
+  const sinEl = (forceTall || camAspect < 1.2) ? 0.99862 : 0.95083; // fullDir depth factors: 87 or 71.9 degrees
   let TW, TD;
-  if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
+  if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
   else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
   const wm = (TW - 3.2) / 9, dm = (TD - 3.2) / 9;
   const colX = [], rowD = [];
@@ -226,8 +231,9 @@ function trackLayout(boxAspect) {
     colX.push(k === 0 || k === 10 ? 1.6 : wm);
     rowD.push(k === 0 || k === 10 ? 1.6 : dm);
   }
-  return { TW, TD, colX, rowD, boxAspect };
+  return { TW, TD, colX, rowD, boxAspect, tallForced: !!forceTall };
 }
+function portraitWindow() { return window.innerHeight >= window.innerWidth; }
 // Texture top (the colour band) always points toward the board centre, so a
 // name reads correctly from its own side of the table on all four edges.
 function tileRotY(i) { return i <= 9 ? 0 : i <= 19 ? -Math.PI / 2 : i <= 29 ? Math.PI : Math.PI / 2; }
@@ -1263,9 +1269,9 @@ class GameScene {
   // Geometry is rebuilt per tile (never scaled, so tokens, buildings and
   // faces keep true proportions); the centre floor and skyline follow.
   relayout(boxAspect) {
-    const L = trackLayout(boxAspect);
+    const L = trackLayout(boxAspect, !!this.tallLayout);
     const cur = this.layout;
-    if (cur && Math.abs(L.TD / L.TW - cur.TD / cur.TW) < 0.012 && Math.abs(L.TW - cur.TW) < 0.05) return false;
+    if (cur && cur.tallForced === L.tallForced && Math.abs(L.TD / L.TW - cur.TD / cur.TW) < 0.012 && Math.abs(L.TW - cur.TW) < 0.05) return false;
     this.layout = L;
     for (const t of this.tiles) {
       t.rect = tileRect(t.i, L);
@@ -1283,20 +1289,18 @@ class GameScene {
   maybeRelayout(boxAspect) {
     if (!boxAspect || !isFinite(boxAspect) || boxAspect < 0.2 || boxAspect > 5) return;
     if (!this.tiles || !this.tiles.length) return;
-    // KP18: a portrait WINDOW never takes the wide branch. On a short
-    // portrait viewport the stage box itself comes out squat (the game
-    // chrome below it eats the height), and feeding that squat aspect
-    // to trackLayout built a landscape board inside a portrait layout:
-    // squashed ring, oversized centre, the fixed-size centre furniture
-    // (skyline row, water plane) exposed by the stretched middle. Floor
-    // the effective aspect at 1 (square) whenever the window itself is
-    // portrait, so the layout builds square-or-taller and _applyCam
-    // fits it by height with void margins at the sides. Landscape
-    // windows keep the raw aspect, exactly as before.
-    const portraitWin = window.innerHeight >= window.innerWidth;
-    const effAspect = portraitWin ? Math.max(boxAspect, 1) : boxAspect;
-    this.layoutFloored = portraitWin && effAspect !== boxAspect;
-    this.relayout(effAspect);
+    // KP19: a portrait WINDOW always builds the tall construction,
+    // whatever the stage box's own aspect. KP18 floored the aspect at
+    // square and centred the board with void margins; the owner
+    // rejected the margins outright (the board must span its stage
+    // 100% x 100%, the KP11 law). So the raw stage aspect now goes
+    // through untouched, and trackLayout's tall formula derives the
+    // depth from that very aspect, paired with the near-plan camera
+    // direction (see update()): a squat stage gets a shallower board
+    // at true proportions that still binds both stage axes exactly.
+    // Landscape windows keep the two-branch rule exactly as before.
+    this.tallLayout = portraitWindow();
+    this.relayout(boxAspect);
   }
 
   buildCentre(s) {
@@ -1681,18 +1685,8 @@ class GameScene {
     const L = this.layout || trackLayout(1);
     const d = this.camDir;
     const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
-    let halfW = (L.TW / 2) * this.zoomK;
+    const halfW = (L.TW / 2) * this.zoomK;
     const halfH = (L.TD * f / 2) * this.zoomK;
-    // KP18: when the layout was floored to square in a portrait window
-    // (see maybeRelayout) but the canvas box is wider than the fitted
-    // frustum, fit by height and widen left and right symmetrically to
-    // the canvas aspect: the board sits centred at true proportions and
-    // the side margins show the scene's void colour (0x2a1a0e, the scene
-    // background). Unfloored layouts keep the exact fit-by-width framing
-    // they have always had; this branch never runs for them.
-    if (this.layoutFloored && cam.aspect && halfW / halfH < cam.aspect * 0.999) {
-      halfW = halfH * cam.aspect;
-    }
     cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
     cam.position.copy(d).multiplyScalar(30);
     cam.lookAt(0, 0, 0);
@@ -1864,7 +1858,13 @@ class GameScene {
       // board, steady. It never follows, zooms to, or chases a token:
       // token hops, the turn ring, landing flashes and the pot label
       // all play out on the board in plain sight.
-      wantDir = this.fullDir(this.camera.aspect || 1); wantZoom = 1;
+      // KP19: the direction pairs with the layout construction, not
+      // the raw canvas aspect: in a portrait window the layout is
+      // always the tall construction, so the near-plan direction is
+      // always the match, even on a squat stage whose canvas aspect
+      // alone would have picked the 72 degree direction and skewed
+      // the fit. Landscape windows keep the aspect pairing as before.
+      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1)); wantZoom = 1;
     }
     const kk = 1 - Math.exp(-dt * damp);
     this.camDir.lerp(wantDir, kk).normalize();
