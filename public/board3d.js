@@ -15,80 +15,169 @@ const $ = (id) => document.getElementById(id);
 const KP3D = { active: false };
 window.KP3D = KP3D;
 
+// KP14 sound beats: the renderers own the animation, so the renderers
+// call the beats. app.js maps each beat to its designed sound, which
+// is what keeps sound and picture in sync (the socket message arrives
+// before the dice have tumbled, the token has landed, the building
+// has grown). The beat timestamp rides along for the sync log.
+function beat(name, data) {
+  try { if (window.KPBeat) window.KPBeat(name, Object.assign({ t: performance.now() }, data || {})); } catch (e) { /* sound is garnish, never a blocker */ }
+}
+
 // ---------------------------------------------------------------------------
-// Quality tiers (KP13 sharpness round). The owner played the live build on
-// his real phone: the DOM was crisp, the board itself looked like "144p".
-// Root cause: the KP8 auto tier capped phones at Mid (pixel ratio 1.5,
-// textures at 0.75x) or Low (1.0 / 0.5x), so the canvas backing store and
-// the board textures were far below what a modern phone screen can show.
+// Best View (KP14): a capability engine replaces the KP13 Auto heuristic.
+// KP13 law stands (sharp by default, adapt only under real load, textures
+// never shrink); KP14 decides WHERE sharp starts from evidence, and
+// remembers what the phone proved.
 //
-// KP13 law: sharp by default, adapt only under real load.
-// - Auto is now a pseudo-tier of its own: it starts at pixel ratio
-//   min(devicePixelRatio, 2.5) with FULL texture resolution (tiles x1.2,
-//   centre x1.5 over the old logical painter space, sized to stay at
-//   least ~1.5x the largest on-screen footprint at DPR 3) and trims ONLY
-//   shadow cost on weak hardware. An FPS stepper (below, beside the
-//   render loop) may walk the pixel ratio down 2.5 -> 2 -> 1.75 -> 1.5
-//   when frames stay expensive, never below 1.5 on a DPR 2+ device,
-//   never touching textures, and it recovers upward when frames are
-//   cheap again. Manual tiers are never adapted.
-// - High = min(dpr, 3), Mid = min(dpr, 2), Low = 1.25 (a deliberate
-//   weak-device choice, never a silent default).
-// - Texture sizes are baked when a texture is first drawn, so a mid-game
-//   tier change re-tunes pixel ratio and shadows at once while textures
-//   keep their drawn size.
-// - One-time settings migration (below): a phone that ever stored a
-//   pre-KP13 tier pick keeps it forever otherwise, so stored picks are
-//   cleared exactly once and every existing phone lands on the sharp
-//   Auto; picks made after the migration persist as before.
-// - The tier owns pixels only, never game behaviour. A manual pick beats
-//   Auto: localStorage 'kolopolyTier' (high|mid|low), KP3D.setTier(), or
-//   the topbar spark button, which cycles Auto, High, Mid, Low.
+// - Boot probe: devicePixelRatio, the unmasked WebGL renderer string,
+//   hardwareConcurrency, deviceMemory, screen size and, where present,
+//   navigator.connection. detectProfile(sig) is a pure function of that
+//   probe, so tests can present whole device classes to it.
+// - Profiles: ULTRA (pixelRatio min(dpr,3), shadows 2048, anisotropy up
+//   to 16), HIGH (min(dpr,2.5), 1024), BALANCED (min(dpr,2), 512),
+//   LITE (min(dpr,1.5), no shadows, reduced textures and ambient life).
+//   Flagship signals (Apple GPU strings, recent Adreno/Mali flagships,
+//   8+ cores, 4GB+) land ULTRA; honest mid hardware HIGH or BALANCED;
+//   weak signals LITE. Software GL on a non-mobile UA (VMs, remote
+//   desktops) is capped low: a real phone never renders through
+//   SwiftShader, an emulator window very often does.
+// - Network strength is a SECONDARY signal only: this game's assets
+//   are generated locally and weigh almost nothing on the wire, so a
+//   slow link says nothing about what the GPU can draw. Save-data or a
+//   2g-class link therefore starts exactly one profile conservative,
+//   never more; it is a courtesy to the page load, not a quality cap.
+// - The KP13 FPS stepper remains as the safety net and GAINS MEMORY:
+//   a stepped-down pixel ratio that then holds stable is persisted as
+//   a learned ceiling (localStorage 'kolopolyViewLearn', versioned),
+//   so the next load STARTS at the proven level instead of hanging at
+//   a cap the phone already failed. After three stable sessions at the
+//   learned cap, one fresh session retries a single ladder step above
+//   it; if the retry holds, it becomes the learned cap; if it steps
+//   back down, the counter restarts. In-session recovery never climbs
+//   past the session's start cap: the only way up is the next session.
+// - Manual picks persist in 'kolopolyTier' (the KP13 migration key
+//   'kolopolyTierVer' stays at '2'; pre-KP14 values map forward at
+//   read: high -> ultra, mid -> balanced, low -> lite). The topbar
+//   button cycles Auto, Ultra, High, Balanced, Lite and LABELS the
+//   detection ("Graphics: Auto (Ultra)").
+// - The profile owns pixels only, never game behaviour.
 // ---------------------------------------------------------------------------
-const TIER_PARAMS = {
-  high: { dprCap: 3, shadowSize: 1024, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1500, ambientOff: 750 },
-  mid: { dprCap: 2, shadowSize: 512, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1200, ambientOff: 1000 },
-  low: { dprCap: 1.25, shadowSize: 0, texScale: 0.9, centreScale: 1.05, aniso: 2, ambientOn: 700, ambientOff: 1600 },
-  auto: { dprCap: 2.5, shadowSize: 1024, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1500, ambientOff: 750 }
+const PROFILE_PARAMS = {
+  ultra: { dprCap: 3, shadowSize: 2048, texScale: 1.2, centreScale: 1.5, aniso: 16, ambientOn: 1500, ambientOff: 750 },
+  high: { dprCap: 2.5, shadowSize: 1024, texScale: 1.2, centreScale: 1.5, aniso: 8, ambientOn: 1500, ambientOff: 750 },
+  balanced: { dprCap: 2, shadowSize: 512, texScale: 1.2, centreScale: 1.5, aniso: 4, ambientOn: 1200, ambientOff: 1000 },
+  lite: { dprCap: 1.5, shadowSize: 0, texScale: 0.9, centreScale: 1.05, aniso: 2, ambientOn: 700, ambientOff: 1600 }
 };
-let TIER = { name: 'auto', auto: true, ...TIER_PARAMS.auto };
+const PROFILE_ORDER = ['lite', 'balanced', 'high', 'ultra'];
+const PROFILE_LADDER = [3, 2.5, 2, 1.75, 1.5, 1.25, 1]; // pixel ratio steps, high to low
 let glRendererName = '';
-// KP13 one-time migration: clear any tier stored before the sharp
-// defaults existed, exactly once (versioned by 'kolopolyTierVer').
+// KP13 one-time migration, unchanged: clear any tier stored before the
+// sharp defaults existed, exactly once (versioned by 'kolopolyTierVer').
 try {
   if (localStorage.getItem('kolopolyTierVer') !== '2') {
     localStorage.removeItem('kolopolyTier');
     localStorage.setItem('kolopolyTierVer', '2');
   }
 } catch (e) { /* storage off: every load simply lands on Auto */ }
+const LEGACY_TIER = { high: 'ultra', mid: 'balanced', low: 'lite' };
 function tierOverride() {
-  try { const v = localStorage.getItem('kolopolyTier'); return (v === 'high' || v === 'mid' || v === 'low') ? v : null; } catch (e) { return null; }
+  try {
+    let v = localStorage.getItem('kolopolyTier');
+    if (v && LEGACY_TIER[v]) { try { localStorage.setItem('kolopolyTier', LEGACY_TIER[v]); } catch (e) { /* read-only storage */ } v = LEGACY_TIER[v]; }
+    return (v === 'ultra' || v === 'high' || v === 'balanced' || v === 'lite') ? v : null;
+  } catch (e) { return null; }
 }
-// Auto trims only shadow cost by hardware class; resolution stays sharp.
-function autoShadowSize(rendererStr) {
-  if (rendererStr && /swiftshader|llvmpipe|software rasterizer|paravirtual/i.test(rendererStr)) return 0;
-  const cores = navigator.hardwareConcurrency || 4;
-  const mem = navigator.deviceMemory || 0; // GB, Chromium only; 0 means unknown
-  if (cores <= 2 || (mem > 0 && mem <= 1)) return 512;
-  return 1024;
+function collectSignals() {
+  const nav = window.navigator || {};
+  const conn = nav.connection || {};
+  return {
+    dpr: window.devicePixelRatio || 1,
+    gl: glRendererName || '',
+    cores: nav.hardwareConcurrency || 0,
+    mem: nav.deviceMemory || 0, // GB, Chromium only; 0 means unknown
+    ua: nav.userAgent || '',
+    screen: { w: (window.screen && window.screen.width) || 0, h: (window.screen && window.screen.height) || 0 },
+    conn: { effectiveType: conn.effectiveType || '', downlink: conn.downlink || 0, saveData: !!conn.saveData }
+  };
+}
+// Pure profile detection: signals in, profile name out. Exposed as
+// KP3D.detectProfile so the browser suite can grade whole device
+// classes without a drawer full of phones.
+function detectProfile(sig) {
+  sig = sig || {};
+  const dpr = sig.dpr || 1, cores = sig.cores || 0, mem = sig.mem || 0;
+  const gl = String(sig.gl || '').toLowerCase(), ua = String(sig.ua || '').toLowerCase();
+  const conn = sig.conn || {};
+  let score = 0;
+  if (dpr >= 3) score += 2; else if (dpr >= 2) score += 1;
+  if (cores >= 8) score += 2; else if (cores >= 6) score += 1; else if (cores > 0 && cores <= 2) score -= 2;
+  if (mem >= 4) score += 1; else if (mem > 0 && mem <= 2) score -= 1;
+  if (/apple (gpu|a1\d)|angle \(apple|adreno.*(7[4-9]\d|8\d\d)|mali-g(710|715|720|725|925|930)|immortalis|xclipse/.test(gl)) score += 2;
+  if (/mali-[24]\d\d|mali-t[678]|adreno.*[23]\d\d|powervr sgx/.test(gl)) score -= 2;
+  if (/(iphone|ipad)/.test(ua) && dpr >= 2.5) score += 1;
+  if (/swiftshader|llvmpipe|software rasterizer|paravirtual/.test(gl) && !/(iphone|ipad|android|mobile)/.test(ua) && score > 1) score = 1;
+  let name = score >= 5 ? 'ultra' : score >= 2 ? 'high' : score >= 0 ? 'balanced' : 'lite';
+  if (cores > 0 && cores <= 2 && mem > 0 && mem <= 1.5) name = 'lite';
+  // Network: a secondary signal only (see the header note). Save-data
+  // or a 2g-class link starts exactly one profile conservative.
+  if (conn.saveData || conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') {
+    const ix = PROFILE_ORDER.indexOf(name);
+    if (ix > 0) name = PROFILE_ORDER[ix - 1];
+  }
+  return name;
+}
+let lastProbe = collectSignals();
+// The learned ceiling: the pixel ratio a previous session stepped down
+// to and then held. Versioned so the shape can evolve.
+let learned = null;
+try { const j = JSON.parse(localStorage.getItem('kolopolyViewLearn') || 'null'); if (j && j.v === 1 && typeof j.cap === 'number') learned = j; } catch (e) { learned = null; }
+function saveLearn(cap, ok) {
+  learned = { v: 1, cap, ok };
+  try { localStorage.setItem('kolopolyViewLearn', JSON.stringify(learned)); } catch (e) { /* storage off: session-only memory */ }
 }
 // Auto FPS stepper state (the stepper itself sits beside the render
 // loop). Declared here because applyTier resets it, and applyTier runs
 // once at module load.
-let autoPrCap = TIER_PARAMS.auto.dprCap, autoWinStart = 0, autoWinFrames = 0;
-let autoSlowWins = 0, autoFastWins = 0, autoGraceUntil = 0;
-// The pixel ratio cap actually in force: Auto adapts, manual tiers do not.
+let autoPrCap = PROFILE_PARAMS.high.dprCap, autoStartCap = PROFILE_PARAMS.high.dprCap, autoProfile = 'high';
+let autoWinStart = 0, autoWinFrames = 0;
+let autoSlowWins = 0, autoFastWins = 0, autoStableWins = 0, autoGraceUntil = 0;
+let learnSessionCounted = false;
+// The pixel ratio cap actually in force: Auto adapts, manual picks do not.
 function prCap() { return TIER.auto ? autoPrCap : TIER.dprCap; }
 function applyTier(name, auto) {
-  TIER = { name, auto: !!auto, ...(TIER_PARAMS[name] || TIER_PARAMS.auto) };
-  if (TIER.auto) TIER.shadowSize = autoShadowSize(glRendererName);
-  autoPrCap = TIER_PARAMS.auto.dprCap;
-  autoSlowWins = 0; autoFastWins = 0; autoWinStart = 0; autoWinFrames = 0;
+  if (auto) {
+    autoProfile = detectProfile(lastProbe);
+    TIER = { name: 'auto', auto: true, profile: autoProfile, ...PROFILE_PARAMS[autoProfile] };
+    const profCap = PROFILE_PARAMS[autoProfile].dprCap;
+    autoStartCap = profCap;
+    if (learned && learned.cap < profCap) {
+      autoStartCap = learned.cap;
+      if ((learned.ok || 0) >= 3) {
+        // one fresh-session retry: a single ladder step above the
+        // learned ceiling, never a leap back to the profile cap
+        const ups = PROFILE_LADDER.filter((v) => v > learned.cap + 0.001 && v <= profCap);
+        if (ups.length) autoStartCap = Math.min(...ups);
+      }
+    }
+    autoPrCap = autoStartCap;
+  } else {
+    TIER = { name, auto: false, profile: name, ...(PROFILE_PARAMS[name] || PROFILE_PARAMS.high) };
+    autoProfile = name;
+    autoStartCap = TIER.dprCap;
+    autoPrCap = TIER.dprCap;
+  }
+  autoSlowWins = 0; autoFastWins = 0; autoStableWins = 0; autoWinStart = 0; autoWinFrames = 0;
+  learnSessionCounted = false;
   autoGraceUntil = (typeof performance !== 'undefined' ? performance.now() : 0) + 6000;
   KP3D.tier = TIER.name;
   KP3D.tierAuto = TIER.auto;
+  KP3D.profile = TIER.profile;
 }
-applyTier(tierOverride() || 'auto', !tierOverride()); // Auto shadow size is refined with the GL renderer string in initGL
+let TIER = null;
+applyTier(tierOverride() || 'auto', !tierOverride()); // the profile is re-resolved with the GL renderer string in initGL
+KP3D.detectProfile = detectProfile;
+KP3D.probe = function () { return lastProbe; };
 
 // ---------------------------------------------------------------------------
 // Layout maths, mirrored from board.js (same grid, same slots)
@@ -497,6 +586,18 @@ function windowTexture(base, lit) {
   for (let r2 = 0; r2 < 9; r2++) for (let c2 = 0; c2 < 4; c2++) {
     x.fillStyle = Math.random() < lit ? '#ffe9a8' : 'rgba(20,28,38,0.55)';
     x.fillRect(10 + c2 * 29, 12 + r2 * 26, 19, 15);
+  }
+  return texOf(c);
+}
+// The landing skyline's facade: a finer window grid than the street
+// buildings use, because these towers are read at panorama distance
+// and the coarse 4x9 grid reads as toy blocks there.
+function skylineTexture(base, lit) {
+  const c = cnv(128, 256), x = c.getContext('2d');
+  x.fillStyle = base; x.fillRect(0, 0, 128, 256);
+  for (let r2 = 0; r2 < 16; r2++) for (let c2 = 0; c2 < 8; c2++) {
+    x.fillStyle = Math.random() < lit ? '#ffe9a8' : 'rgba(20,28,38,0.5)';
+    x.fillRect(6 + c2 * 15, 8 + r2 * 15, 9, 8);
   }
   return texOf(c);
 }
@@ -1070,6 +1171,7 @@ class GameScene {
     this.pulse.rotation.x = -Math.PI / 2; this.pulse.position.y = 0.25; s.add(this.pulse);
     this.pulseT = 1;
     this.diceAnim = null; this.cardAnim = null; this.deedAnim = null;
+    this.syncedOnce = false; // build beats stay silent until the scene has a baseline sync
     this.lastDiceKey = ''; this.lastCardSeq = -1; this.lastFeedSeq = -1;
     this.bankruptSeen = new Set();
     this.countdownZoom = 0;
@@ -1321,7 +1423,12 @@ class GameScene {
       // buildings
       const wantB = pr && pr.o != null ? pr.b : 0;
       if (wantB !== t.bSig) {
+        const prevB = t.bSig;
         t.bSig = wantB;
+        // a building born upward (not a layout rebuild, prevB -1, and
+        // not the scene's first sync) is a sound beat: it lands with
+        // the growth animation this sync just started
+        if (prevB >= 0 && wantB > prevB && this.syncedOnce) beat('build', { kind: wantB >= 5 ? 'mansion' : 'duplex', space: i });
         t.bld.clear();
         const sp = D.SPACES[i];
         if (wantB > 0 && sp.type === 'street') {
@@ -1368,6 +1475,8 @@ class GameScene {
           this.diceAnim.pTo[k] = this.diceRest[k].clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0, (Math.random() - 0.5) * 0.3));
         });
         this.diceAnim.t = 0;
+        this.diceAnim.values = state.dice.slice();
+        beat('diceStart', { values: state.dice.slice() });
         if (state.dice[0] === state.dice[1]) this.accentT = 1;
       }
     }
@@ -1392,6 +1501,7 @@ class GameScene {
     }
     this.syncTokens(state);
     this.syncTray(state);
+    this.syncedOnce = true;
     // phase relight targets
     const look = PHASE_LOOKS[state.inf ? state.inf.phase - 1 : 0];
     this.phaseTarget = { key: new THREE.Color(look.key), int: look.int, bg: new THREE.Color(look.bg) };
@@ -1425,6 +1535,8 @@ class GameScene {
         if (p.inJail || fwd > 12 || fwd === 0 || state.status !== 'playing') {
           o.pos = p.position;
           o.grp.position.copy(this.worldFor(p.position, slot));
+          // the Kirikiri teleport IS the door visual: the clang lands here
+          if (p.inJail) beat('jailIn', { playerId: p.id });
         } else {
           const path = [];
           let cur = from;
@@ -1480,6 +1592,7 @@ class GameScene {
     };
     this.flyCard.position.copy(this.cardAnim.from);
     this.flyCard.rotation.set(0, Math.PI, 0);
+    beat('cardLift', { deck });
   }
   resolveCard(card) {
     if (this.cardAnim && this.cardAnim.cardId === card.id && this.cardAnim.phase !== 'exit') {
@@ -1563,7 +1676,7 @@ class GameScene {
     // pot notes gentle shimmer
     this.potNotes.rotation.y = Math.sin(tNow * 0.4) * 0.05;
     // tokens: hops, idle bob, jail cell tilt
-    for (const o of this.tokens.values()) {
+    for (const [pid, o] of this.tokens) {
       if (o.anim) {
         const a = o.anim;
         a.t += dt;
@@ -1581,12 +1694,15 @@ class GameScene {
         o.grp.scale.setScalar((o.bankrupt ? 0.78 : 1) * 1.12);
         if (k >= 1) {
           a.cur = nextI; a.path.shift(); a.t = 0;
-          if (window.KPSfxHop) window.KPSfxHop();
+          beat('hop', { playerId: pid });
           o.pos = nextI;
           // The landing tile flashes its own band colour.
           this.pulse.material.color.set(bandColorHex(nextI, D.SPACES[nextI]));
           this.pulse.position.set(pos.x, 0.25, pos.z); this.pulseT = 0;
-          if (!a.path.length) { o.anim = null; o.inner.scale.y = 1; o.grp.scale.setScalar(o.bankrupt ? 0.78 : 1); }
+          if (!a.path.length) {
+            o.anim = null; o.inner.scale.y = 1; o.grp.scale.setScalar(o.bankrupt ? 0.78 : 1);
+            beat('land', { playerId: pid, space: nextI });
+          }
         }
       } else {
         o.inner.position.y = 0.045 + Math.sin(tNow * 1.7 + o.bob) * 0.012;
@@ -1631,7 +1747,11 @@ class GameScene {
         pos.y += Math.sin(k * Math.PI) * 0.5 + (1 - k) * 0.4;
         d.position.copy(pos);
       });
-      if (k >= 1) this.diceAnim = null;
+      if (k >= 1) {
+        const vals = a.values || [];
+        this.diceAnim = null;
+        beat('diceSettle', { doubles: vals.length === 2 && vals[0] === vals[1] });
+      }
     }
     // flying card
     if (this.cardAnim) {
@@ -1645,7 +1765,7 @@ class GameScene {
         card.position.y += Math.sin(k * Math.PI) * 0.35;
         card.rotation.y = Math.PI * (1 - e);
         card.rotation.x = -0.16 * e;
-        if (k >= 1) { a.phase = 'hold'; a.holdT = 0; }
+        if (k >= 1) { a.phase = 'hold'; a.holdT = 0; beat('cardReveal', { deck: a.deck }); }
       } else if (a.phase === 'hold') {
         a.holdT += dt;
         card.position.y = a.hover.y + Math.sin(tNow * 2.1) * 0.05;
@@ -1807,33 +1927,62 @@ class LandingScene {
   constructor() {
     const s = this.scene = new THREE.Scene();
     s.background = new THREE.Color(0x35200f);
-    s.fog = new THREE.Fog(0xf2b26b, 18, 46);
+    // Fog matches the backdrop colour, so the skyline melts into the dusk
+    // at its ends instead of tinting peach against the sky.
+    s.fog = new THREE.Fog(0x35200f, 13, 42);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
     this.camera.position.set(0, 3.1, 10.5);
     s.add(new THREE.HemisphereLight(0xffe6c0, 0x6a4a28, 0.95));
     const sun = new THREE.DirectionalLight(0xffc37a, 1.5); sun.position.set(-6, 9, 7); s.add(sun);
-    // sun disc
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(1.6, 28), new THREE.MeshBasicMaterial({ color: 0xffd98a, fog: false }));
-    disc.position.set(-7.5, 5.4, -16); s.add(disc);
+    // KP14 structure pass: the hero backdrop is a composed panorama, not
+    // scattered props. The old staging put a sun disc at x -7.5 (outside
+    // the portrait frustum, so only its edge ever showed, cropped), a
+    // bridge arc whose quadrant slashed diagonally across the frame,
+    // cloud blobs at uneven heights, and building blocks on two depths
+    // with no shared baseline. Owner verdict: rough. The restage:
+    // - a dusk gradient backdrop (canvas texture, no shapes) fills the
+    //   sky: deep brown up top warming to amber at the horizon line;
+    // - ONE skyline row on ONE baseline (every base at y 0 on z -8),
+    //   heights in a calm rhythm, warm palette only, so the portrait
+    //   window reads three to five towers behind the hero text;
+    // - the sun disc and the clouds are fully OUT, and the bridge arc
+    //   is gone: nothing is half-cropped by the canvas edge anywhere.
+    //   The join card occludes the street level by design, which is
+    //   composition, not cropping.
+    const skyC = cnv(64, 512), sg = skyC.getContext('2d');
+    const grad = sg.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, '#241305');
+    grad.addColorStop(0.45, '#3a2110');
+    grad.addColorStop(0.72, '#6e451a');
+    grad.addColorStop(0.82, '#8a5a24');
+    grad.addColorStop(0.9, '#4a2c12');
+    grad.addColorStop(1, '#2e1a0a');
+    sg.fillStyle = grad; sg.fillRect(0, 0, 64, 512);
+    const skyTex = new THREE.CanvasTexture(skyC);
+    skyTex.colorSpace = THREE.SRGBColorSpace;
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(120, 60), new THREE.MeshBasicMaterial({ map: skyTex, fog: false }));
+    sky.position.set(0, 10, -24); s.add(sky);
     // ground and road
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(70, 40), std(0x4a3626, 1));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; s.add(ground);
     const road = bx(46, 0.04, 3.1, std(0x2e2a26, 0.95), 0, 0.0, 2.6); road.castShadow = false; s.add(road);
     for (let k = -9; k <= 9; k++) { const dash = bx(1.1, 0.045, 0.14, std(0xf3e6c8, 0.8), k * 2.4, 0.005, 2.6); dash.castShadow = false; s.add(dash); }
-    // buildings both sides
-    const cols = [0x8a5a3b, 0x39594a, 0x51606e, 0xa8763e, 0x6e4a5a];
-    const spots = [[-11, -6.5, 3.4], [-7.6, -7.5, 4.6], [-4.2, -6.8, 2.8], [4.6, -7.2, 3.8], [8.2, -6.6, 2.6], [11.4, -7.4, 4.2], [-9.5, -3.4, 2.2], [9.8, -3.2, 2.4], [-13.5, -4.5, 5.0], [13.8, -4.8, 5.4]];
-    for (const [px2, pz, h] of spots) {
-      const mat = new THREE.MeshStandardMaterial({ map: windowTexture('#' + cols[Math.abs((px2 * 7) | 0) % 5].toString(16).padStart(6, '0'), 0.5), roughness: 0.9 });
-      s.add(bx(2.6, h, 2.2, mat, px2, h / 2, pz));
-    }
-    // bridge silhouette far north
-    const bMat = new THREE.MeshBasicMaterial({ color: 0x54382a });
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.22, 6, 40, Math.PI), bMat);
-    arc.position.set(0, 0.4, -13); s.add(arc);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(17, 0.3, 1.4), bMat); deck.position.set(0, 0.4, -13); s.add(deck);
-    // palms
-    for (const [px2, pz] of [[-5.5, 0.6], [5.8, 0.4], [-2.8, 5.6], [3.1, 5.8], [12.5, 1.2], [-12.8, 1.0]]) {
+    // the skyline: one row, one baseline, a calm height rhythm. It sits
+    // far enough back to read as a panorama behind the hero, in the
+    // warm dusk palette only (a saturated green tower at centre read
+    // as a toy block in the first restage frame).
+    const cols = [0x8a5a3b, 0x74522f, 0x9c6b35, 0x5d4a33, 0x6b4a2c, 0x7d5836];
+    const row = [
+      [-14.0, 2.6], [-11.5, 3.2], [-9.0, 2.8], [-6.5, 3.3], [-4.0, 2.7],
+      [-1.5, 3.1], [1.0, 2.8], [3.5, 3.3], [6.0, 2.6], [8.5, 3.1],
+      [11.0, 2.7], [13.5, 3.2]
+    ];
+    row.forEach(([px2, h], ix) => {
+      const mat = new THREE.MeshStandardMaterial({ map: skylineTexture('#' + cols[ix % cols.length].toString(16).padStart(6, '0'), 0.42), roughness: 0.95 });
+      s.add(bx(2.3, h, 2.0, mat, px2, h / 2, -13.5));
+    });
+    // palms flank the street, kept inside the panorama's edges
+    for (const [px2, pz] of [[-5.6, 0.6], [5.9, 0.4], [-3.1, 5.6], [3.4, 5.8]]) {
       const trunk = cyl(0.06, 0.09, 1.6, std(0x7a5a38, 1), px2, 0.8, pz, 8); s.add(trunk);
       for (let f = 0; f < 5; f++) {
         const frond = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.15, 6), std(0x3f7a3a, 0.9));
@@ -1841,15 +1990,6 @@ class LandingScene {
         frond.rotation.z = Math.cos(f * 1.26) * 1.15; frond.rotation.x = -Math.sin(f * 1.26) * 1.15;
         s.add(frond);
       }
-    }
-    // clouds
-    this.clouds = [];
-    for (let k = 0; k < 5; k++) {
-      const cl = new THREE.Group();
-      const cm = new THREE.MeshBasicMaterial({ color: 0xfff3dd, transparent: true, opacity: 0.85 });
-      for (let j = 0; j < 3; j++) { const puff = new THREE.Mesh(new THREE.SphereGeometry(0.7 + j * 0.25, 10, 8), cm); puff.scale.y = 0.45; puff.position.set(j * 0.9 - 0.8, 0, 0); cl.add(puff); }
-      cl.position.set(-14 + k * 7, 6.4 + (k % 2) * 0.9, -11 - (k % 3));
-      this.clouds.push(cl); s.add(cl);
     }
     // traffic: the danfo loop and a parked keke
     this.danfo = buildDanfo(1.25); this.danfo.position.set(-8, 0.03, 2.05); this.danfo.rotation.y = Math.PI / 2; s.add(this.danfo);
@@ -1866,8 +2006,9 @@ class LandingScene {
     let x = ((t * 1.55) % span) - span / 2;
     d.position.x = x;
     d.position.y = 0.03 + Math.abs(Math.sin(t * 9)) * 0.012;
-    for (const cl of this.clouds) { cl.position.x += dt * 0.14; if (cl.position.x > 17) cl.position.x = -17; }
-    this.camera.position.set(Math.sin(t * 0.07) * 2.3, 3.1 + Math.sin(t * 0.11) * 0.35, 10.5);
+    // The camera barely breathes now: a composed frame must stay
+    // composed, so the sway is a whisper, not a pan.
+    this.camera.position.set(Math.sin(t * 0.07) * 0.45, 3.1 + Math.sin(t * 0.11) * 0.14, 10.5);
     this.camera.lookAt(0, 1.15, -1.2);
   }
 }
@@ -2094,14 +2235,21 @@ function noteFrame(ts) {
   prevDrawTs = ts; statFrames += 1; statWinFrames += 1;
   if (ts - statWinStart >= 1000) { statFps = Math.round(statWinFrames * 1000 / Math.max(1, ts - statWinStart)); statWinFrames = 0; statWinStart = ts; }
 }
-// KP13 Auto FPS stepper: the only runtime adaptation, and Auto only.
-// It watches busy windows (frames actually drawn, counted in the loop)
-// in ~2s slices: two consecutive slow windows (under 24fps against the
-// ~30fps draw cap) step the pixel ratio down the ladder, three
-// consecutive fast ones (29fps+) step it back up. Floor: 1.5 on devices
+// Auto FPS stepper (KP13, memory added in KP14): the only runtime
+// adaptation, and Auto only. It watches busy windows (frames actually
+// drawn, counted in the loop) in ~2s slices: two consecutive slow
+// windows (under 24fps against the ~30fps draw cap) step the pixel
+// ratio down the ladder, three consecutive fast ones (29fps+) step it
+// back up, but never past the session's start cap (the profile cap,
+// or the learned ceiling where one exists). Floor: 1.5 on devices
 // whose DPR is 2+, else 1. It never touches texture resolution, and it
 // rests for 6s after boot, a scene switch or a tier change.
-const AUTO_LADDER = [2.5, 2, 1.75, 1.5];
+// Memory: three consecutive non-slow windows prove the current level.
+// If the session stepped down to reach it, that level is learned
+// (retry counter reset). If the session started at a retry above the
+// learned ceiling and holds its start cap, the higher cap is learned.
+// If it started exactly at the learned ceiling, the stable-session
+// counter grows toward the next retry.
 function applyAutoPr() {
   if (!renderer) return;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, autoPrCap));
@@ -2113,21 +2261,28 @@ function autoAdapt(ts) {
   if (ts - autoWinStart < 2000) return;
   const fps = autoWinFrames * 1000 / Math.max(1, ts - autoWinStart);
   autoWinStart = ts; autoWinFrames = 0;
-  if (ts < autoGraceUntil) { autoSlowWins = 0; autoFastWins = 0; return; }
+  if (ts < autoGraceUntil) { autoSlowWins = 0; autoFastWins = 0; autoStableWins = 0; return; }
   const dpr = window.devicePixelRatio || 1;
   const floor = dpr >= 2 ? 1.5 : 1;
+  if (fps >= 24) autoStableWins += 1; else autoStableWins = 0;
+  if (autoStableWins >= 3 && !learnSessionCounted) {
+    learnSessionCounted = true;
+    if (autoPrCap < autoStartCap - 0.001) saveLearn(autoPrCap, 0);
+    else if (learned && autoStartCap > learned.cap + 0.001) saveLearn(autoStartCap, 1);
+    else if (learned && Math.abs(autoStartCap - learned.cap) < 0.001) saveLearn(learned.cap, (learned.ok || 0) + 1);
+  }
   if (fps < 24) {
     autoFastWins = 0; autoSlowWins += 1;
     if (autoSlowWins >= 2) {
       autoSlowWins = 0;
-      const downs = AUTO_LADDER.filter((v) => v < autoPrCap - 0.001 && v >= floor);
-      if (downs.length) { autoPrCap = Math.max(...downs); applyAutoPr(); }
+      const downs = PROFILE_LADDER.filter((v) => v < autoPrCap - 0.001 && v >= floor);
+      if (downs.length) { autoPrCap = Math.max(...downs); autoStableWins = 0; applyAutoPr(); }
     }
   } else if (fps >= 29) {
     autoSlowWins = 0; autoFastWins += 1;
     if (autoFastWins >= 3) {
       autoFastWins = 0;
-      const ups = AUTO_LADDER.filter((v) => v > autoPrCap + 0.001 && v <= TIER.dprCap);
+      const ups = PROFILE_LADDER.filter((v) => v > autoPrCap + 0.001 && v <= autoStartCap);
       if (ups.length) { autoPrCap = Math.min(...ups); applyAutoPr(); }
     }
   } else { autoSlowWins = 0; autoFastWins = 0; }
@@ -2277,7 +2432,7 @@ function applyTierToRenderer() {
 }
 KP3D.setTier = function (name) {
   if (name === 'auto') { try { localStorage.removeItem('kolopolyTier'); } catch (e) {} applyTier('auto', true); }
-  else if (TIER_PARAMS[name]) { try { localStorage.setItem('kolopolyTier', name); } catch (e) {} applyTier(name, false); }
+  else if (PROFILE_PARAMS[name]) { try { localStorage.setItem('kolopolyTier', name); } catch (e) {} applyTier(name, false); }
   applyTierToRenderer();
   return TIER.name;
 };
@@ -2299,6 +2454,10 @@ function initGL() {
     const dbgExt = renderer.getContext().getExtension('WEBGL_debug_renderer_info');
     if (dbgExt) glRendererName = String(renderer.getContext().getParameter(dbgExt.UNMASKED_RENDERER_WEBGL) || '');
   } catch (e) { /* a masked renderer string is fine, the other signals carry the pick */ }
+  // the probe is complete only now that the GL renderer string is
+  // known: re-resolve the Auto profile with it before any scene is
+  // built, so shadow and texture budgets come from the full evidence
+  lastProbe = collectSignals();
   if (!tierOverride()) applyTier('auto', true);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, prCap()));
   renderer.shadowMap.enabled = TIER.shadowSize > 0;
@@ -2360,6 +2519,12 @@ function initGL() {
       aniso: { max: maxAniso(), tile: tileMap ? tileMap.anisotropy : 0, centre: centreMap ? centreMap.anisotropy : 0 },
       mipmaps: tileMap ? { generate: tileMap.generateMipmaps, minFilter: tileMap.minFilter } : null,
       autoPrCap,
+      // KP14 Best View probe: the resolved profile, the session start
+      // cap, the learned ceiling on file, and the raw signals the
+      // profile was decided from
+      profile: TIER.profile, startCap: autoStartCap,
+      learned: learned ? { cap: learned.cap, ok: learned.ok || 0 } : null,
+      probe: lastProbe,
       frames: statFrames, fps: statFps,
       deedVisible: g.deedCard.visible,
       deedY: Math.round(g.deedCard.position.y * 100) / 100,
@@ -2383,23 +2548,27 @@ function initGL() {
   // height without a window resize on some phones: refit from the viewport
   if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { fitCanvas(false); motion(0.5); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastTs = 0; motion(0.8); } });
-  // graphics quality button beside the mute button: cycles Auto, High, Mid, Low
+  // graphics quality button beside the mute button: cycles Auto,
+  // Ultra, High, Balanced, Lite, and labels the detection while Auto
+  // is in force ("Graphics: Auto (Ultra)"), so the player can see
+  // what Best View decided for their phone
   const tierBtn = $('tierBtn');
   if (tierBtn) {
     tierBtn.classList.remove('hidden');
-    const tierLabel = () => (TIER.auto ? 'Auto' : TIER.name);
+    const capName = (n) => n.charAt(0).toUpperCase() + n.slice(1);
+    const tierLabel = () => (TIER.auto ? 'Auto (' + capName(TIER.profile) + ')' : capName(TIER.name));
     const paintTierBtn = () => {
       tierBtn.innerHTML = window.icon ? window.icon('spark', 20) : 'Q';
-      tierBtn.title = 'Graphics quality: ' + tierLabel();
+      tierBtn.title = 'Graphics: ' + tierLabel();
       tierBtn.setAttribute('aria-label', 'Graphics quality: ' + tierLabel() + '. Tap to change.');
     };
     paintTierBtn();
     tierBtn.addEventListener('click', () => {
-      const order = ['auto', 'high', 'mid', 'low'];
+      const order = ['auto', 'ultra', 'high', 'balanced', 'lite'];
       const cur = TIER.auto ? 'auto' : TIER.name;
       KP3D.setTier(order[(order.indexOf(cur) + 1) % order.length]);
       paintTierBtn();
-      if (typeof window.toast === 'function') window.toast('Graphics quality: ' + tierLabel(), 2600);
+      if (typeof window.toast === 'function') window.toast('Graphics: ' + tierLabel(), 2600);
     });
   }
   setScene('landing');

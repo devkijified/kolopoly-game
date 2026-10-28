@@ -124,15 +124,40 @@ function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern)
 let audioCtx = null;
 let busMain = null;    // important sounds: alerts, siren, gavel, horns
 let busAmbient = null; // quiet texture: hop ticks, auction ticks; ducked by important sounds
+let master = null;     // KP14: one mastering chain for every bus
 let noiseBuf = null;
-let muted = localStorage.getItem('kolopolyMute') === '1';
+// KP14 part 1: ONE audio control with three states. 1 = sound + voice,
+// 2 = sound only, 3 = all off. Persisted as kolopolyAudio; the legacy
+// pair (kolopolyMute / kolopolyVoice) migrates on first read, mute
+// winning over voice-off. Voice folds into this button: there is no
+// separate voice button anymore.
+let audioState = (() => {
+  try {
+    const v = Number(localStorage.getItem('kolopolyAudio'));
+    if (v === 1 || v === 2 || v === 3) return v;
+    if (localStorage.getItem('kolopolyMute') === '1') return 3;
+    if (localStorage.getItem('kolopolyVoice') === '0') return 2;
+  } catch (e) { }
+  return 1;
+})();
+let muted = audioState === 3;
+let voiceOn = audioState === 1;
+window.__kolopolyAudio = () => ({ state: audioState, muted, voiceOn });
 function audio() {
   if (muted) return null;
   try {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      busMain = audioCtx.createGain(); busMain.gain.value = 0.9; busMain.connect(audioCtx.destination);
-      busAmbient = audioCtx.createGain(); busAmbient.gain.value = 0.8; busAmbient.connect(audioCtx.destination);
+      // KP14 mastering: gentle compressor into a soft highpass, so
+      // layered hits stay round and never clip harsh. The highpass sits
+      // at 55Hz on purpose: gavel and stamp fundamentals live at 60-90Hz.
+      master = audioCtx.createGain(); master.gain.value = 0.95;
+      const comp = audioCtx.createDynamicsCompressor();
+      comp.threshold.value = -18; comp.ratio.value = 3; comp.attack.value = 0.003; comp.release.value = 0.24;
+      const hp = audioCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 55;
+      master.connect(comp); comp.connect(hp); hp.connect(audioCtx.destination);
+      busMain = audioCtx.createGain(); busMain.gain.value = 0.9; busMain.connect(master);
+      busAmbient = audioCtx.createGain(); busAmbient.gain.value = 0.8; busAmbient.connect(master);
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
@@ -181,35 +206,137 @@ function noiseHit(o) {
   src.connect(f); f.connect(g); g.connect(o.ambient ? busAmbient : busMain);
   src.start(t); src.stop(t + o.dur + 0.05);
 }
+// ---------------------------------------------------------------------------
+// KP14 sound redesign: a designed synth library, zero audio files. Every
+// event is built from its referent and fired from its ANIMATION BEAT via
+// window.KPBeat (or an alert/state hook), never from the raw socket
+// message. window.__kpSfxLog records { event, scheduledAt, beatT, beat }
+// so the suite can prove sync without ears; the owner's ear is the
+// final judge. logSfx is a no-op in audio state 3, so the log never
+// claims a sound that stayed silent.
+// ---------------------------------------------------------------------------
+window.__kpSfxLog = [];
+function logSfx(event, beatT, beat) {
+  if (muted) return;
+  window.__kpSfxLog.push({ event, scheduledAt: performance.now(), beatT: beatT != null ? beatT : performance.now(), beat: beat || 'ui' });
+  if (window.__kpSfxLog.length > 300) window.__kpSfxLog.splice(0, window.__kpSfxLog.length - 300);
+}
+window.KPSfxEvents = ['diceStart', 'diceSettle', 'hop', 'land', 'credit', 'debit', 'buy', 'buildDuplex', 'buildMansion', 'stamp', 'siren', 'clang', 'cardSwish', 'cardSnap', 'auctionTick', 'gavel', 'phaseLetter', 'newsSting', 'phaseToll', 'turnRise', 'cheer', 'chime', 'tap'];
+const jr = (amt) => 1 + (Math.random() * 2 - 1) * amt; // per-play pitch/timing jitter
+function coinTick(at, freq, vol) {
+  // One coin strike: two detuned sine partials plus a bandpassed click.
+  tone({ f: freq * jr(0.02), at, dur: 0.07, vol });
+  tone({ f: freq * 1.34 * jr(0.02), at, dur: 0.05, vol: vol * 0.6 });
+  noiseHit({ at, dur: 0.02, vol: vol * 0.5, freq: 4300 + Math.random() * 2300, q: 2.5 });
+}
+function coinCascade(amount, durMs) {
+  // Money in: metallic drips that accelerate, then settle. The drip
+  // count scales with the amount and the run lasts as long as the
+  // alert count-up, so the last coin lands as the number settles.
+  const n = Math.max(7, Math.min(22, 6 + Math.round(Math.log10((amount || 0) / 1000 + 1) * 6)));
+  const total = Math.max(0.25, Math.min(1.6, (durMs || 900) / 1000));
+  let t = 0;
+  for (let i = 0; i < n; i++) {
+    const k = n === 1 ? 1 : i / (n - 1);
+    coinTick(t, 5600 - 1300 * k, 0.05 + 0.02 * Math.random());
+    t += (total / n) * (1.25 - 0.8 * k) * jr(0.15);
+  }
+  for (let s = 0; s < 3; s++) coinTick(t + s * 0.09, 4200, 0.028); // settling ticks
+}
+function coinPour() {
+  // Money out: shorter, lower pour, with a soft thud under it.
+  const n = 5 + Math.floor(Math.random() * 5);
+  for (let i = 0; i < n; i++) coinTick(i * 0.055 * jr(0.2), 3400 - 1000 * (i / n), 0.048);
+  tone({ f: 150, f2: 80, at: n * 0.055, dur: 0.16, vol: 0.075 });
+}
+function knockSfx(at, vol) {
+  const v = vol || 0.07;
+  noiseHit({ at: at || 0, dur: 0.05, vol: v, freq: 480, ftype: 'lowpass' });
+  tone({ f: 210, at: at || 0, dur: 0.06, type: 'triangle', vol: v * 0.8 });
+}
+function paperSlide(at, dur) { noiseHit({ at: at || 0, dur: dur || 0.22, vol: 0.04, freq: 850, freq2: 2400, q: 1.1 }); }
 const sfx = {
-  // Credit success (Lesson 9): a brighter three note chime, rising and
-  // unmistakably money arriving. Synthesized here, our own notes, no samples.
-  credit() { duckAmbient(); tone({ f: 1047, dur: 0.11, vol: 0.10 }); tone({ f: 1319, at: 0.08, dur: 0.13, vol: 0.10 }); tone({ f: 1568, at: 0.16, dur: 0.30, vol: 0.11 }); tone({ f: 2093, at: 0.16, dur: 0.12, vol: 0.026 }); },
-  // Calm low thud, no celebration.
-  debit() { tone({ f: 170, f2: 92, dur: 0.2, vol: 0.12 }); noiseHit({ dur: 0.08, vol: 0.03, freq: 300, ftype: 'lowpass' }); },
-  dice() { [0, 0.055, 0.12].forEach((at, i) => noiseHit({ at, dur: 0.035, vol: 0.045, freq: 1500 + i * 350, q: 1.4 })); tone({ f: 210, at: 0.12, dur: 0.07, type: 'triangle', vol: 0.05 }); },
-  hop() { tone({ f: 1250, dur: 0.03, type: 'square', vol: 0.011, ambient: true }); },
-  buy() { tone({ f: 1319, dur: 0.09, type: 'triangle', vol: 0.09 }); tone({ f: 1760, at: 0.07, dur: 0.17, type: 'triangle', vol: 0.09 }); noiseHit({ at: 0.02, dur: 0.05, vol: 0.02, freq: 3200, q: 2 }); },
-  gavel() { duckAmbient(); tone({ f: 190, f2: 90, dur: 0.1, type: 'triangle', vol: 0.14 }); noiseHit({ dur: 0.05, vol: 0.06, freq: 900, ftype: 'lowpass' }); tone({ f: 190, f2: 90, at: 0.13, dur: 0.1, type: 'triangle', vol: 0.1 }); },
-  auctionTick() { tone({ f: 1560, dur: 0.03, type: 'square', vol: 0.018, ambient: true }); },
-  swish() { noiseHit({ dur: 0.28, vol: 0.05, freq: 750, freq2: 2600, q: 1.1 }); },
-  build() { [0, 0.13, 0.26].forEach((at) => { noiseHit({ at, dur: 0.05, vol: 0.07, freq: 500, ftype: 'lowpass' }); tone({ f: 240, at, dur: 0.06, type: 'triangle', vol: 0.06 }); }); },
-  stamp() { tone({ f: 130, f2: 60, dur: 0.16, vol: 0.14 }); noiseHit({ dur: 0.07, vol: 0.06, freq: 420, ftype: 'lowpass' }); },
-  // Police siren first (the owner's order), then the cell clang.
-  siren() { duckAmbient(); for (let i = 0; i < 7; i++) tone({ f: i % 2 ? 720 : 960, at: i * 0.17, dur: 0.17, type: 'triangle', vol: 0.05 }); this.clang(1.26); },
-  clang(at) { tone({ f: 1400, at: at || 0, dur: 0.3, type: 'square', vol: 0.032 }); tone({ f: 220, at: (at || 0) + 0.02, dur: 0.4, type: 'triangle', vol: 0.08 }); },
+  credit(amount, durMs) { duckAmbient(); coinCascade(amount || 0, durMs); },
+  debit() { coinPour(); },
+  diceStart() { for (let i = 0; i < 7; i++) noiseHit({ at: i * 0.12 * jr(0.25), dur: 0.03, vol: 0.04 * (1 - i / 8), freq: 1700 + Math.random() * 900, q: 1.6, ambient: true }); },
+  diceSettle(doubles) { knockSfx(0, 0.06); knockSfx(0.09, 0.05); if (doubles) sfx.horn(); },
+  hop() { noiseHit({ dur: 0.03, vol: 0.028, freq: 700, ftype: 'lowpass', ambient: true }); tone({ f: 300, dur: 0.04, vol: 0.02, ambient: true }); },
+  land() { knockSfx(0, 0.075); },
+  buy() { for (let i = 0; i < 6; i++) coinTick(i * 0.06, 5200 - i * 150, 0.05); paperSlide(0.05, 0.25); },
+  buildDuplex() { knockSfx(0, 0.08); knockSfx(0.13, 0.08); for (let i = 0; i < 3; i++) coinTick(0.26 + i * 0.06, 5000, 0.045); },
+  buildMansion() { coinCascade(500000, 700); [523, 659, 784].forEach((f, i) => tone({ f, at: 0.1 + i * 0.09, dur: 0.3, type: 'triangle', vol: 0.045 })); },
+  build(kind) { if (kind === 'mansion') sfx.buildMansion(); else sfx.buildDuplex(); },
+  stamp() { paperSlide(0, 0.1); tone({ f: 130, f2: 60, at: 0.05, dur: 0.16, vol: 0.13 }); noiseHit({ at: 0.05, dur: 0.07, vol: 0.05, freq: 420, ftype: 'lowpass' }); },
+  // The siren alone; the cell clang is its own beat, retimed to the
+  // door visual (KP13 baked it into the siren at a fixed offset).
+  siren() { duckAmbient(); for (let i = 0; i < 7; i++) tone({ f: i % 2 ? 720 : 960, at: i * 0.17, dur: 0.17, type: 'triangle', vol: 0.05 }); },
+  clang(at) { tone({ f: 1400, at: at || 0, dur: 0.3, type: 'square', vol: 0.03 }); tone({ f: 220, at: (at || 0) + 0.02, dur: 0.4, type: 'triangle', vol: 0.075 }); },
   // Up NEPA: crowd murmur swell under the bright return notes.
   chime() { noiseHit({ dur: 0.9, vol: 0.04, freq: 480, ftype: 'lowpass', attack: 0.3 }); tone({ f: 880, at: 0.05, dur: 0.14, vol: 0.07 }); tone({ f: 1174, at: 0.16, dur: 0.2, vol: 0.07 }); },
-  horn() { tone({ f: 185, dur: 0.16, type: 'sawtooth', vol: 0.06 }); tone({ f: 185, at: 0.22, dur: 0.2, type: 'sawtooth', vol: 0.06 }); },
+  horn() { tone({ f: 185, dur: 0.16, type: 'sawtooth', vol: 0.055 }); tone({ f: 185, at: 0.22, dur: 0.2, type: 'sawtooth', vol: 0.055 }); },
   cheer() { noiseHit({ dur: 1.1, vol: 0.045, freq: 900, freq2: 1400, q: 0.6, attack: 0.25 }); tone({ f: 659, at: 0.1, dur: 0.12, vol: 0.05 }); tone({ f: 784, at: 0.22, dur: 0.12, vol: 0.05 }); tone({ f: 988, at: 0.34, dur: 0.22, vol: 0.05 }); },
-  phaseLetter() { tone({ f: 180, f2: 90, dur: 0.09, type: 'triangle', vol: 0.1 }); noiseHit({ at: 0.05, dur: 0.25, vol: 0.04, freq: 900, freq2: 2200 }); },
-  newsSting() { duckAmbient(); [523, 659, 784].forEach((f, i) => tone({ f, at: i * 0.09, dur: 0.16, type: 'sawtooth', vol: 0.04 })); noiseHit({ at: 0.27, dur: 0.2, vol: 0.04, freq: 2400, q: 1.5 }); },
-  phase() { tone({ f: 392, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 523, at: 0.13, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 659, at: 0.26, dur: 0.24, type: 'triangle', vol: 0.09 }); }
+  cardSwish() { paperSlide(0, 0.26); },
+  cardSnap() { noiseHit({ dur: 0.04, vol: 0.05, freq: 2100, q: 2 }); tone({ f: 340, dur: 0.05, type: 'triangle', vol: 0.04 }); },
+  swish() { paperSlide(0, 0.26); },
+  auctionTick() { tone({ f: 1500, dur: 0.035, vol: 0.02, ambient: true }); },
+  gavel() { duckAmbient(); knockSfx(0, 0.13); knockSfx(0.13, 0.1); },
+  phaseLetter() { paperSlide(0, 0.3); tone({ f: 130, f2: 62, at: 0.22, dur: 0.15, vol: 0.12 }); },
+  newsSting() { duckAmbient(); [523, 659, 784].forEach((f, i) => tone({ f, at: i * 0.09, dur: 0.15, type: 'triangle', vol: 0.04 })); noiseHit({ at: 0.27, dur: 0.18, vol: 0.035, freq: 2400, q: 1.5 }); },
+  phaseToll() { tone({ f: 196, dur: 0.7, vol: 0.08 }); tone({ f: 147, at: 0.4, dur: 0.9, vol: 0.07 }); },
+  phase() { tone({ f: 392, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 523, at: 0.13, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 659, at: 0.26, dur: 0.24, type: 'triangle', vol: 0.09 }); },
+  turnRise() { tone({ f: 660, dur: 0.1, vol: 0.045 }); tone({ f: 880, at: 0.09, dur: 0.16, vol: 0.045 }); },
+  tap() { tone({ f: 1900, dur: 0.02, vol: 0.012, ambient: true }); }
+};
+// Beat dispatch: renderers call KPBeat at the animation moment and the
+// matching sound is scheduled and logged against that beat.
+window.KPBeat = (name, data) => {
+  const d = data || {};
+  logSfx(name, d.t, d.beat || 'render');
+  try {
+    if (name === 'diceStart') sfx.diceStart();
+    else if (name === 'diceSettle') { sfx.diceSettle(!!d.doubles); buzz(12); }
+    else if (name === 'hop') sfx.hop();
+    else if (name === 'land') sfx.land();
+    else if (name === 'build') sfx.build(d.kind);
+    else if (name === 'jailIn') { logSfx('siren', d.t, d.beat || 'render'); logSfx('clang', d.t, d.beat || 'render'); sfx.siren(); sfx.clang(1.26); buzz([70, 50, 70]); }
+    else if (name === 'cardLift') sfx.cardSwish();
+    else if (name === 'cardReveal') sfx.cardSnap();
+  } catch (e) { /* sound is garnish, never a blocker */ }
 };
 window.KPSfxHop = () => sfx.hop();
-function renderMuteBtn() { $('muteBtn').innerHTML = window.icon(muted ? 'mute' : 'sound', 20); }
-$('muteBtn').addEventListener('click', () => { muted = !muted; localStorage.setItem('kolopolyMute', muted ? '1' : '0'); renderMuteBtn(); if (!muted) sfx.credit(); });
+function renderMuteBtn() {
+  const b = $('muteBtn');
+  b.innerHTML = window.icon(audioState === 1 ? 'soundVoice' : audioState === 2 ? 'sound' : 'mute', 20);
+  const label = audioState === 1 ? 'Sound and voice on' : audioState === 2 ? 'Sound on, voice off' : 'Sound off';
+  b.setAttribute('aria-label', label);
+  b.title = label + '. Tap to change.';
+}
+$('muteBtn').addEventListener('click', () => {
+  audioState = audioState % 3 + 1;
+  muted = audioState === 3;
+  voiceOn = audioState === 1;
+  try { localStorage.setItem('kolopolyAudio', String(audioState)); } catch (e) { }
+  renderMuteBtn();
+  if (audioState !== 3) { logSfx('credit', null, 'ui'); sfx.credit(25000, 450); }
+});
 renderMuteBtn();
+// KP14 part 1: the Share button in the freed header slot carries the
+// owner's invitation copy: the room form inside a room, the game form
+// on the landing.
+function sharePayload() {
+  if (state && state.code && myCode) {
+    return { title: 'Kolopoly', text: 'Join me to play Kolopoly. Room ' + state.code + ' dey wait for you. Break your kolo, buy the street.', url: inviteLink() };
+  }
+  return { title: 'Kolopoly', text: 'Come and play Kolopoly. Break your kolo, buy the street.', url: location.origin + '/' };
+}
+async function shareGame() {
+  const data = sharePayload();
+  if (navigator.share) { try { await navigator.share(data); } catch (e) { /* user closed the sheet */ } return; }
+  try { await navigator.clipboard.writeText(data.text + '\n' + data.url); toast('Invite link copied'); }
+  catch (e) { toast(data.text + ' ' + data.url, 6000); }
+}
+$('shareBtn').innerHTML = window.icon('share', 20);
+$('shareBtn').addEventListener('click', shareGame);
 
 // Voice payment alerts (Lesson 9): when a credit lands for THIS player, the
 // phone announces it out loud in our own words: "Payment received, {amount}"
@@ -217,22 +344,10 @@ renderMuteBtn();
 // every player can switch it off (or mute) on their own phone. A newer
 // credit supersedes a speaking one. Where the browser blocks speech before
 // a user gesture it fails silently and the chime carries the moment.
-let voiceOn = true;
-try { voiceOn = localStorage.getItem('kolopolyVoice') !== '0'; } catch (e) { voiceOn = true; }
-function renderVoiceBtn() {
-  const b = $('voiceBtn');
-  if (!b) return;
-  b.innerHTML = window.icon(voiceOn ? 'voice' : 'voiceOff', 20);
-  b.style.opacity = voiceOn ? '1' : '0.55';
-  b.title = voiceOn ? 'Voice payment alerts: on' : 'Voice payment alerts: off';
-}
-$('voiceBtn').addEventListener('click', () => {
-  voiceOn = !voiceOn;
-  try { localStorage.setItem('kolopolyVoice', voiceOn ? '1' : '0'); } catch (e) { }
-  renderVoiceBtn();
-  toast(voiceOn ? 'Voice alerts on: your phone go announce payments wey land for you.' : 'Voice alerts off for this phone.');
-});
-renderVoiceBtn();
+// KP14: voiceOn is no longer a separate control. It is derived from
+// the one three-state audio control (voice lives only in state 1), so
+// the spoken alert obeys the same button as every other sound. The
+// room-level voiceAlerts setting still gates it, as before.
 function speakCredit(line) {
   try {
     if (!voiceOn || muted) return;
@@ -278,8 +393,8 @@ function dismissToast() {
 $('toast').addEventListener('click', dismissToast);
 const alertQueue = [];
 let alertBusy = false;
-function queueAlert(kind, amount, text, balanceAfter) {
-  alertQueue.push({ kind, amount, text, balanceAfter });
+function queueAlert(kind, amount, text, balanceAfter, voiceLine) {
+  alertQueue.push({ kind, amount, text, balanceAfter, voiceLine: voiceLine || null });
   if (alertQueue.length > 3) alertQueue.splice(0, alertQueue.length - 3);
   pumpAlerts();
 }
@@ -300,8 +415,27 @@ function pumpAlerts() {
     '<div class="why">' + esc(a.text) + '</div>' +
     (a.balanceAfter != null ? '<div class="bal">Balance: ' + fmtN(a.balanceAfter) + '</div>' : '');
   $('alerts').appendChild(el);
-  if (isCredit) sfx.credit(); else sfx.debit();
+  // KP14: the amount counts up while the coins sound. The cascade runs
+  // exactly the count-up's length, so the last coin lands as the number
+  // settles; the spoken line (state 1 only) waits for the cascade tail
+  // and never collides with the coins.
+  const durMs = isCredit ? 900 : 600;
+  logSfx(isCredit ? 'credit' : 'debit', performance.now(), 'alert');
+  if (isCredit) sfx.credit(a.amount, durMs); else sfx.debit();
   if (isCredit && a.amount >= 750000) buzz(90); // the biggest hits only
+  const amtEl = el.querySelector('.amt');
+  const t0 = performance.now();
+  const countUp = (now) => {
+    // A frame timestamp can precede t0 by a hair; clamp so the amount
+    // never flashes a phantom sign mid-count.
+    const k = Math.max(0, Math.min(1, (now - t0) / durMs));
+    const eased = 1 - Math.pow(1 - k, 3);
+    amtEl.textContent = (isCredit ? '+' : '-') + fmtN(Math.round(a.amount * eased));
+    if (k < 1) requestAnimationFrame(countUp);
+    else amtEl.textContent = (isCredit ? '+' : '-') + fmtN(a.amount);
+  };
+  requestAnimationFrame(countUp);
+  if (a.voiceLine) setTimeout(() => speakCredit(a.voiceLine), durMs + 120);
   const hold = isCredit ? 3200 : 2600; // alerts dwell ~2.8s; credits a beat longer, OPay style
   setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); alertBusy = false; pumpAlerts(); }, 260); }, hold);
 }
@@ -346,6 +480,9 @@ function connect() {
       rejoinPending = true;
       ws.send(JSON.stringify({ type: 'rejoin', code: seat.code, playerId: seat.playerId, token: seat.token, spectator: seat.spectator }));
     }
+    // KP14 audit: with no seat to resume, any entry intent queued while
+    // the socket was down flushes now (see send()).
+    if (!rejoinPending) flushQueue();
   };
   ws.onmessage = (ev) => {
     let msg;
@@ -399,11 +536,22 @@ function connect() {
 function flushQueue() {
   while (sendQueue.length && ws && ws.readyState === 1) {
     const m = sendQueue.shift();
+    // KP14 audit: a queued entry intent is stale the moment a seat is
+    // live; dropping it beats joining a second room by accident.
+    if (sessionLive && ENTRY_TYPES.has(m.type)) continue;
     ws.send(JSON.stringify(Object.assign({ type: m.type }, m.obj || {})));
   }
 }
+// KP14 audit: entry clicks made before the socket finished connecting
+// were silently lost (the handlers had already latched entrySent, so
+// the room never happened and no retry was possible). Entry intents
+// now queue exactly once while the socket is down and flush on open.
+const ENTRY_TYPES = new Set(['create_room', 'quick_join', 'join_room']);
 function send(type, obj) {
-  if (!ws || ws.readyState !== 1) return;
+  if (!ws || ws.readyState !== 1) {
+    if (ENTRY_TYPES.has(type) && !sendQueue.some((m) => ENTRY_TYPES.has(m.type))) sendQueue.push({ type, obj });
+    return;
+  }
   // While a rejoin is in flight the socket is open but unbound: queue the
   // intent instead of firing it at a session that has no room yet.
   if (!sessionLive && hasSeat && type !== 'rejoin') {
@@ -427,9 +575,10 @@ try {
 // Entry: name, tokens, mode pickers, invite
 // ---------------------------------------------------------------------------
 function buildTokenPickers() {
-  $('heroTokens').innerHTML = window.KP_DATA.TOKENS.map((t) => '<span title="' + esc(t.name) + '">' + window.tokenArt(t.id, 38) + '</span>').join('');
+  // KP14 re-engineer: the hero token-rain strip is gone (decoration
+  // competing with the determiner); tokens live in this compact strip.
   $('tokenGrid').innerHTML = window.KP_DATA.TOKENS.map((t) =>
-    '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + '" data-token="' + t.id + '">' + window.tokenArt(t.id, 44) + '<span>' + esc(t.name) + '</span></button>').join('');
+    '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + '" data-token="' + t.id + '">' + window.tokenArt(t.id, 30) + '<span>' + esc(t.name) + '</span></button>').join('');
   $('tokenGrid').querySelectorAll('[data-token]').forEach((b) => b.addEventListener('click', () => {
     selectedToken = b.dataset.token;
     try { localStorage.setItem('kolopolyToken', selectedToken); } catch (e) { }
@@ -437,9 +586,41 @@ function buildTokenPickers() {
   }));
 }
 buildTokenPickers();
+// KP14 re-engineer: host fine-tuning (preset, room type, house rules)
+// lives behind ONE collapsed Room settings disclosure. Every control
+// keeps its id and default; create reads them exactly as before, so a
+// room created without ever opening the disclosure is unchanged.
+$('settingsToggle').addEventListener('click', () => {
+  const open = $('roomSettings').classList.toggle('hidden') === false;
+  $('settingsToggle').setAttribute('aria-expanded', String(open));
+  $('settingsToggle').classList.toggle('open', open);
+});
 $('nameIn').value = localStorage.getItem('kolopolyName') || '';
 $('nameIn').addEventListener('change', () => localStorage.setItem('kolopolyName', $('nameIn').value.trim()));
 paintGameMode();
+// KP14 audit: the welcome card promises "Your token and settings dey
+// as you leave am", but the create options reset on every load. They
+// persist now, as one set beside the name, token, mode and audio keys.
+const OPT_IDS = ['optTimed', 'optDoubleStart', 'optNoRentJail', 'optFirstLap', 'optChaos', 'optVoice', 'optTimer', 'presetSel'];
+try {
+  const savedOpts = JSON.parse(localStorage.getItem('kolopolyCreateOpts') || 'null');
+  if (savedOpts) for (const id of OPT_IDS) {
+    const el = $(id);
+    if (!el || savedOpts[id] === undefined) continue;
+    if (el.type === 'checkbox') el.checked = !!savedOpts[id];
+    else if ([...el.options].some((o) => o.value === String(savedOpts[id]))) el.value = String(savedOpts[id]);
+  }
+} catch (e) { }
+for (const id of OPT_IDS) {
+  const el = $(id);
+  if (el) el.addEventListener('change', () => {
+    try {
+      const out = {};
+      for (const k of OPT_IDS) { const x = $(k); if (x) out[k] = x.type === 'checkbox' ? x.checked : x.value; }
+      localStorage.setItem('kolopolyCreateOpts', JSON.stringify(out));
+    } catch (e) { }
+  });
+}
 $('gameModeRow').querySelectorAll('[data-gmode]').forEach((b) => b.addEventListener('click', () => {
   selectedGameMode = b.dataset.gmode;
   try { localStorage.setItem('kolopolyGameMode', selectedGameMode); } catch (e) { }
@@ -602,7 +783,11 @@ function onState(room) {
   state = room;
   const meNow = room.players.find((p) => p.id === myId);
   if (meNow && meNow.token) { try { localStorage.setItem('kolopolyToken', meNow.token); } catch (e) { } }
-  if (prev && prev.auction && !room.auction && room.status === 'playing') sfx.gavel();
+  if (prev && prev.auction && !room.auction && room.status === 'playing') { logSfx('gavel', null, 'state'); sfx.gavel(); }
+  // KP14: a fresh high bid ticks softly; the turn arriving at THIS seat
+  // gets the two-note rise. Both are render beats of this state push.
+  if (prev && prev.auction && room.auction && room.auction.highBid !== prev.auction.highBid) { logSfx('auctionTick', null, 'state'); sfx.auctionTick(); }
+  if (prev && room.status === 'playing' && prev.turnPlayerId !== room.turnPlayerId && room.turnPlayerId === actingId()) { logSfx('turnRise', null, 'turnRender'); sfx.turnRise(); }
   if (!prev || prev.status !== room.status) {
     if (room.status === 'lobby') showView('view-lobby');
     else if (room.status === 'countdown' || room.status === 'playing' || room.status === 'ended') {
@@ -643,23 +828,34 @@ function processFeed(room, prev) {
   for (const e of feed) {
     if (e.seq <= lastFeedSeq) continue;
     lastFeedSeq = e.seq;
-    if ((e.kind === 'credit' || e.kind === 'debit') && focusIds.includes(e.playerId)) {
-      const p = room.players.find((x) => x.id === e.playerId);
-      queueAlert(e.kind, e.amount, e.text, p ? p.cash : null);
-    }
     // Spoken credit announcement, receiver's phone only (Lesson 9). Debits
     // never speak. Rent names the payer; salary and the pot stay unnamed.
+    // KP14: the line is computed here but SPOKEN by the alert pump, after
+    // the coin cascade tail, so voice and coins never collide.
+    let voiceLine = null;
     if (e.kind === 'credit' && room.mode !== 'pass' && e.playerId === myId) {
       const amt = String(Math.round(e.amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      let line = 'Payment received, ' + amt + ' naira';
+      voiceLine = 'Payment received, ' + amt + ' naira';
       const other = e.otherId != null ? room.players.find((x) => x.id === e.otherId) : null;
-      if (other && e.spaceName) line += ' from ' + other.name;
-      speakCredit(line + '.');
+      if (other && e.spaceName) voiceLine += ' from ' + other.name;
+      voiceLine += '.';
     }
-    if (e.kind === 'kirikiri') { sfx.siren(); buzz([70, 50, 70]); }
+    if ((e.kind === 'credit' || e.kind === 'debit') && focusIds.includes(e.playerId)) {
+      const p = room.players.find((x) => x.id === e.playerId);
+      queueAlert(e.kind, e.amount, e.text, p ? p.cash : null, voiceLine);
+    }
+    // A purchase sounds when the deed lands in the feed, not on the
+    // button tap (a tap can be refused; the feed cannot lie). The
+    // mansion-build deed entry carries no amount and stays silent here:
+    // its sound is the build beat.
+    if (e.kind === 'deed' && e.amount != null && focusIds.includes(e.playerId)) { logSfx('buy', null, 'feed'); sfx.buy(); }
+    // Kirikiri: the siren and clang ride the jailIn animation beat now
+    // (retimed to the door visual); the feed keeps the buzz only.
+    if (e.kind === 'kirikiri') { buzz([70, 50, 70]); }
     if (e.kind === 'timeout') toast(esc((e.auto ? '(auto) ' : '') + e.text), 5200);
     if (e.kind === 'jackpot' && e.amount >= 100000) {
       spray();
+      logSfx('cheer', null, 'feed');
       sfx.cheer();
       buzz(120);
       const winner = room.players.find((x) => x.id === e.playerId);
@@ -680,10 +876,12 @@ function processFeed(room, prev) {
       }
     }
     if (e.kind === 'phase') {
-      // Phase 2 arrives as the landlord's letter (knock + paper), Phase 3
-      // breaks like a news sting, the rest keep the rising tones.
-      if (room.inf && room.inf.phase === 2) sfx.phaseLetter();
-      else if (room.inf && room.inf.phase === 3) sfx.newsSting();
+      // Phase 2 arrives as the landlord's letter (paper + stamp thud),
+      // Phase 3 breaks like a news sting, Phase 4 tolls low, the rest
+      // keep the rising tones.
+      if (room.inf && room.inf.phase === 2) { logSfx('phaseLetter', null, 'feed'); sfx.phaseLetter(); }
+      else if (room.inf && room.inf.phase === 3) { logSfx('newsSting', null, 'feed'); sfx.newsSting(); }
+      else if (room.inf && room.inf.phase === 4) { logSfx('phaseToll', null, 'feed'); sfx.phaseToll(); }
       else sfx.phase();
       showPhaseCeremony(room, e);
     }
@@ -693,10 +891,9 @@ function processFeed(room, prev) {
     const drawer = room.lastCard.playerId;
     if (room.mode === 'pass' || drawer === myId) showCardModal(room.lastCard);
   }
-  if (room.dice && prev && room.dice !== prev.dice && room.status === 'playing') {
-    sfx.dice();
-    if (room.dice[0] === room.dice[1]) sfx.horn();
-  }
+  // KP14: dice sounds no longer fire on socket time. The tumble and the
+  // settle are animation beats (diceStart / diceSettle) in the board
+  // renderers, and the doubles horn moved into diceSettle with them.
 }
 function processPositions(room) {
   for (const p of room.players) {
@@ -762,6 +959,13 @@ let qrForCode = null;
 function inviteLink() { return location.origin + '/?join=' + state.code; }
 function renderLobby(room) {
   $('lobbyCode').textContent = room.code;
+  // KP14 audit: a pass-and-play room can never be joined (join_room
+  // refuses it and /api/room answers exists:false), so its code hero,
+  // caption and invite machinery hide. The code is decoration there.
+  const passRoom = room.mode === 'pass';
+  for (const id of ['lobbyCodeCap', 'lobbyCodeHero']) { const el = $(id); if (el) el.classList.toggle('hidden', passRoom); }
+  document.querySelectorAll('.invite-actions').forEach((el) => el.classList.toggle('hidden', passRoom));
+  const qrEl = $('inviteQr'); if (qrEl) qrEl.classList.toggle('hidden', passRoom);
   const modeLine = room.settings.gameMode === 'inflation'
     ? 'Inflation Mode · ' + ({ quick: 'Quick Bite', standard: 'Standard', fullnight: 'Full Night' }[room.settings.preset] || 'Standard') + ' preset'
     : 'Classic Mode';
@@ -826,9 +1030,11 @@ $('copyInviteBtn').addEventListener('click', async () => {
   catch { toast('Copy no work. The link na: ' + inviteLink(), 6000); }
 });
 $('shareInviteBtn').addEventListener('click', async () => {
-  const data = { title: 'KOLOPOLY', text: 'Join my Kolopoly room ' + state.code + '. Lagos property wahala, bring your A game.', url: inviteLink() };
+  // KP14 audit: the lobby Share button speaks the owner's approved
+  // invitation copy, same as the header Share button in a room.
+  const data = { title: 'Kolopoly', text: 'Join me to play Kolopoly. Room ' + state.code + ' dey wait for you. Break your kolo, buy the street.', url: inviteLink() };
   if (navigator.share) { try { await navigator.share(data); } catch { /* user closed */ } }
-  else { try { await navigator.clipboard.writeText(inviteLink()); toast('Invite link copied.'); } catch { toast(inviteLink(), 6000); } }
+  else { try { await navigator.clipboard.writeText(data.text + '\n' + data.url); toast('Invite link copied.'); } catch { toast(data.text + ' ' + data.url, 6000); } }
 });
 $('addLocalBtn').addEventListener('click', () => {
   const name = $('localNameIn').value.trim();
@@ -881,11 +1087,13 @@ function wireSheetButtons(root, viewer) {
     const space = Number(b.dataset.space);
     const as = state.mode === 'pass' ? viewer : undefined;
     const sendAct = (type, obj) => { const o = Object.assign({}, obj || {}); if (as != null) o.as = as; send(type, o); };
-    if (b.dataset.act === 'build-duplex') { sfx.build(); sendAct('build', { space, kind: 'duplex' }); }
-    if (b.dataset.act === 'build-mansion') { sfx.build(); sendAct('build', { space, kind: 'mansion' }); }
+    // KP14: build clicks stay silent. A click sound would lie when the
+    // server refuses; the build beat sounds when the building lands.
+    if (b.dataset.act === 'build-duplex') { sendAct('build', { space, kind: 'duplex' }); }
+    if (b.dataset.act === 'build-mansion') { sendAct('build', { space, kind: 'mansion' }); }
     if (b.dataset.act === 'sell-building') sendAct('sell_building', { space });
-    if (b.dataset.act === 'mortgage') { sfx.stamp(); sendAct('mortgage', { space }); }
-    if (b.dataset.act === 'unmortgage') { sfx.stamp(); sendAct('unmortgage', { space }); }
+    if (b.dataset.act === 'mortgage') { logSfx('stamp', null, 'ui'); sfx.stamp(); sendAct('mortgage', { space }); }
+    if (b.dataset.act === 'unmortgage') { logSfx('stamp', null, 'ui'); sfx.stamp(); sendAct('unmortgage', { space }); }
     setTimeout(() => root.closest('.scrim').classList.remove('show'), 120);
   }));
 }
@@ -1101,7 +1309,7 @@ function renderActionBar(room) {
   wire('abJailPay', () => sendAs('jail_pay', {}));
   wire('abJailCard', () => sendAs('jail_card', {}));
   wire('abJailRoll', () => sendAs('jail_roll', {}));
-  wire('abBuy', () => { sfx.buy(); sendAs('buy', {}); });
+  wire('abBuy', () => { sendAs('buy', {}); }); // KP14: the buy sound fires on the deed feed entry, not the tap
   wire('abDecline', () => sendAs('decline', {}));
   wire('abTaxFlat', () => sendAs('tax_choice', { choice: 'flat' }));
   wire('abTaxPct', () => sendAs('tax_choice', { choice: 'percent' }));
@@ -1297,7 +1505,13 @@ const CARD_FX_LABELS = {
   goojf: 'Keep the card', shield: 'Keep the shield'
 };
 function showCardModal(card) {
-  sfx.swish();
+  // KP14: with the 3D board live, the card lift and reveal beats own
+  // the sound (cardSwish at the lift, cardSnap at the flip). This 2D
+  // fallback keeps a swish and a snap of its own.
+  if (!(window.KP3D && window.KP3D.active)) {
+    logSfx('cardSwish', null, 'render2d'); sfx.cardSwish();
+    setTimeout(() => { logSfx('cardSnap', null, 'render2d'); sfx.cardSnap(); }, 130);
+  }
   const m = $('cardModal');
   const deckData = card.deck === 'wahala' ? window.KP_DATA.WAHALA : window.KP_DATA.FAMILY;
   const found = deckData.find((c) => c.id === card.id);
@@ -1687,9 +1901,11 @@ window.__kpBeeps = 0;
 const beepSeen = {};
 function beepTick(secsLeft, final) {
   window.__kpBeeps += 1;
-  if (final) { tone({ f: 1760, dur: 0.09, vol: 0.07 }); tone({ f: 1760, at: 0.13, dur: 0.15, vol: 0.07 }); }
-  else if (secsLeft <= 3) tone({ f: 1560, dur: 0.06, type: 'square', vol: 0.05 });
-  else tone({ f: 1240, dur: 0.04, type: 'square', vol: 0.022 });
+  // KP14: soft sine pips, no square buzz. The final second gets two
+  // brighter pings.
+  if (final) { tone({ f: 1560, dur: 0.08, vol: 0.06 }); tone({ f: 1560, at: 0.12, dur: 0.13, vol: 0.06 }); }
+  else if (secsLeft <= 3) tone({ f: 1420, dur: 0.055, vol: 0.042 });
+  else tone({ f: 1180, dur: 0.04, vol: 0.02 });
 }
 function pulseDeadline(endsAt) {
   document.querySelectorAll('[data-deadline]').forEach((el) => {
@@ -1771,5 +1987,19 @@ setInterval(() => {
     pe.textContent = 'Waiting don reach ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + '.';
   }
 }, 500);
+
+// KP14: UI taps are a faint tick, delegated on pointerdown so the tick
+// lands with the press, not the release. Buttons that carry their own
+// beats (actions, bids, the audio and graphics controls, anything in
+// the action bar or auction panel) are skipped.
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('.ubtn, .btn, [data-close], #shareBtn') : null;
+  if (!b || b.disabled) return;
+  if (b.hasAttribute('data-act') || b.hasAttribute('data-bid')) return;
+  if (b.id === 'muteBtn' || b.id === 'tierBtn') return;
+  if (b.closest('#actionBar') || b.closest('#auctionSlot')) return;
+  logSfx('tap', null, 'ui');
+  sfx.tap();
+}, true);
 
 connect();

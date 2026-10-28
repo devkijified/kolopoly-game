@@ -8,8 +8,13 @@ const KP_ICON_PATHS = {
   swap: '<path d="M4 7h13M13.5 3.5L17 7l-3.5 3.5M20 17H7M10.5 13.5L7 17l3.5 3.5"/>',
   crown: '<path d="M3 18.5h18M4 18.5L2.8 8.5l5.2 3.4L12 5l4 6.9 5.2-3.4L20 18.5"/>',
   sound: '<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.4 7.4 0 0 1 0 10.4"/>',
-  voice: '<path d="M4 5.8A1.8 1.8 0 0 1 5.8 4h12.4A1.8 1.8 0 0 1 20 5.8v7.4a1.8 1.8 0 0 1-1.8 1.8H13l-4.2 3.8v-3.8H5.8A1.8 1.8 0 0 1 4 13.2V5.8z"/><path d="M8.2 8.6v2.8M12 7.4v5.2M15.8 8.6v2.8"/>',
-  voiceOff: '<path d="M4 5.8A1.8 1.8 0 0 1 5.8 4h12.4A1.8 1.8 0 0 1 20 5.8v7.4a1.8 1.8 0 0 1-1.8 1.8H13l-4.2 3.8v-3.8H5.8A1.8 1.8 0 0 1 4 13.2V5.8z"/><path d="M8.2 8.6v2.8M12 7.4v5.2M15.8 8.6v2.8"/><path d="M3.5 3.5l17 17"/>',
+  // KP14 WS-C: state 1 of the one audio button (sound + voice on) is the
+  // speaker and its wave wearing a small mic badge, so the three states
+  // read apart at 20px: badged speaker (sound + voice), plain speaker
+  // (sound alone), crossed speaker (all off). There is no voice button
+  // and no speech-bubble glyph for voice anymore: the messages bubble
+  // belongs to Gist alone.
+  soundVoice: '<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4z"/><path d="M15.2 10a2.6 2.6 0 0 1 0 4"/><circle cx="18.1" cy="18.1" r="3.9" fill="#fffaf0" stroke-width="1.3"/><rect x="17.15" y="15.6" width="1.9" height="3.1" rx="0.95" fill="currentColor" stroke="none"/><path d="M16.35 17.9a1.75 1.75 0 0 0 3.5 0" stroke-width="1"/>',
   mute: '<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>',
   share: '<circle cx="6" cy="12" r="2.6"/><circle cx="17.5" cy="5.5" r="2.6"/><circle cx="17.5" cy="18.5" r="2.6"/><path d="M8.3 10.8l6.9-4M8.3 13.2l6.9 4"/>',

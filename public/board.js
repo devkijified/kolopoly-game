@@ -8,6 +8,17 @@
 // that visibly grows, 3D styled dice and tokens drawn as objects.
 const D = window.KP_DATA;
 
+// KP14 sound beats, 2D renderer edition. In GL mode the 3D layer owns
+// the beats (this DOM board still animates invisibly as the click
+// grid, and a doubled tick per hop was the old bug); in 2D mode these
+// are the animation's own beats.
+function beat2d(name, data) {
+  try {
+    if (window.KP3D && window.KP3D.active) return;
+    if (window.KPBeat) window.KPBeat(name, Object.assign({ t: performance.now() }, data || {}));
+  } catch (e) { /* sound is garnish */ }
+}
+
 const COLW = [1.6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.6];
 const TOTALW = COLW.reduce((a, b) => a + b, 0);
 function gridPos(i) {
@@ -247,6 +258,9 @@ const KPBoard = {
           centerDice.classList.remove('tumble');
           void centerDice.offsetWidth;
           centerDice.classList.add('tumble');
+          beat2d('diceStart', { values: state.dice.slice() });
+          const dbl = state.dice[0] === state.dice[1];
+          setTimeout(() => beat2d('diceSettle', { doubles: dbl }), 570); // the CSS tumble runs 0.5s, second die 0.07s behind
         }
       }
     }
@@ -316,6 +330,7 @@ const KPBoard = {
     if (p.inJail || fwd > 12 || fwd === 0) {
       this.displayedPos[p.id] = to;
       this.placeToken(el, p, to, slotCount);
+      if (p.inJail) beat2d('jailIn', { playerId: p.id });
       return;
     }
     this.animating = true;
@@ -331,9 +346,9 @@ const KPBoard = {
         void inner.offsetWidth;
         inner.classList.add('hop');
       }
-      if (window.KPSfxHop) window.KPSfxHop();
+      beat2d('hop', { playerId: p.id });
       if (cur !== to) setTimeout(step, 230);
-      else { this.animating = false; if (this.lastState) this.renderTokens(this.lastState); }
+      else { this.animating = false; beat2d('land', { playerId: p.id, space: to }); if (this.lastState) this.renderTokens(this.lastState); }
     };
     setTimeout(step, 60);
   },

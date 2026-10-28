@@ -18,8 +18,8 @@
   <span class="chip hidden" id="roomChip"></span>
   <span class="chip hidden" id="modePill"></span>
   <button class="iconbtn hidden" id="tierBtn" aria-label="Graphics quality"></button>
-  <button class="iconbtn" id="voiceBtn" aria-label="Voice payment alerts on or off"></button>
-  <button class="iconbtn" id="muteBtn" aria-label="Sound on or off"></button>
+  <button class="iconbtn" id="shareBtn" aria-label="Share or invite"></button>
+  <button class="iconbtn" id="muteBtn" aria-label="Sound and voice on"></button>
 </header>
 
 <!-- ============================ LANDING ============================ -->
@@ -30,8 +30,8 @@
       <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
     </div>
     <h1 class="display">KOLOPOLY</h1>
-    <p class="tagline lead">Buy Lagos street by street. Dodge Kirikiri.<br>Catch the Owambe pot before your money finish.</p>
-    <div class="token-rain" id="heroTokens"></div>
+    <p class="tagline lead"><span class="tl">Buy Lagos street by street. Dodge Kirikiri.</span><span class="tl">Catch the Owambe pot before your money finish.</span></p>
+    <p class="hero-slogan">Break your kolo, buy the street.</p>
   </div>
 
   <div class="banner" id="inviteBanner">
@@ -66,8 +66,17 @@
     <label for="nameIn">Your display name</label>
     <input class="textin" id="nameIn" maxlength="20" placeholder="e.g. Adaeze" autocomplete="name">
 
-    <label>Pick your token</label>
-    <div class="token-grid" id="tokenGrid"></div>
+    <label for="codeIn">Join with a code</label>
+    <div class="join-row">
+      <input class="textin" id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text" spellcheck="false" enterkeyhint="go">
+      <button class="btn" id="joinBtn">Join</button>
+    </div>
+
+    <div class="play-actions">
+      <button class="btn dark block" id="quickBtn">Quick play</button>
+      <p class="caption center mt8">Public room, timed. First come, first seated.</p>
+      <button class="btn block mt8" id="createBtn">Create room</button>
+    </div>
 
     <label>Game mode</label>
     <div class="mode-row" id="gameModeRow">
@@ -82,65 +91,71 @@
         <span class="d">The faithful game. Salary ₦200,000, printed rents, no loans, no immunity.</span>
       </button>
     </div>
-    <div id="presetRow">
-      <label for="presetSel">Inflation preset</label>
-      <select class="textin" id="presetSel">
-        <option value="quick">Quick Bite: 25 to 30 min (8/6/10)</option>
-        <option value="standard" selected>Standard: 55 to 60 min (15/12/20)</option>
-        <option value="fullnight">Full Night: owner table (45/30/open)</option>
-      </select>
-      <p class="caption mt8">Phase 1 salary ₦200,000, Phase 2 ₦100,000, Phase 3 ₦50,000, Sudden Death ₦25,000. Rent multiplies by your dice from Phase 2. Passage rights and collateral loans open as registered contracts.</p>
-    </div>
 
-    <label>Room type</label>
-    <div class="mode-row" id="roomModeRow">
-      <button type="button" class="mode-pick sel" data-rmode="online">
-        <span class="t">Online room</span>
-        <span class="d">Friends join with a 4 letter code from their own phones.</span>
-      </button>
-      <button type="button" class="mode-pick" data-rmode="pass">
-        <span class="t">This phone</span>
-        <span class="d">Pass and play: everybody shares this one phone.</span>
-      </button>
-    </div>
+    <label>Pick your token</label>
+    <div class="token-grid" id="tokenGrid"></div>
 
-    <div id="hostOptions">
-      <label>House rules for your room</label>
-      <div class="toggle-row"><div class="grow"><div class="t">Timed game, 60 minutes</div><div class="caption">At the horn, richest net worth wins. Inflation Mode runs on its own phase clock instead.</div></div><label class="switch"><input type="checkbox" id="optTimed" checked><span class="track"></span></label></div>
-      <div class="toggle-row"><div class="grow"><div class="t">Double salary on exact START landing</div><div class="caption">Off by default. Inflation Mode no dey allow am at all.</div></div><label class="switch"><input type="checkbox" id="optDoubleStart"><span class="track"></span></label></div>
-      <div class="toggle-row"><div class="grow"><div class="t">No rent while owner dey Kirikiri</div><div class="caption">Off by default: rent still flows to players inside.</div></div><label class="switch"><input type="checkbox" id="optNoRentJail"><span class="track"></span></label></div>
-      <div class="toggle-row"><div class="grow"><div class="t">First lap, no buying</div><div class="caption">Off by default: everybody must complete one lap before any purchase.</div></div><label class="switch"><input type="checkbox" id="optFirstLap"><span class="track"></span></label></div>
-      <div class="toggle-row"><div class="grow"><div class="t">Nepo / Lapo Chaos seats</div><div class="caption">Off by default, never for quick play. One seat starts rich with a free deed, one seat starts poor with first rent forgiven.</div></div><label class="switch"><input type="checkbox" id="optChaos"><span class="track"></span></label></div>
-      <div class="toggle-row"><div class="grow"><div class="t">Voice alert for payments received</div><div class="caption">On by default. When money land for a player, their phone announces am out loud: Payment received, plus the exact amount. Every player fit switch voice off for their own phone.</div></div><label class="switch"><input type="checkbox" id="optVoice" checked><span class="track"></span></label></div>
-      <label for="optTimer">Turn decision timer</label>
-      <select class="textin" id="optTimer">
-        <option value="60" selected>60 seconds (default)</option>
-        <option value="30">30 seconds, sharp sharp</option>
-        <option value="120">120 seconds, relaxed</option>
-        <option value="0">No timer</option>
-      </select>
-    </div>
+    <button type="button" class="settings-toggle" id="settingsToggle" aria-expanded="false" aria-controls="roomSettings">
+      <span class="st-name">Room settings</span>
+      <span class="st-hint">Preset, room type, house rules</span>
+      <span class="st-chev" aria-hidden="true"></span>
+    </button>
+    <div id="roomSettings" class="hidden">
+      <div id="presetRow">
+        <label for="presetSel">Inflation preset</label>
+        <select class="textin" id="presetSel">
+          <option value="quick">Quick Bite: 25 to 30 min (8/6/10)</option>
+          <option value="standard" selected>Standard: 55 to 60 min (15/12/20)</option>
+          <option value="fullnight">Full Night: owner table (45/30/open)</option>
+        </select>
+        <div class="phase-chips" aria-label="Salary by phase">
+          <span class="phase-chip"><span class="pc-k">Phase 1</span><span class="pc-v">₦200,000</span></span>
+          <span class="phase-chip"><span class="pc-k">Phase 2</span><span class="pc-v">₦100,000</span></span>
+          <span class="phase-chip"><span class="pc-k">Phase 3</span><span class="pc-v">₦50,000</span></span>
+          <span class="phase-chip"><span class="pc-k">Sudden Death</span><span class="pc-v">₦25,000</span></span>
+        </div>
+        <p class="caption preset-note">Rent multiplies by your dice from Phase 2.</p>
+        <p class="caption preset-note2">Passage rights and collateral loans run as registered contracts.</p>
+      </div>
 
-    <div class="mt14">
-      <button class="btn block" id="createBtn">Create room</button>
-    </div>
-    <div class="divider">or</div>
-    <button class="btn dark block" id="quickBtn">Quick play</button>
-    <p class="caption center mt8">Public room, timed. First come, first seated.</p>
-    <div class="divider">or join with a code</div>
-    <div class="join-row">
-      <input class="textin" id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off">
-      <button class="btn ghost" id="joinBtn">Join</button>
+      <label>Room type</label>
+      <div class="mode-row" id="roomModeRow">
+        <button type="button" class="mode-pick sel" data-rmode="online">
+          <span class="t">Online room</span>
+          <span class="d">Friends join with a 4 letter code from their own phones.</span>
+        </button>
+        <button type="button" class="mode-pick" data-rmode="pass">
+          <span class="t">This phone</span>
+          <span class="d">Pass and play: everybody shares this one phone.</span>
+        </button>
+      </div>
+
+      <div id="hostOptions">
+        <label>House rules for your room</label>
+        <div class="toggle-row"><div class="grow"><div class="t">Timed game, 60 minutes</div><div class="caption">At the horn, richest net worth wins. Inflation Mode runs on its own phase clock instead.</div></div><label class="switch"><input type="checkbox" id="optTimed" checked><span class="track"></span></label></div>
+        <div class="toggle-row"><div class="grow"><div class="t">Double salary on exact START landing</div><div class="caption">Off by default. Inflation Mode no dey allow am at all.</div></div><label class="switch"><input type="checkbox" id="optDoubleStart"><span class="track"></span></label></div>
+        <div class="toggle-row"><div class="grow"><div class="t">No rent while owner dey Kirikiri</div><div class="caption">Off by default: rent still flows to players inside.</div></div><label class="switch"><input type="checkbox" id="optNoRentJail"><span class="track"></span></label></div>
+        <div class="toggle-row"><div class="grow"><div class="t">First lap, no buying</div><div class="caption">Off by default: everybody must complete one lap before any purchase.</div></div><label class="switch"><input type="checkbox" id="optFirstLap"><span class="track"></span></label></div>
+        <div class="toggle-row"><div class="grow"><div class="t">Nepo / Lapo Chaos seats</div><div class="caption">Off by default, never for quick play. One seat starts rich with a free deed, one seat starts poor with first rent forgiven.</div></div><label class="switch"><input type="checkbox" id="optChaos"><span class="track"></span></label></div>
+        <div class="toggle-row"><div class="grow"><div class="t">Voice alert for payments received</div><div class="caption">On by default. When money land for a player, their phone announces am out loud: Payment received, plus the exact amount. Every player fit switch voice off for their own phone.</div></div><label class="switch"><input type="checkbox" id="optVoice" checked><span class="track"></span></label></div>
+        <label for="optTimer">Turn decision timer</label>
+        <select class="textin" id="optTimer">
+          <option value="60" selected>60 seconds (default)</option>
+          <option value="30">30 seconds, sharp sharp</option>
+          <option value="120">120 seconds, relaxed</option>
+          <option value="0">No timer</option>
+        </select>
+      </div>
     </div>
   </section>
-  <p class="caption center" style="padding: 0 20px 26px;">2 to 6 players. Money scale: ₦1,000 in this game na the classic $1. Every amount shows exact, always.</p>
+  <p class="caption center landing-foot">2 to 6 players. Money scale: ₦1,000 in this game na the classic $1. Every amount shows exact, always.</p>
 </main>
 
 <!-- ============================ LOBBY ============================ -->
 <main class="view" id="view-lobby">
   <div class="lobby-wrap">
-    <p class="caption center">ROOM CODE: SHARE AM GIVE YOUR PEOPLE</p>
-    <div class="code-hero"><div class="code-big" id="lobbyCode">····</div></div>
+    <p class="caption center" id="lobbyCodeCap">ROOM CODE: SHARE AM GIVE YOUR PEOPLE</p>
+    <div class="code-hero" id="lobbyCodeHero"><div class="code-big" id="lobbyCode">····</div></div>
     <p class="center lead" id="lobbyModeLine"></p>
     <div class="invite-actions">
       <button class="btn small ghost" id="copyInviteBtn"></button>
