@@ -1270,7 +1270,9 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   background-repeat: no-repeat; background-position: right 13px center;
 }
 /* Pick cards, token and mode alike: soft glass with a hairline ring;
-   selected is the gold ring plus a lift, never a heavier border. */
+   selected is the gold ring, the gold gradient and the deeper shadow,
+   never a heavier border and never a translate: a lifted selected cell
+   would break the strip's shared top edge by the lift amount. */
 .token-pick, .mode-pick {
   border: none; border-radius: 16px; background-color: rgba(255, 250, 240, 0.75);
   box-shadow: inset 0 0 0 1px rgba(227, 215, 195, 0.85), 0 3px 8px rgba(43, 32, 24, 0.05);
@@ -1281,7 +1283,6 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   background: linear-gradient(180deg, #fff6da, #ffedb8);
   box-shadow: 0 0 0 2px var(--gold), 0 10px 20px rgba(120, 78, 4, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
-.token-pick.sel { transform: translateY(-1px); }
 .divider::before, .divider::after { background: linear-gradient(90deg, transparent, rgba(180, 158, 120, 0.55), transparent); }
 .landing-foot { max-width: 560px; margin: 0 auto; padding: 2px 20px 30px; }
 
@@ -1636,4 +1637,46 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
    buttons and the floors do not move. */
 @media (max-width: 380px) {
   #infBar .idx, #infBar .water-chip { padding: 2px 5px; }
+}
+
+/* ================= KP20: the first screen closes at 360x740 =================
+   Owner ruling (2026-10-28): the KP17 shortfall verdict is reversed;
+   the mode cards must end inside the first screen at 360x740 too.
+   KP17's budget left that size about 103px short, and the hero side
+   is settled law, so the whole repayment comes out of the join card's
+   internal spacing on phones: the KP14 22px section system and the
+   8px content gaps compress, card top padding slims, and the mode
+   cards give up vertical padding and gap. Nothing else moves: input
+   and button heights are untouched (name field, CODE row, Join,
+   Quick play, Create room), no text is reworded or resized, the
+   structure and order are KP14's exactly, and above 699px the card
+   keeps the roomy KP14 rhythm. The repayment, item by item: card
+   padding top 12 to 4 (8); section label margin tops 22 to 3, twice
+   (38); label margin bottoms 8 to 2, three times (18); play block
+   margin top 22 to 3 (19); caption margin top 8 to 3 (5); the
+   caption to Create gap 12 to 4 (8); mode card vertical padding 18
+   to 10 (8); mode card inner gaps 6 to 4 (2); appeal padding top 4
+   to 2 (2). Total 108: the 360x740 stack lands at 735 of 740 with
+   both mode cards inside, and 390x844 gains the same 108 of slack,
+   which lifts the token strip into the first screen there.
+   KP20b addendum: the rendered stack measured 741 of 740 in the
+   suite (the model ran 6px optimistic), so the mode cards give up
+   one more pixel of bottom padding, 5 to 4: total repayment 109,
+   rendered mode-card bottom 740 of 740. */
+@media (max-width: 699px) {
+  #view-landing .join-card { padding-top: 4px; }
+  #view-landing .join-card label { margin: 3px 0 2px; }
+  #view-landing .play-actions { margin-top: 3px; }
+  #view-landing .play-actions .caption { margin-top: 3px; margin-bottom: 4px; }
+  #view-landing .play-actions .btn.mt8 { margin-top: 4px; }
+  #gameModeRow .mode-pick { padding-top: 5px; padding-bottom: 4px; gap: 2px; }
+  #gameModeRow .mode-appeal { padding-top: 2px; }
+}
+/* KP20 Fix B companion: the droplet in the strip's water chip keeps a
+   2px breath before the price, in the slim flex line and in the wide
+   inline layout alike, and the smallest phones shave the two chips'
+   side padding by 1px each so Sudden Death's line fits whole. */
+#infBar .water-chip .ic { margin-right: 2px; }
+@media (max-width: 380px) {
+  #infBar .idx, #infBar .water-chip { padding: 2px 4px; }
 }

@@ -116,7 +116,12 @@ function makeClientId() {
 }
 const CLIENT_ID = makeClientId();
 function rememberedName() { try { return localStorage.getItem('kolopolyName') || ''; } catch (e) { return ''; } }
-function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { } }
+// Chrome refuses navigator.vibrate before the user's first tap on the
+// frame and logs it as a page error, so buzz stays silent until the
+// first pointerdown arms it. Every buzz call site routes through here.
+let buzzArmed = false;
+window.addEventListener('pointerdown', () => { buzzArmed = true; }, { once: true });
+function buzz(pattern) { try { if (buzzArmed && navigator.vibrate) navigator.vibrate(pattern); } catch (e) { } }
 
 // ---------------------------------------------------------------------------
 // Sound: tiny WebAudio synth, no samples. Mute persists.
@@ -1183,9 +1188,16 @@ function renderGame(room) {
   const infBar = $('infBar');
   if (room.inf) {
     infBar.classList.remove('hidden');
+    // KP20: the strip's water chip is a droplet plus the price, so the
+    // one line fits whole at 360 (KP19 audit). The full "Pure water ₦X"
+    // wording rides the chip's accessible name and title, and stays
+    // untouched in the horns, sheets and explainers. The droplet is an
+    // inline SVG in the icon wrapper's exact stroke style (icons.js
+    // has no drop glyph; KP20's file scope is app.js and style.css).
+    const pwAmt = [50, 100, 200, 500][room.inf.phase - 1];
     infBar.innerHTML = '<span class="ph">' + esc(room.inf.phaseName) + '</span>' +
       '<span class="idx">Index ' + room.inf.index + 'x</span>' +
-      '<span class="water-chip">Pure water ₦' + [50, 100, 200, 500][room.inf.phase - 1] + '</span>' +
+      '<span class="water-chip" role="img" aria-label="Pure water ₦' + pwAmt + '" title="Pure water ₦' + pwAmt + '"><svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c2.9 3.7 6.3 7.5 6.3 11a6.3 6.3 0 1 1-12.6 0c0-3.5 3.4-7.3 6.3-11z"/><path d="M9.3 14.6a2.8 2.8 0 0 0 1.9 3.2"/></svg>₦' + pwAmt + '</span>' +
       '<span>Salary ' + fmtN(room.inf.salary) + '</span>' +
       '<span class="clk" id="infClock"></span>' +
       '<button id="dealBreakBtn">' + window.icon('clock', 14) + ' Deal Break</button>' +

@@ -307,8 +307,18 @@ try {
     return el ? el.textContent : '';
   });
   check('Phase 2 rent alert shows the multiplied ₦20,000 (printed x lowest die)', /₦20,000/.test(rentAlert), rentAlert.slice(0, 90));
-  const infBarText = await payerPage.evaluate(() => document.querySelector('#infBar').textContent);
-  check('infobar shows Index 5.1x and Pure water ₦100', /5\.1x/.test(infBarText) && /Pure water ₦100(?![0-9])/.test(infBarText), infBarText.slice(0, 120));
+  // KP20: the strip's water chip is a droplet plus the price now; the
+  // full "Pure water ₦100" wording is the chip's accessible name, so
+  // the check reads the aria-label, not the bar's textContent.
+  const infBarInfo = await payerPage.evaluate(() => {
+    const chip = document.querySelector('#infBar .water-chip');
+    return {
+      text: document.querySelector('#infBar').textContent,
+      chipText: chip ? chip.textContent : '',
+      chipLabel: chip ? (chip.getAttribute('aria-label') || '') : ''
+    };
+  });
+  check('infobar shows Index 5.1x; water chip reads ₦100 under the accessible name Pure water ₦100', /5\.1x/.test(infBarInfo.text) && /₦100(?![0-9])/.test(infBarInfo.chipText) && /Pure water ₦100(?![0-9])/.test(infBarInfo.chipLabel), JSON.stringify(infBarInfo).slice(0, 140));
   await sleep(500);
   await payerPage.screenshot({ path: SHOTS + 'kp-inflation.png' });
   await E.close(); await F.close();
@@ -993,16 +1003,38 @@ try {
     const rect = (el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height) }; };
     const picks = [...document.querySelectorAll('#gameModeRow .mode-pick')].map(rect);
     const roomPicks = [...document.querySelectorAll('#roomModeRow .mode-pick')].map(rect);
-    const labelTops = [...document.querySelectorAll('#joinCard label')].map((l) => getComputedStyle(l).marginTop);
+    // KP20b: the re-engineered landing carries its section rhythm in
+    // the blocks' spacing, not in label margins (under the KP20
+    // compression every label computes the same 3px margin-top), so
+    // measure the rendered gaps themselves: each section label's top
+    // minus the bottom of the block rendered before it in the card.
+    // Switch labels are controls, not section heads, and are left
+    // out. The first label's gap is taken from the card's border-box
+    // top, so it reads as the card's top padding.
+    const cardEl = document.getElementById('joinCard');
+    const flowEls = [...cardEl.querySelectorAll('*')];
+    const rendered = (el) => { const r = el.getBoundingClientRect(); return r.height > 0 && el.offsetParent !== null; };
+    const labelGaps = [...cardEl.querySelectorAll('label')].filter((l) => !l.classList.contains('switch')).map((l, i) => {
+      const lr = l.getBoundingClientRect();
+      if (i === 0) return Math.round(lr.top - cardEl.getBoundingClientRect().top);
+      let prev = 0;
+      for (const el of flowEls) {
+        if (el === l) break;
+        if (el.contains(l) || !rendered(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.bottom <= lr.top + 0.6 && r.bottom > prev) prev = r.bottom;
+      }
+      return Math.round(lr.top - prev);
+    });
     const chips = [...document.querySelectorAll('.phase-chip')].map((c) => c.textContent.replace(/\s+/g, ' ').trim());
     const tls = [...document.querySelectorAll('.tagline .tl')].map((s) => Math.round(s.getBoundingClientRect().height));
     const cells = [...document.querySelectorAll('#tokenGrid .token-pick')].map((s) => rect(s));
     const badge = document.querySelector('.mode-badge');
-    return { picks, roomPicks, labelTops, chips, tls, cells, badgePos: badge ? getComputedStyle(badge).position : '' };
+    return { picks, roomPicks, labelGaps, chips, tls, cells, badgePos: badge ? getComputedStyle(badge).position : '' };
   });
   check('structure: the two mode cards share top and bottom edges', st14.picks.length === 2 && st14.picks[0].top === st14.picks[1].top && st14.picks[0].bottom === st14.picks[1].bottom, JSON.stringify(st14.picks));
   check('structure: the room type cards share their edges too', st14.roomPicks.length === 2 && st14.roomPicks[0].h === st14.roomPicks[1].h && st14.roomPicks[0].h > 0, JSON.stringify(st14.roomPicks));
-  check('structure: every section label takes the same 22px section gap (first label 0)', st14.labelTops[0] === '0px' && st14.labelTops.slice(1).every((m) => m === '22px'), JSON.stringify(st14.labelTops));
+  check('structure: the rendered section gaps follow the KP20 pattern (4px at the card top padding, 3px between sections, 12px after the preset explainer block)', JSON.stringify(st14.labelGaps) === JSON.stringify([4, 3, 3, 3, 3, 12, 3, 3]), JSON.stringify(st14.labelGaps));
   check('structure: the phase salaries are four stat chips with exact amounts', st14.chips.length === 4 && st14.chips[0].includes('₦200,000') && st14.chips[1].includes('₦100,000') && st14.chips[2].includes('₦50,000') && st14.chips[3].includes('₦25,000'), JSON.stringify(st14.chips));
   check('structure: the tagline lines each sit on one line', st14.tls.length === 2 && st14.tls.every((h) => h > 0 && h <= 24), JSON.stringify(st14.tls));
   check('structure: the token pick is one compact strip of six even cells in a single row', st14.cells.length === 6 && st14.cells.every((c) => c.h === st14.cells[0].h && c.top === st14.cells[0].top), JSON.stringify(st14.cells));
@@ -1207,16 +1239,18 @@ try {
   const fs360 = await firstScreen(F2);
   check('360: the join row sits inside the first viewport on load', !!fs360.join && fs360.join.top >= 0 && fs360.join.bottom <= fs360.vh, JSON.stringify(fs360));
   await F2.close();
-  // KP17 diagnostic (logged, not asserted): the type stack that left
-  // the picture costs more at 360x740 than the slimmed scene band
-  // repays, so the mode cards end below the fold at this size by the
-  // margin printed here. The number stays on record; the owner rules
-  // on the trade (card structure is KP14's, out of KP17 scope).
+  // KP17 logged this size without asserting: the type stack cost
+  // more at 360x740 than the slimmed scene band repaid, so the mode
+  // cards ended below the fold. KP20 reversed that verdict on the
+  // owner's order: the join card's internal spacing on phones repays
+  // the whole 103px (see the KP20 block in style.css), so the F3
+  // frame is an assertion now, not a diagnostic.
   const F3 = await newPage('F3');
   await F3.emulate({ viewport: { width: 360, height: 740, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-A145F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
   await F3.goto(BASE, { waitUntil: 'networkidle0' });
   const fs360s = await firstScreen(F3);
-  console.log('KP17 diagnostic: 360x740 mode cards bottom ' + fs360s.modeBottom + ' against viewport ' + fs360s.vh);
+  console.log('KP20: 360x740 mode cards bottom ' + fs360s.modeBottom + ' against viewport ' + fs360s.vh);
+  check('360x740: the mode cards end inside the first screen (KP20)', fs360s.modeBottom != null && fs360s.modeBottom <= fs360s.vh, JSON.stringify(fs360s));
   await F3.close();
 } catch (err) {
   failures += 1;
