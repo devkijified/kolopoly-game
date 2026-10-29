@@ -1894,6 +1894,115 @@ try {
   check('cash and siren samples decode', heard.ok === true, JSON.stringify(heard));
   check('buy and credit use the register; the siren is its own sample', heard.plays[0] === 'cash' && heard.plays.includes('siren') && heard.plays.filter((n) => n === 'siren').length === 1 && heard.plays.indexOf('siren') > 0, JSON.stringify(heard));
   await UI.close();
+
+  console.log('B25: a new build or a dead room raises the fresh-table banner before any reload');
+  const rig390 = { viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' };
+  const spoofBuild = (page) => page.evaluate(() => {
+    window.__reloads = [];
+    window.KPUpdate.setReload(() => { window.__reloads.push(1); });
+    const orig = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (String(url).indexOf('/api/version') !== -1) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, build: 'ffffffffffff' }) });
+      }
+      return orig(input, init);
+    };
+  });
+  const killSeat = (page) => page.evaluate(() => {
+    const rewrite = (raw) => {
+      if (!raw) return null;
+      const seat = JSON.parse(raw);
+      seat.code = 'ZZZZ';
+      return JSON.stringify(seat);
+    };
+    const s = rewrite(sessionStorage.getItem('kolopolySeat'));
+    if (s) sessionStorage.setItem('kolopolySeat', s);
+    const l = rewrite(localStorage.getItem('kolopolySeatLS'));
+    if (l) localStorage.setItem('kolopolySeatLS', l);
+  });
+  const bannerNow = (page) => page.evaluate(() => {
+    const banner = document.getElementById('updateBanner');
+    return {
+      hidden: !banner || banner.classList.contains('hidden'),
+      line: document.getElementById('updateLine').textContent,
+      kicker: document.getElementById('updateKicker').textContent,
+      btn: document.getElementById('updateNow').textContent,
+      reloads: window.__reloads.length,
+      landing: document.getElementById('view-landing').classList.contains('active'),
+      game: document.getElementById('view-game').classList.contains('active')
+    };
+  });
+
+  const RL1 = await newPage('RL1');
+  await RL1.emulate(rig390);
+  await RL1.goto(BASE, { waitUntil: 'networkidle0' });
+  await spoofBuild(RL1);
+  await RL1.evaluate(() => window.__kolopolyDrop());
+  await RL1.waitForFunction(() => {
+    const banner = document.getElementById('updateBanner');
+    const line = document.getElementById('updateLine').textContent || '';
+    return banner && !banner.classList.contains('hidden') && /^Fresh table ready · reloading in \d+$/.test(line) && window.__reloads.length === 0;
+  }, { timeout: 8000 }).catch(() => {});
+  const landBanner = await bannerNow(RL1);
+  check('landing: a socket drop on a new build shows the countdown before any reload', landBanner.landing && landBanner.hidden === false && /^Fresh table ready · reloading in \d+$/.test(landBanner.line) && landBanner.btn === 'Tap to reload now' && landBanner.reloads === 0, JSON.stringify(landBanner));
+  await RL1.screenshot({ path: SHOTS + 'kp25-banner-landing-390.png' });
+  await RL1.click('#updateNow');
+  await RL1.waitForFunction(() => window.__reloads.length === 1, { timeout: 4000 }).catch(() => {});
+  const landWent = await RL1.evaluate(() => window.__reloads.length);
+  check('landing: the tap reloads only after the banner was up', landWent === 1, 'reloads=' + landWent);
+  await RL1.close();
+
+  const RL2 = await newPage('RL2');
+  await RL2.emulate(rig390);
+  await RL2.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(RL2, 'Ngozi');
+  await pickClassic(RL2);
+  await RL2.click('#createBtn');
+  await waitState(RL2, (s) => s.status === 'lobby', 'RL2 lobby');
+  await clickId(RL2, 'botAdd1');
+  await waitState(RL2, (s) => s.players.length === 2, 'RL2 bot seated');
+  await RL2.click('#startBtn');
+  await waitState(RL2, (s) => s.status === 'playing', 'RL2 at the table', 15000);
+  await sleep(1000);
+  await spoofBuild(RL2);
+  await killSeat(RL2);
+  await RL2.evaluate(() => window.__kolopolyDrop());
+  await RL2.waitForFunction(() => {
+    const banner = document.getElementById('updateBanner');
+    const line = document.getElementById('updateLine').textContent || '';
+    return banner && !banner.classList.contains('hidden') && line.indexOf('Fresh table ready') === 0 && line.indexOf('your room don close') !== -1 && /reloading in \d+/.test(line) && window.__reloads.length === 0 && document.getElementById('view-game').classList.contains('active');
+  }, { timeout: 10000 }).catch(() => {});
+  const tableBanner = await bannerNow(RL2);
+  check('table: a new build plus rejoin_failed shows the banner before reload', tableBanner.game && tableBanner.hidden === false && tableBanner.line.indexOf('Fresh table ready') === 0 && tableBanner.line.indexOf('your room don close') !== -1 && /reloading in \d+/.test(tableBanner.line) && tableBanner.btn === 'Tap to reload now' && tableBanner.reloads === 0, JSON.stringify(tableBanner));
+  await RL2.screenshot({ path: SHOTS + 'kp25-banner-table-390.png' });
+  await RL2.evaluate(() => { window.KPBoard.animating = false; });
+  await RL2.click('#updateNow');
+  await RL2.waitForFunction(() => window.__reloads.length === 1, { timeout: 4000 }).catch(() => {});
+  const tableWent = await RL2.evaluate(() => window.__reloads.length);
+  check('table: the reload waits until the banner asks for it', tableWent === 1, 'reloads=' + tableWent);
+  await RL2.close();
+
+  const RL3 = await newPage('RL3');
+  await RL3.goto(BASE, { waitUntil: 'networkidle0' });
+  await typeName(RL3, 'Ife');
+  await pickClassic(RL3);
+  await RL3.click('#createBtn');
+  await waitState(RL3, (s) => s.status === 'lobby', 'RL3 lobby');
+  await RL3.evaluate(() => {
+    window.__reloads = [];
+    window.KPUpdate.setReload(() => { window.__reloads.push(1); });
+  });
+  await killSeat(RL3);
+  await RL3.evaluate(() => window.__kolopolyDrop());
+  await RL3.waitForFunction(() => {
+    const banner = document.getElementById('updateBanner');
+    const line = document.getElementById('updateLine').textContent || '';
+    return banner && !banner.classList.contains('hidden') && /^Your room don close · reloading in \d+$/.test(line) && window.__reloads.length === 0;
+  }, { timeout: 10000 }).catch(() => {});
+  const roomBanner = await bannerNow(RL3);
+  check('a dead room on the same build still counts down instead of jumping', roomBanner.hidden === false && /^Your room don close · reloading in \d+$/.test(roomBanner.line) && roomBanner.kicker === 'Room don close' && roomBanner.reloads === 0 && roomBanner.btn === 'Tap to reload now', JSON.stringify(roomBanner));
+  await RL3.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);
