@@ -13,6 +13,7 @@ const { EventEmitter } = require('events');
 const D = require('./public/game-data.js');
 const { BotBrain, BOT_NAMES } = require('./bot.js');
 const { createRetention } = require('./retention');
+const { createOps } = require('./ops');
 
 const PORT = process.env.PORT || 4173;
 const TEST = process.env.KP_TEST === '1';
@@ -59,10 +60,16 @@ const retention = createRetention({
 if (!retention.vapid.enabled) {
   console.log('Web Push is off until VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are set.');
 }
+if (!String(process.env.KP_ADMIN_TOKEN || '').trim()) {
+  console.log('Ops locked until KP_ADMIN_TOKEN is set.');
+} else {
+  console.log('Ops desk is on /ops.');
+}
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff'
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff',
+  '.txt': 'text/plain'
 };
 const AUCTION_MS = TEST ? 4000 : 20000;
 const MAX_PLAYERS = 6;
@@ -408,7 +415,7 @@ function newRoom(code, isPublic, mode, settings) {
     bankInterest: 0, interestLine: null, dealOfGame: null, lastBuilderRoll: null,
     diceQueue: [], forcedCards: { wahala: null, family: null },
     feed: [], feedSeq: 0, message: '', messageSeq: 0, banner: null,
-    winner: null, endTable: null, startedAt: null,
+    winner: null, endTable: null, startedAt: null, createdAt: now(),
     endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null,
     afkTakeovers: 0
   };
@@ -1108,6 +1115,7 @@ function titlesFor(room, player, winner) {
   return 'Tenant wey dey try';
 }
 function endGame(room, winner, why) {
+  const finishing = room.status === 'playing';
   room.status = 'ended';
   room.winner = { playerId: winner.id, name: winner.name };
   room.endTable = room.players.map((p) => ({
@@ -1136,6 +1144,9 @@ function endGame(room, winner, why) {
   }
   setMessage(room, 'Game don finish. ' + winner.name + ' na the real landlord. Net worth: ' + D.fmtN(netWorth(room, winner)) + '. ' + (why || ''));
   pushFeed(room, 'gameEnd', winner.name + ' wins Kolopoly with net worth ' + D.fmtN(netWorth(room, winner)) + '.', { playerId: winner.id, amount: netWorth(room, winner) });
+  if (finishing) {
+    try { retention.noteDay('tablesFinished'); } catch (e) { /* the ledger never blocks the close */ }
+  }
 }
 function checkWinBySolvency(room) {
   const alive = solventPlayers(room);
@@ -1333,6 +1344,7 @@ function startGame(room) {
   setDeadline(room);
   setBanner(room, 'opener', first, {}, 'Game don start. ' + first.name + ' rolled highest and opens. Na your turn, ' + first.name + '. Roll the dice.');
   updatePause(room);
+  try { retention.noteDay('tablesStarted'); } catch (e) { /* the ledger never blocks a table */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -1871,7 +1883,9 @@ function resolveMortgageChoice(room, player, choice) {
 // ---------------------------------------------------------------------------
 // HTTP static + WebSocket intents
 // ---------------------------------------------------------------------------
+const ops = createOps({ rooms, retention });
 const server = http.createServer((req, res) => {
+  if (ops.accepts(req)) { ops.handle(req, res); return; }
   if (retention.accepts(req)) { retention.handle(req, res); return; }
   const cleanUrl = req.url.split('?')[0];
   if (cleanUrl === '/api/version') {
@@ -1990,6 +2004,7 @@ function convertHumanToAfkBot(room, player) {
   setMessage(room, player.name + ' don go AFK. A bot dey hold the seat till dem return.');
   pushFeed(room, 'timeout', player.name + ' seat don convert to bot (AFK).', { playerId: player.id, auto: true, reason: 'afk' });
   updatePause(room);
+  try { retention.noteDay('afk'); } catch (e) { /* the ledger never blocks a takeover */ }
   return true;
 }
 

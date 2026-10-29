@@ -13,3 +13,5 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
+      - key: KP_ADMIN_TOKEN
+        sync: false

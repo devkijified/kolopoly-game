@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="theme-color" content="#140e0a">
+<meta name="referrer" content="no-referrer">
+<title>Kolopoly ops</title>
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="stylesheet" href="/ops/desk.css">
+<link rel="preload" href="/fonts/aeonik-pro-bold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/figtree-variable.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body data-error="">
+  <div id="booting" class="boot">
+    <p class="wordmark">KOLO<span>POLY</span></p>
+    <p class="boot-line">Opening the ledger…</p>
+    <noscript><p class="boot-line">The ledger needs scripts on this phone. The house key stays in the request, not on the device.</p></noscript>
+  </div>
+
+  <section id="gate" class="gate" hidden>
+    <div class="gate-inner">
+      <div class="gate-copy">
+        <p class="wordmark">KOLO<span>POLY</span></p>
+        <p class="eyebrow">House ledger</p>
+        <h1>The parlour is for players. This desk watches the house.</h1>
+        <p class="lede">Live tables, landlords in their seats, the market shelf, and whispers. View only. No kicks from here.</p>
+        <svg class="skyline" viewBox="0 0 360 78" aria-hidden="true">
+          <path fill="#ffc857" d="M0 78V50h16V34h8v16h12V28h18v50h10V22h4V12h6v10h6v56h14V36h22v42h8V18h5v60h16V44h20v34h9V16h4V8h7v8h5v62H360v8H0z"/>
+        </svg>
+      </div>
+      <article class="gate-card">
+        <div class="seal" aria-hidden="true">K</div>
+        <p class="eyebrow">Ops desk</p>
+        <h2>Enter the house key</h2>
+        <form id="gate-form" method="post" action="/ops/unlock" autocomplete="current-password">
+          <label for="house-key">House key</label>
+          <input id="house-key" name="token" type="password" required maxlength="200" autocomplete="current-password" spellcheck="false" autocapitalize="off" autocorrect="off" enterkeyhint="go">
+          <button id="unlock-btn" class="gold" type="submit">Open the desk</button>
+          <p id="gate-error" class="err" role="alert"></p>
+        </form>
+        <p class="fine">This door is not on the landing. The key is not kept in the browser.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="desk" class="desk" hidden>
+    <div class="desk-wrap">
+      <header class="top">
+        <div>
+          <p class="wordmark">KOLO<span>POLY</span> <em>OPS</em></p>
+          <p class="eyebrow" id="day-line">Lagos ledger</p>
+          <h1>House desk</h1>
+        </div>
+        <div class="top-actions">
+          <p id="pulse" class="pulse"><span class="dot" aria-hidden="true"></span><span id="pulse-label">Opening</span></p>
+          <button id="lock-btn" class="ghost" type="button">Lock the desk</button>
+        </div>
+      </header>
+      <p id="alert" class="alert" role="status" hidden></p>
+
+      <section class="stats" aria-label="Live now">
+        <article class="stat">
+          <p class="kicker">Tables live</p>
+          <b id="n-rooms">–</b>
+          <p class="sub" id="n-rooms-sub">Open rooms</p>
+        </article>
+        <article class="stat">
+          <p class="kicker">Landlords seated</p>
+          <b id="n-humans">–</b>
+          <p class="sub" id="n-humans-sub">Human seats</p>
+        </article>
+        <article class="stat">
+          <p class="kicker">Bots holding</p>
+          <b id="n-bots">–</b>
+          <p class="sub">Seats on auto</p>
+        </article>
+        <article class="stat">
+          <p class="kicker">Board</p>
+          <b id="n-playing">–</b>
+          <p class="sub" id="n-board-sub">In play</p>
+        </article>
+      </section>
+
+      <section class="panel today-panel" aria-label="Lagos today">
+        <div class="panel-head">
+          <h2>Lagos today</h2>
+          <p id="roll-line" class="fine"></p>
+        </div>
+        <div class="today">
+          <article><p class="kicker">Tables started</p><b id="n-started">–</b></article>
+          <article><p class="kicker">Tables finished</p><b id="n-finished">–</b></article>
+          <article><p class="kicker">Claims</p><b id="n-claims">–</b><p class="sub" id="n-claims-sub"></p></article>
+          <article><p class="kicker">AFK takeovers</p><b id="n-afk">–</b></article>
+        </div>
+      </section>
+
+      <div class="layout">
+        <section class="panel" aria-label="Open tables">
+          <div class="panel-head stack">
+            <h2>Open tables</h2>
+            <p class="fine">Code, mode, seats, and how long the table has been up.</p>
+          </div>
+          <div id="rooms" class="rooms"></div>
+        </section>
+        <aside class="panel" aria-label="Shelf and whispers">
+          <div class="panel-head stack">
+            <h2>Shelf and whispers</h2>
+            <p class="fine">Counts only. No names, no keys.</p>
+          </div>
+          <ul class="health">
+            <li><span>Whispers</span><strong id="h-push">–</strong></li>
+            <li><span>Subscribed</span><strong id="h-subs">–</strong></li>
+            <li><span>Shelf file</span><strong id="h-file">–</strong></li>
+            <li><span>Devices on the shelf</span><strong id="h-shelves">–</strong></li>
+            <li><span>Devices at tables</span><strong id="h-devices">–</strong></li>
+            <li><span>Uptime</span><strong id="h-up">–</strong></li>
+          </ul>
+          <p class="fine foot">View only. Day counts sit in the shelf file. A free Render disk forgets them when the instance sleeps.</p>
+        </aside>
+      </div>
+    </div>
+  </section>
+<script src="/ops/desk.js" defer></script>
+</body>
+</html>

@@ -80,6 +80,16 @@ blueprint deploy asks for them in the dashboard instead of storing them in
 git. No extra npm package is required: VAPID and the push body are signed
 with Node crypto.
 
+## Ops desk
+
+`/ops` is the owner's ledger: live tables, Lagos-day counts, the shelf,
+and whether whispers are on. It is view only. The landing page does not
+link to it, and it answers `noindex`.
+
+The door stays shut until `KP_ADMIN_TOKEN` is set on the service. Add it
+in the Render dashboard (Environment), save, and redeploy. Do not commit
+the value. `render.yaml` lists the variable with `sync: false`.
+
 ## The money scale
 
 The board is priced at a $1 = ₦1,000 feel. Starting cash is ₦1,500,000, dealt
