@@ -1633,24 +1633,34 @@ try {
     const checks = sheet.querySelectorAll('#giveDeeds input[type="checkbox"], #wantDeeds input[type="checkbox"]');
     const wantOn = sheet.querySelector('#wantDeeds .swap-deed.on');
     const h = cards[0] ? Math.round(cards[0].getBoundingClientRect().height) : 0;
+    const arts = sheet.querySelectorAll('.swap-deed .tileart').length;
+    const priced = [...sheet.querySelectorAll('.swap-deed .pr')].filter((el) => /₦/.test(el.textContent)).length;
     return {
       cards: cards.length,
       checks: checks.length,
       bands: sheet.querySelectorAll('.swap-band').length,
+      arts,
+      priced,
       h,
       want: wantOn ? wantOn.querySelector('.swap-name').textContent : '',
       headings: /You give/.test(sheet.innerText) && /You want/.test(sheet.innerText)
     };
   });
-  check('swap sheet is a deed-card grid with no property checkboxes', swapUi.cards >= 8 && swapUi.checks === 0 && swapUi.bands === swapUi.cards && swapUi.headings && swapUi.h >= 80, JSON.stringify(swapUi));
+  check('swap sheet is a grid of board deed tiles, not property checkboxes', swapUi.cards >= 8 && swapUi.checks === 0 && swapUi.bands === swapUi.cards && swapUi.arts === swapUi.cards && swapUi.priced === swapUi.cards && swapUi.headings && swapUi.h >= 150, JSON.stringify(swapUi));
   check('Bariga starts selected on the want side', swapUi.want === 'Bariga', JSON.stringify(swapUi));
   await UI.evaluate(() => {
     const give = document.querySelector('#giveDeeds .swap-deed');
     if (give) give.click();
     document.getElementById('giveDeeds').scrollIntoView({ block: 'start' });
   });
-  await sleep(150);
+  await sleep(200);
   await UI.screenshot({ path: '/opt/cursor/artifacts/screenshots/swap-grid.png' });
+  await UI.evaluate(() => {
+    const want = document.querySelector('#wantDeeds .swap-deed.on');
+    if (want) want.scrollIntoView({ block: 'center' });
+  });
+  await sleep(200);
+  await UI.screenshot({ path: '/opt/cursor/artifacts/screenshots/swap-grid-want.png' });
   const buf = await UI.evaluate(() => {
     const c = document.querySelector('#boardWrap canvas');
     if (!c) return null;

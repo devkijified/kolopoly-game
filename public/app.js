@@ -2127,19 +2127,29 @@ function openMyDeeds() {
     onSpaceTap(Number(b.dataset.openDeed));
   }));
 }
+function bandIsLight(hex) {
+  const h = String(hex || '').replace('#', '');
+  if (h.length < 6) return false;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55;
+}
 function swapDeedGrid(playerId, room) {
   const ids = window.KP_DATA.OWNABLE.filter((i) => room.props[i] && room.props[i].o === playerId);
   if (!ids.length) return '<p class="caption">No deeds yet.</p>';
   return '<div class="swap-grid">' + ids.map((i) => {
     const sp = window.KP_DATA.SPACES[i];
     const pr = room.props[i];
-    const band = sp.type === 'street' ? window.KP_DATA.GROUPS[sp.group].color : (sp.type === 'station' ? '#3d3d3d' : '#3f7fbf');
-    const tag = pr.b >= 5 ? 'Mansion' : pr.b > 0 ? (pr.b + ' duplex') : pr.m ? 'Mortgaged' : pr.pl ? 'Pledged' : 'Site';
-    return '<button type="button" class="swap-deed" data-deed="' + i + '" aria-pressed="false">' +
-      '<span class="swap-band" style="background:' + band + '"></span>' +
+    const face = window.KPBoard.tileFace(i);
+    const light = bandIsLight(face.band) ? ' light' : '';
+    const mort = pr && pr.m ? ' is-mortgaged' : '';
+    const flag = pr && pr.b >= 5 ? 'Mansion' : pr && pr.b > 0 ? (pr.b + ' duplex') : pr && pr.m ? 'Mortgaged' : pr && pr.pl ? 'Pledged' : '';
+    return '<button type="button" class="swap-deed' + light + mort + '" data-deed="' + i + '" aria-pressed="false" aria-label="' + esc(sp.name) + (face.price ? ', ' + face.price : '') + '" style="--band:' + face.band + '">' +
+      '<span class="swap-band"><span class="swap-name">' + esc(face.name) + '</span></span>' +
       '<span class="swap-tick" aria-hidden="true"></span>' +
-      '<span class="swap-name">' + esc(sp.name) + '</span>' +
-      '<span class="swap-tag">' + tag + '</span></button>';
+      '<span class="tile-art" style="color:' + face.band + '">' + window.tileArt(face.art) + '</span>' +
+      '<span class="pr">' + (face.price || '') + (flag ? '<span class="swap-flag">' + esc(flag) + '</span>' : '') + '</span></button>';
   }).join('') + '</div>';
 }
 function markSwapDeed(rootId, space) {

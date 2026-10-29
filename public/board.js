@@ -393,6 +393,17 @@ const KPBoard = {
     return bs.every((b) => b >= 4);
   },
 
+  tileFace(i) {
+    const sp = D.SPACES[i];
+    if (!sp) return { band: '#b8a888', art: 'house', name: '', price: '' };
+    return {
+      band: bandColorFor(i, sp),
+      art: artFor(i, sp),
+      name: sp.short || sp.name,
+      price: sp.price ? D.fmtN(sp.price) : ''
+    };
+  },
+
   deedHTML(i, state, viewerId) {
     const sp = D.SPACES[i];
     const byId = {};
