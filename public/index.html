@@ -7,6 +7,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#f5efe2">
+<meta name="kolopoly-build" content="__KOLOPOLY_BUILD__">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -433,6 +434,11 @@
 <div class="pass-banner" id="passBanner"></div>
 <div id="flicker"></div>
 <div class="toast" id="toast"></div>
+<div class="update-banner hidden" id="updateBanner" role="status">
+  <p class="update-kicker">Fresh table</p>
+  <p class="update-line" id="updateLine"></p>
+  <button type="button" id="updateNow">Tap to reload now</button>
+</div>
 
 <div id="auctionOverlay" aria-live="polite"></div>
 <div class="scrim" id="hudScrim"><div class="sheet" id="hudSheet"></div></div>
@@ -464,6 +470,7 @@
 <script src="/board.js"></script>
 <script src="/app.js"></script>
 <script src="/retention.js"></script>
+<script src="/update.js"></script>
 <script type="module" src="/board3d.js"></script>
 </body>
 </html>

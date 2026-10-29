@@ -1484,6 +1484,79 @@ try {
   check('home 400: one slogan and Quick play leads', home400.slogan === 'Break your kolo, buy the street.' && home400.welcomes === 0 && !!home400.quick && home400.quick.h > (home400.join ? home400.join.h : 0) && home400.overflow === true, JSON.stringify({ slogan: home400.slogan, quick: home400.quick, join: home400.join }));
   await H400.screenshot({ path: SHOTS + 'kp23-home-400.png' });
   await H400.close();
+
+  console.log('B20: fresh table banner counts down and forces the reload');
+  const U = await newPage('U');
+  await U.goto(BASE, { waitUntil: 'networkidle0' });
+  const stamp = await U.evaluate(async () => {
+    const meta = document.querySelector('meta[name="kolopoly-build"]').getAttribute('content');
+    const ver = await (await fetch('/api/version', { cache: 'no-store' })).json();
+    const sw = await (await fetch('/sw.js', { cache: 'no-store' })).text();
+    const banner = document.getElementById('updateBanner');
+    return {
+      meta, ver: ver.build,
+      match: meta === ver.build && sw.includes('kolopoly-build ' + ver.build),
+      networkOnly: !/caches\s*\./.test(sw) && !/respondWith/.test(sw),
+      hidden: banner.classList.contains('hidden'),
+      hook: typeof window.KPUpdate.arm === 'function' && typeof window.KPUpdate.setReload === 'function'
+    };
+  });
+  check('the open table stamps the build the server is serving', stamp.match && /^[a-f0-9]{12}$/.test(stamp.meta) && stamp.networkOnly, JSON.stringify(stamp));
+  check('the fresh-table banner starts hidden, with a countdown hook', stamp.hidden === true && stamp.hook === true, JSON.stringify(stamp));
+  await U.evaluate(() => {
+    window.__reloads = [];
+    window.KPUpdate.setReload(() => { window.__reloads.push(Date.now()); });
+    window.KPBoard.animating = true;
+    window.KPUpdate.arm({ seconds: 2 });
+  });
+  const shown = await U.evaluate(() => ({
+    hidden: document.getElementById('updateBanner').classList.contains('hidden'),
+    line: document.getElementById('updateLine').textContent,
+    btn: document.getElementById('updateNow').textContent
+  }));
+  check('the banner speaks in the table voice and offers a tap', shown.hidden === false && shown.line === 'Fresh table ready · reloading in 2' && shown.btn === 'Tap to reload now', JSON.stringify(shown));
+  await U.waitForFunction(() => document.getElementById('updateLine').textContent === 'Fresh table ready · reloading in 1', { timeout: 2500 }).catch(() => {});
+  const ticked = await U.evaluate(() => document.getElementById('updateLine').textContent);
+  check('the countdown ticks', ticked === 'Fresh table ready · reloading in 1', ticked);
+  await U.evaluate(() => document.getElementById('updateLine').click());
+  await U.waitForFunction(() => document.getElementById('updateLine').textContent === 'Fresh table ready · reloading now', { timeout: 3000 }).catch(() => {});
+  const held = await U.evaluate(() => ({
+    n: window.__reloads.length,
+    line: document.getElementById('updateLine').textContent,
+    shown: !document.getElementById('updateBanner').classList.contains('hidden')
+  }));
+  check('ignoring the banner keeps it up, and a hop holds the reload', held.n === 0 && held.shown && held.line === 'Fresh table ready · reloading now', JSON.stringify(held));
+  await U.evaluate(() => { window.KPBoard.animating = false; });
+  await U.waitForFunction(() => window.__reloads.length === 1, { timeout: 2000 }).catch(() => {});
+  const went = await U.evaluate(() => window.__reloads.length);
+  check('the reload fires once the hop ends', went === 1, 'reloads=' + went);
+  await U.close();
+
+  const U2 = await newPage('U2');
+  await U2.goto(BASE, { waitUntil: 'networkidle0' });
+  await U2.evaluate(() => {
+    window.__reloads = [];
+    window.KPUpdate.setReload(() => { window.__reloads.push(1); });
+    window.KPUpdate.arm({ seconds: 8 });
+  });
+  await U2.click('#updateNow');
+  await U2.waitForFunction(() => window.__reloads.length === 1, { timeout: 2000 }).catch(() => {});
+  const tapped = await U2.evaluate(() => window.__reloads.length);
+  check('tap reloads now when the table is still', tapped === 1, 'reloads=' + tapped);
+  await U2.close();
+
+  const U3 = await newPage('U3');
+  await U3.goto(BASE, { waitUntil: 'networkidle0' });
+  await U3.evaluate(() => {
+    window.__reloads = [];
+    window.KPUpdate.setReload(() => { window.__reloads.push(1); });
+    window.KPBoard.animating = true;
+    window.KPUpdate.arm({ seconds: 1 });
+  });
+  await U3.waitForFunction(() => window.__reloads.length === 1, { timeout: 6000 }).catch(() => {});
+  const forced = await U3.evaluate(() => ({ n: window.__reloads.length, moving: window.KPBoard.animating }));
+  check('the reload still forces when the hop outlasts the grace', forced.n === 1 && forced.moving === true, JSON.stringify(forced));
+  await U3.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

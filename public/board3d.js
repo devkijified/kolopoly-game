@@ -2221,6 +2221,21 @@ class EndScene {
 let renderer = null;
 const SCENES = {};
 let activeName = '';
+// A deploy reload waits out a hop, a dice tumble, or a card in flight.
+// Camera glide and the landing rest are not a reason to hold the table.
+KP3D.midBeat = function () {
+  try {
+    if (window.KPBoard && window.KPBoard.animating) return true;
+    const g = SCENES.game;
+    if (!g) return false;
+    if (g.diceAnim || g.cardAnim) return true;
+    if (g.deedAnim && g.deedAnim.mode !== 'hover') return true;
+    if (g.tokens) {
+      for (const o of g.tokens.values()) if (o.anim) return true;
+    }
+  } catch (e) { /* a still table can take the fresh copy */ }
+  return false;
+};
 let raycaster = null;
 let lastFitW = 0, lastFitH = 0, lastFitAt = 0;
 

@@ -2,6 +2,8 @@
 // Kolopoly service worker. It exists so the table can be installed
 // and so whispers can be shown. It does not cache the game: a fresh
 // deploy must land on the phone, including low-end ones.
+// The server appends a kolopoly-build line when it serves this file,
+// so a deploy changes these bytes even when the handlers stay quiet.
 self.addEventListener('install', () => { self.skipWaiting(); });
 self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', () => {
