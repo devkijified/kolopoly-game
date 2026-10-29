@@ -202,6 +202,24 @@ function voiceOk(payload) {
 }
 
 try {
+  console.log('V1: a deploy stamp is visible, and the worker still does not cache the game');
+  {
+    const ver = await api('GET', '/api/version');
+    check('version endpoint names a build', ver.status === 200 && ver.json && ver.json.ok === true && /^[a-f0-9]{12}$/.test(ver.json.build), JSON.stringify(ver.json));
+    const swRes = await fetch(HTTP + '/sw.js');
+    const swText = await swRes.text();
+    const cacheControl = swRes.headers.get('cache-control') || '';
+    check('the served worker carries that build and is not stored', swText.includes('kolopoly-build ' + ver.json.build) && cacheControl.includes('no-store'), cacheControl + ' ' + swText.slice(-80));
+    check('the worker stays network-only and still delivers whispers', !/caches\s*\./.test(swText) && !/respondWith/.test(swText) && /addEventListener\('push'/.test(swText) && /notificationclick/.test(swText));
+    const home = await fetch(HTTP + '/');
+    const html = await home.text();
+    check('the landing meta stamps the same build', html.includes('name="kolopoly-build" content="' + ver.json.build + '"') && !html.includes('__KOLOPOLY_BUILD__'));
+    check('the fresh-table banner is in the page, quiet in the markup', html.includes('id="updateBanner"') && html.includes('Tap to reload now') && html.includes('update-banner hidden'));
+    const appRes = await fetch(HTTP + '/app.js');
+    const appCache = appRes.headers.get('cache-control') || '';
+    check('app.js stays revalidated on the network', appRes.status === 200 && appCache.includes('no-cache') && !/max-age=604800/.test(appCache), appCache);
+  }
+
   // ----------------------------------------------------- RETURN RETENTION ---
   console.log('R1: daily market drop, once per Lagos day, shelf goods only');
   {

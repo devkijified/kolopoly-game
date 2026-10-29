@@ -17,6 +17,40 @@ const { createRetention } = require('./retention');
 const PORT = process.env.PORT || 4173;
 const TEST = process.env.KP_TEST === '1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+// The open home-screen tab only notices a deploy when this id moves.
+// It is a hash of the game files, stamped into the page and appended
+// to the service worker so the worker script bytes change with them.
+const BUILD_FILES = [
+  'public/index.html',
+  'public/app.js',
+  'public/style.css',
+  'public/sw.js',
+  'public/retention.js',
+  'public/update.js',
+  'public/game-data.js',
+  'public/board.js',
+  'public/board3d.js',
+  'public/manifest.webmanifest'
+];
+function computeBuild() {
+  const hash = crypto.createHash('sha256');
+  for (const rel of BUILD_FILES) {
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(fs.readFileSync(path.join(__dirname, rel)));
+  }
+  return hash.digest('hex').slice(0, 12);
+}
+const BUILD = computeBuild();
+function stampAsset(cleanUrl, data) {
+  if (cleanUrl === '/' || cleanUrl === '/index.html') {
+    return Buffer.from(String(data).split('__KOLOPOLY_BUILD__').join(BUILD));
+  }
+  if (cleanUrl === '/sw.js') {
+    return Buffer.concat([data, Buffer.from('\n// kolopoly-build ' + BUILD + '\n')]);
+  }
+  return data;
+}
 const retention = createRetention({
   test: TEST,
   env: process.env,
@@ -1840,6 +1874,11 @@ function resolveMortgageChoice(room, player, choice) {
 const server = http.createServer((req, res) => {
   if (retention.accepts(req)) { retention.handle(req, res); return; }
   const cleanUrl = req.url.split('?')[0];
+  if (cleanUrl === '/api/version') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ ok: true, build: BUILD }));
+    return;
+  }
   // Invite landing support: whose room is this, before you join it.
   if (cleanUrl.startsWith('/api/room/')) {
     const code = cleanUrl.slice('/api/room/'.length).trim().toUpperCase();
@@ -1871,12 +1910,14 @@ const server = http.createServer((req, res) => {
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }
+    if (cleanUrl === '/' || cleanUrl === '/index.html' || cleanUrl === '/sw.js') data = stampAsset(cleanUrl, data);
     const type = MIME[path.extname(filePath)] || 'application/octet-stream';
     const headers = { 'Content-Type': type };
     // Vendor libraries and fonts change rarely: cache them hard. App files
     // stay no-cache so a fresh deploy always lands on phones immediately.
+    // The worker script is no-store so update() sees a new build at once.
     const cacheable = cleanUrl.startsWith('/vendor/') || cleanUrl.startsWith('/fonts/');
-    headers['Cache-Control'] = cacheable ? 'public, max-age=604800' : 'no-cache';
+    headers['Cache-Control'] = cleanUrl === '/sw.js' ? 'no-store' : (cacheable ? 'public, max-age=604800' : 'no-cache');
     const compressible = /^(text\/|application\/json|image\/svg)/.test(type);
     if (compressible && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
       headers['Content-Encoding'] = 'gzip';
