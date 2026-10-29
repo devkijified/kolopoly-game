@@ -2176,18 +2176,22 @@ function handleConnection(ws) {
     if (msg.type === 'quick_join') {
       const name = cleanName(msg.name);
       if (!name) return fail('Type your display name first.');
+      // Quick play only sits in a waiting public lobby of the mode the
+      // player picked. An explicit Classic pick is Classic. Everything
+      // else, including a missing pick, is Inflation, the default table.
+      // A waiting Classic room must not swallow an Inflation quick play.
+      const wantMode = msg.gameMode === 'classic' ? 'classic' : 'inflation';
       let target = null;
       for (const r of rooms.values()) {
         if (!r.isPublic || r.mode !== 'online' || r.status !== 'lobby') continue;
+        if (!r.settings || r.settings.gameMode !== wantMode) continue;
         const conn = r.players.filter((p) => p.connected).length;
         if (conn >= 1 && r.players.length < MAX_PLAYERS) { target = r; break; }
       }
       if (!target) {
-        // KP13 WS5: a fresh public room takes the mode the player picked
-        // on the landing (Inflation by default). Joining an existing
-        // room keeps that room's mode. sanitizeSettings refuses chaos in
-        // public rooms and forces the timed clock for Classic.
-        target = newRoom(makeCode(), true, 'online', sanitizeSettings({ gameMode: msg.gameMode }, true));
+        // A fresh public room takes that same mode. sanitizeSettings
+        // refuses chaos in public rooms and forces the timed clock for Classic.
+        target = newRoom(makeCode(), true, 'online', sanitizeSettings({ gameMode: wantMode }, true));
         rooms.set(target.code, target);
       }
       const quickClientId = cleanClientId(msg.clientId);

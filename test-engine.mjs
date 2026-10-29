@@ -1504,6 +1504,46 @@ try {
     }
     check('after grace the room closes: bots never play alone', gone);
   }
+
+  console.log('Q1: quick play matches only the picked mode; Inflation is the default');
+  {
+    const classicHost = new Client('ClassicHost');
+    await classicHost.connect();
+    classicHost.send('quick_join', { name: 'ClassicHost', token: 'danfo', clientId: 'quick-classic-host1', gameMode: 'classic' });
+    await classicHost.waitFor((s) => s.status === 'lobby' && s.players.length === 1, 'classic public lobby');
+    const classicCode = classicHost.state.code;
+    check('an explicit Classic quick play opens a Classic public room', classicHost.state.isPublic === true && classicHost.state.settings.gameMode === 'classic', classicHost.state.settings.gameMode);
+
+    const inf = new Client('InfPlayer');
+    await inf.connect();
+    inf.send('quick_join', { name: 'InfPlayer', token: 'keke', clientId: 'quick-inf-player1', gameMode: 'inflation' });
+    await inf.waitFor((s) => s.status === 'lobby' && s.players.some((p) => p.name === 'InfPlayer'), 'inflation public lobby');
+    const infCode = inf.state.code;
+    check('Inflation quick play does not sit in the waiting Classic room', infCode !== classicCode && inf.state.settings.gameMode === 'inflation' && inf.state.isPublic === true, infCode + ' ' + inf.state.settings.gameMode);
+
+    const inf2 = new Client('InfTwo');
+    await inf2.connect();
+    inf2.send('quick_join', { name: 'InfTwo', token: 'okada', clientId: 'quick-inf-player2', gameMode: 'inflation' });
+    await inf2.waitFor((s) => s.code === infCode && s.players.length === 2, 'second inflation seat');
+    check('a second Inflation quick play joins the waiting Inflation room', inf2.state.code === infCode && inf2.state.settings.gameMode === 'inflation');
+
+    const classic2 = new Client('ClassicTwo');
+    await classic2.connect();
+    classic2.send('quick_join', { name: 'ClassicTwo', token: 'generator', clientId: 'quick-classic-host2', gameMode: 'classic' });
+    await classic2.waitFor((s) => s.code === classicCode && s.players.length === 2, 'second classic seat');
+    check('a Classic quick play joins the waiting Classic room and skips Inflation', classic2.state.code === classicCode && classic2.state.settings.gameMode === 'classic' && classic2.state.code !== infCode);
+
+    const bare = new Client('Bare');
+    await bare.connect();
+    bare.send('quick_join', { name: 'Bare', token: 'boot', clientId: 'quick-bare-player1' });
+    await bare.waitFor((s) => s.players && s.players.some((p) => p.name === 'Bare'), 'default quick play');
+    check('a quick play with no mode is Inflation and does not enter Classic', bare.state.settings.gameMode === 'inflation' && bare.state.code === infCode && bare.state.code !== classicCode, bare.state.code + ' ' + bare.state.settings.gameMode);
+    classicHost.ws.close();
+    inf.ws.close();
+    inf2.ws.close();
+    classic2.ws.close();
+    bare.ws.close();
+  }
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

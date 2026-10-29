@@ -95,8 +95,18 @@ let selectedToken = (() => {
 // else lands on Inflation.
 let selectedGameMode = (() => { try { const v = localStorage.getItem('kolopolyGameMode'); return (v === 'classic' || v === 'inflation') ? v : 'inflation'; } catch (e) { return 'inflation'; } })();
 function paintGameMode() {
-  $('gameModeRow').querySelectorAll('[data-gmode]').forEach((x) => x.classList.toggle('sel', x.dataset.gmode === selectedGameMode));
+  document.querySelectorAll('#gameModeRow [data-gmode], #welcomeMode [data-gmode]').forEach((x) => {
+    const on = x.dataset.gmode === selectedGameMode;
+    x.classList.toggle('sel', on);
+    x.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   $('presetRow').classList.toggle('hidden', selectedGameMode !== 'inflation');
+}
+function chooseGameMode(mode) {
+  if (mode !== 'classic' && mode !== 'inflation') return;
+  selectedGameMode = mode;
+  try { localStorage.setItem('kolopolyGameMode', selectedGameMode); } catch (e) { }
+  paintGameMode();
 }
 let selectedRoomMode = 'online';
 let lastFeedSeq = 0;
@@ -975,11 +985,7 @@ for (const id of OPT_IDS) {
     } catch (e) { }
   });
 }
-$('gameModeRow').querySelectorAll('[data-gmode]').forEach((b) => b.addEventListener('click', () => {
-  selectedGameMode = b.dataset.gmode;
-  try { localStorage.setItem('kolopolyGameMode', selectedGameMode); } catch (e) { }
-  paintGameMode();
-}));
+document.querySelectorAll('#gameModeRow [data-gmode], #welcomeMode [data-gmode]').forEach((b) => b.addEventListener('click', () => chooseGameMode(b.dataset.gmode)));
 $('roomModeRow').querySelectorAll('[data-rmode]').forEach((b) => b.addEventListener('click', () => {
   selectedRoomMode = b.dataset.rmode;
   $('roomModeRow').querySelectorAll('[data-rmode]').forEach((x) => x.classList.toggle('sel', x === b));

@@ -125,22 +125,124 @@
     renderShelf(view.inventory, view.uses, view.canClaim ? view.nextDrop : null);
     paintShelfBtn(view);
   }
+  // The phone rig can force a permission or a missing push stack when it
+  // is proving the opt-in states. A real visit never sets these.
+  function notificationPermission() {
+    try { if (typeof window.__kpForcePerm === 'string') return window.__kpForcePerm; } catch (e) { /* use the browser */ }
+    if (typeof Notification === 'undefined') return 'unsupported';
+    return Notification.permission;
+  }
+  function browserCanPush() {
+    try { if (window.__kpForcePush === 'off') return false; } catch (e) { /* use the browser */ }
+    return typeof Notification !== 'undefined' && 'serviceWorker' in navigator && typeof window.PushManager === 'function';
+  }
+  function iosNeedsIcon() {
+    return ios() && !standalone() && notificationPermission() !== 'granted';
+  }
+  function pushDenied() {
+    const perm = notificationPermission();
+    if (perm === 'denied') return true;
+    if (perm === 'granted') return false;
+    return !!serverDenied;
+  }
+  function whispersOn() {
+    return browserCanPush() && notificationPermission() === 'granted' && subscribed && !serverMuted && !localMuted() && !pushDenied();
+  }
+  function canAskWhisper() {
+    if (!pushEnabled || !browserCanPush()) return false;
+    if (pushDenied() || whispersOn()) return false;
+    if (localMuted() || serverMuted) return false;
+    if (iosNeedsIcon()) return false;
+    return true;
+  }
   function renderSwitch() {
     const box = $('optWhisper');
     const cap = $('whisperCap');
+    const row = box ? box.closest('.whisper-row') : null;
     if (!box) return;
     syncing = true;
-    const denied = serverDenied || (typeof Notification !== 'undefined' && Notification.permission === 'denied');
-    box.checked = !denied && !localMuted() && subscribed && !serverMuted;
-    box.disabled = !clientId() || !pushEnabled;
+    const denied = pushDenied();
+    const on = whispersOn();
+    const canBrowser = browserCanPush();
+    const muted = !on && !denied && (localMuted() || serverMuted);
+    box.checked = on;
+    box.disabled = !clientId() || !pushEnabled || !canBrowser || denied;
+    let state = '';
     if (cap) {
-      if (!pushEnabled) cap.textContent = 'Off';
-      else if (denied) cap.textContent = 'Blocked';
-      else if (localMuted() || serverMuted) cap.textContent = 'Muted';
-      else if (subscribed) cap.textContent = 'On';
+      if (!pushEnabled) { cap.textContent = 'Off'; state = 'off'; }
+      else if (!canBrowser) { cap.textContent = 'Unavailable'; state = 'unavailable'; }
+      else if (denied) { cap.textContent = 'Blocked'; state = 'blocked'; }
+      else if (muted) { cap.textContent = 'Muted'; state = 'muted'; }
+      else if (on) { cap.textContent = 'On'; state = 'on'; }
       else cap.textContent = '';
+      cap.dataset.state = state;
     }
+    if (row) row.classList.toggle('is-on', on);
     syncing = false;
+    paintSheet();
+  }
+  function paintSheet() {
+    const sheet = $('retentionSheet');
+    if (!sheet || sheet.classList.contains('hidden')) return;
+    const reason = sheet.dataset.reason || '';
+    const canInstall = !standalone() && (!!deferredInstall || ios());
+    const ask = canAskWhisper();
+    const on = whispersOn();
+    const denied = pushDenied();
+    const muted = !on && (localMuted() || serverMuted);
+    const perm = notificationPermission();
+    const title = $('retentionTitle');
+    const body = $('retentionBody');
+    const iosLine = $('retentionIos');
+    const installBtn = $('retentionInstall');
+    const whisperBtn = $('retentionWhisper');
+    const later = $('retentionLater');
+    const live = $('retentionLive');
+    const status = $('retentionStatus');
+    const close = $('retentionClose');
+    if (title) title.textContent = reason === 'win' ? 'The table remembers a landlord' : 'The market knows your shelf';
+    if (iosLine) {
+      iosLine.textContent = ios() && !standalone()
+        ? 'On iPhone, tap Share, then Add to Home Screen. Whispers only arrive from that icon.'
+        : '';
+    }
+    let statusText = '';
+    if (on) {
+      if (body) body.textContent = canInstall
+        ? 'Whispers are on. Add Kolopoly to your home screen so the table stays one tap away.'
+        : 'Whispers are on. The table will tap you when the pot swells, your seat is held, or the next drop is ready.';
+    } else if (denied) {
+      statusText = 'Whispers blocked';
+      if (body) body.textContent = 'This phone already refused whispers. Turn them on in the phone settings if you change your mind. The shelf still works.';
+    } else if (!browserCanPush()) {
+      statusText = 'Whispers unavailable';
+      if (body) body.textContent = 'This phone cannot take whispers. The shelf still works.';
+    } else if (!pushEnabled) {
+      statusText = 'Whispers off';
+      if (body) body.textContent = 'Whispers are not turned on for this server yet. Your shelf still keeps the goods.';
+    } else if (iosNeedsIcon()) {
+      if (body) body.textContent = 'Add Kolopoly to your home screen so the table stays one tap away. Whispers only arrive from that icon.';
+    } else if (muted) {
+      statusText = 'Whispers muted';
+      if (body) body.textContent = 'Whispers are quiet on this phone. Turn them back on when you want the table to tap you.';
+    } else if (perm === 'granted') {
+      if (body) body.textContent = 'This phone already allowed whispers. One tap finishes it. The table will tap you when the pot swells, your seat is held, or the next drop is ready.';
+    } else if (body) {
+      body.textContent = 'Add Kolopoly to your home screen so the table stays one tap away. Whispers fit tell you when the Owambe pot swells, when your seat dey held, or when the next drop is ready.';
+    }
+    if (status) {
+      status.textContent = statusText;
+      status.classList.toggle('hidden', !statusText);
+    }
+    if (live) live.classList.toggle('hidden', !on);
+    if (installBtn) installBtn.classList.toggle('hidden', !canInstall || (ios() && !deferredInstall));
+    const showWhisperBtn = (ask || (muted && !denied && browserCanPush() && pushEnabled && !iosNeedsIcon()));
+    if (whisperBtn) whisperBtn.classList.toggle('hidden', !showWhisperBtn);
+    // "Not now" is the decline. It stays only while the ask is still open.
+    // Once the phone has allowed whispers, or already refused them, it goes.
+    const showLater = !on && perm !== 'granted' && !denied && browserCanPush() && pushEnabled && !muted && (ask || iosNeedsIcon());
+    if (later) later.classList.toggle('hidden', !showLater);
+    if (close) close.classList.toggle('hidden', showLater);
   }
 
   async function refresh() {
@@ -187,7 +289,7 @@
       renderSwitch();
       return false;
     }
-    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+    if (notificationPermission() === 'denied') {
       serverDenied = true;
       try { await post('/api/push/denied', {}); } catch (e) { /* local denial still stands */ }
       renderSwitch();
@@ -198,13 +300,14 @@
       renderSwitch();
       return false;
     }
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (!browserCanPush()) {
       setLine('This phone cannot take whispers. The shelf still works.');
       renderSwitch();
       return false;
     }
-    let perm = Notification.permission;
+    let perm = notificationPermission();
     if (perm !== 'granted') perm = await Notification.requestPermission();
+    try { if (perm === 'granted') window.__kpForcePerm = 'granted'; } catch (e) { /* the browser permission still stands */ }
     if (perm !== 'granted') {
       if (perm === 'denied') {
         serverDenied = true;
@@ -254,29 +357,15 @@
   function maybeAsk(reason) {
     if (asking || snoozed()) return;
     const canInstall = !standalone() && (!!deferredInstall || ios());
-    const denied = serverDenied || (typeof Notification !== 'undefined' && Notification.permission === 'denied');
-    const whispersOn = subscribed && !serverMuted && !localMuted();
-    const canWhisper = pushEnabled && !denied && !whispersOn && !localMuted();
-    if (!canInstall && !canWhisper) return;
+    // A phone that already answered, with nothing left to install, stays
+    // quiet. The shelf switch is the on, blocked, or muted state.
+    if (!canInstall && !canAskWhisper()) return;
     const sheet = $('retentionSheet');
     if (!sheet) return;
     asking = true;
-    const title = $('retentionTitle');
-    const body = $('retentionBody');
-    const iosLine = $('retentionIos');
-    const installBtn = $('retentionInstall');
-    const whisperBtn = $('retentionWhisper');
-    if (title) title.textContent = reason === 'win' ? 'The table remembers a landlord' : 'The market knows your shelf';
-    if (body) body.textContent = 'Add Kolopoly to your home screen so the table stays one tap away. Whispers fit tell you when the Owambe pot swells, when your seat dey held, or when the next drop is ready.';
-    if (iosLine) {
-      iosLine.textContent = ios() && !standalone()
-        ? 'On iPhone, tap Share, then Add to Home Screen. Whispers only arrive from that icon.'
-        : '';
-    }
-    if (installBtn) installBtn.classList.toggle('hidden', !canInstall || (ios() && !deferredInstall));
-    if (whisperBtn) whisperBtn.classList.toggle('hidden', !canWhisper);
-    if (denied && body) body.textContent = 'Add Kolopoly to your home screen so the table stays one tap away. Whispers stay off. This phone already refused them.';
+    sheet.dataset.reason = reason || '';
     sheet.classList.remove('hidden');
+    paintSheet();
   }
 
   async function onClaim() {
@@ -314,8 +403,8 @@
     const join = $('joinCard');
     if (!market || !welcome || !join) return;
     if (!welcome.classList.contains('hidden')) {
-      const anchor = $('welcomeQuick') || $('welcomeCreate');
-      if (anchor) welcome.insertBefore(market, anchor);
+      const anchor = $('welcomePlay') || $('welcomeQuick') || $('welcomeCreate');
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(market, anchor);
       else welcome.appendChild(market);
     } else {
       join.appendChild(market);
@@ -346,11 +435,16 @@
     if (box.checked) enableWhispers().then((ok) => { if (!ok) renderSwitch(); });
     else muteWhispers(true);
   });
-  const later = $('retentionLater');
-  if (later) later.addEventListener('click', () => {
+  function dismissSheet() {
     try { localStorage.setItem('kolopolyRetentionLater', String(Date.now() + SNOOZE_MS)); } catch (e) { /* still close */ }
     hideSheet();
-  });
+  }
+  const later = $('retentionLater');
+  if (later) later.addEventListener('click', dismissSheet);
+  const closeBtn = $('retentionClose');
+  if (closeBtn) closeBtn.addEventListener('click', dismissSheet);
+  const offBtn = $('retentionOff');
+  if (offBtn) offBtn.addEventListener('click', () => { muteWhispers(true); });
   const installBtn = $('retentionInstall');
   if (installBtn) installBtn.addEventListener('click', async () => {
     if (deferredInstall) {
@@ -364,9 +458,7 @@
     if (iosLine) iosLine.textContent = 'On iPhone, tap Share, then Add to Home Screen. Whispers only arrive from that icon.';
   });
   const whisperBtn = $('retentionWhisper');
-  if (whisperBtn) whisperBtn.addEventListener('click', () => {
-    enableWhispers().then((ok) => { if (ok) whisperBtn.classList.add('hidden'); });
-  });
+  if (whisperBtn) whisperBtn.addEventListener('click', () => { enableWhispers(); });
 
   try { if (localStorage.getItem('kolopolyAudio') === '3') setLocalMuted(true); } catch (e) { /* sound pref can be unread */ }
   placeMarket();
@@ -379,6 +471,7 @@
       if (refreshed) maybeAsk('win');
     },
     placeMarket,
-    muteFromSound() { muteWhispers(true); }
+    muteFromSound() { muteWhispers(true); },
+    refresh
   };
 })();

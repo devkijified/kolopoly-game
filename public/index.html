@@ -249,7 +249,18 @@
       <h2 class="welcome-title" id="welcomeTitle"></h2>
     </div>
     <p class="caption hidden" id="welcomeSub"></p>
-    <button class="btn play-go block" id="welcomeQuick">Quick play</button>
+    <div class="home-play" id="welcomePlay">
+      <div class="home-mode" id="welcomeMode" role="group" aria-label="Quick play mode">
+        <button type="button" class="home-mode-pick sel" data-gmode="inflation" aria-pressed="true">
+          <span class="hm-t">Inflation</span>
+          <span class="hm-k">Most played</span>
+        </button>
+        <button type="button" class="home-mode-pick" data-gmode="classic" aria-pressed="false">
+          <span class="hm-t">Classic</span>
+        </button>
+      </div>
+      <button class="btn play-go block" id="welcomeQuick">Quick play</button>
+    </div>
     <div class="home-secondary">
       <button class="btn ghost" id="welcomeCreate">Create room</button>
       <button class="btn ghost" id="welcomeJoinCode">Join</button>
@@ -466,11 +477,18 @@
   <h2 class="title" id="retentionTitle">Keep this table close</h2>
   <p class="caption" id="retentionBody"></p>
   <p class="caption" id="retentionIos"></p>
+  <p class="whisper-state hidden" id="retentionStatus"></p>
+  <div class="whisper-live hidden" id="retentionLive">
+    <span class="whisper-live-mark" aria-hidden="true"></span>
+    <span class="whisper-live-name">Whispers on</span>
+    <button type="button" class="whisper-live-off" id="retentionOff">Turn off</button>
+  </div>
   <div class="btnrow">
     <button class="btn" type="button" id="retentionInstall">Add to Home Screen</button>
     <button class="btn green" type="button" id="retentionWhisper">Turn on whispers</button>
   </div>
   <button class="btn ghost block mt8" type="button" id="retentionLater">Not now</button>
+  <button class="btn ghost block mt8 hidden" type="button" id="retentionClose">Close</button>
 </div>
 
 <script src="/vendor/qrcode.js"></script>
