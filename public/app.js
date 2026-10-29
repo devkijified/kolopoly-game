@@ -2,6 +2,47 @@
 // KOLOPOLY client. Sends intents only; the server owns dice, money and deeds.
 // Test hooks: window.__kolopolyState() and window.__kolopolySend(type, obj).
 const $ = (id) => document.getElementById(id);
+// The game column is sized from --app-h, a pixel lock of the layout
+// viewport. 100dvh and visualViewport.height both follow the mobile
+// toolbar. A top alert makes that bar show, the board and dock shrink
+// (and the GL buffer clears to a black edge), then they snap back.
+// Shrinks the size of a toolbar are ignored. Rotation still applies.
+(function lockAppShell() {
+  let lockedH = 0;
+  let lockedW = 0;
+  function alertUp() {
+    const box = document.getElementById('alerts');
+    return !!(box && box.childElementCount);
+  }
+  function apply(h) {
+    lockedH = h;
+    document.documentElement.style.setProperty('--app-h', h + 'px');
+  }
+  function consider(h, w, reason) {
+    h = Math.round(h || 0);
+    w = Math.round(w || 0);
+    if (!h) return lockedH;
+    if (!lockedH) { apply(h); lockedW = w; return lockedH; }
+    if (alertUp() && reason !== 'orient') return lockedH;
+    const dw = Math.abs(w - lockedW);
+    const dh = h - lockedH;
+    if (reason !== 'orient') {
+      if (dw < 48 && dh < 0 && -dh < 180) return lockedH;
+      if (dw < 48 && Math.abs(dh) < 32) return lockedH;
+    }
+    apply(h);
+    lockedW = w;
+    return lockedH;
+  }
+  function refresh(reason) { return consider(window.innerHeight, window.innerWidth, reason || 'resize'); }
+  refresh('boot');
+  window.addEventListener('resize', () => refresh('resize'));
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => refresh('orient'), 80);
+    setTimeout(() => refresh('orient'), 320);
+  });
+  window.KPShell = { height: () => lockedH, consider, refresh, alertOpen: alertUp };
+})();
 // KP9: the header carries ONE meta chip. The room chip also carries the
 // running match clock while a timed game plays ("Room NKNZ · 59:52"), so
 // the old full-width Classic bar is gone and its space went to the board.
@@ -179,6 +220,7 @@ function audio() {
       master.connect(comp); comp.connect(hp); hp.connect(audioCtx.destination);
       busMain = audioCtx.createGain(); busMain.gain.value = 0.9; busMain.connect(master);
       busAmbient = audioCtx.createGain(); busAmbient.gain.value = 0.8; busAmbient.connect(master);
+      if (typeof armSamples === 'function') armSamples(audioCtx);
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
@@ -290,6 +332,69 @@ function logSfx(event, beatT, beat) {
   if (window.__kpSfxLog.length > 300) window.__kpSfxLog.splice(0, window.__kpSfxLog.length - 300);
 }
 window.KPSfxEvents = ['diceStart', 'diceSettle', 'hop', 'land', 'credit', 'debit', 'buy', 'buildDuplex', 'buildMansion', 'stamp', 'siren', 'clang', 'cardSwish', 'cardSnap', 'cardWahala', 'cardFamily', 'auctionTick', 'gavel', 'phaseLetter', 'newsSting', 'phaseToll', 'turnRise', 'cheer', 'chime', 'tap', 'decline', 'tax', 'lose', 'timeout'];
+// Cash and siren are short self-generated samples (ffmpeg, public
+// domain, a few KB each). Money uses the register. The siren plays
+// only for a real siren beat (Kirikiri), never for a buy.
+const SAMPLE_FILES = { cash: '/sfx/cash.mp3', siren: '/sfx/siren.mp3' };
+const sampleRaw = {};
+const sampleBuf = {};
+window.__kpSamplePlays = [];
+function primeSamples() {
+  for (const name of Object.keys(SAMPLE_FILES)) {
+    sampleRaw[name] = fetch(SAMPLE_FILES[name]).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+  }
+}
+primeSamples();
+function decodeSample(ctx, name) {
+  if (sampleBuf[name]) return Promise.resolve(sampleBuf[name]);
+  const pending = sampleRaw[name];
+  if (!ctx || !pending) return Promise.resolve(null);
+  return pending.then((ab) => {
+    if (!ab) return null;
+    if (sampleBuf[name]) return sampleBuf[name];
+    return ctx.decodeAudioData(ab.slice(0)).then((buf) => { sampleBuf[name] = buf; return buf; });
+  }).catch(() => null);
+}
+function armSamples(ctx) {
+  for (const name of Object.keys(SAMPLE_FILES)) decodeSample(ctx, name);
+}
+function playBuffer(ctx, buf, gain) {
+  if (!ctx || !buf) return;
+  whenRunning(ctx, () => {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = gain == null ? 0.85 : gain;
+    src.connect(g);
+    g.connect(busMain);
+    try { src.start(); } catch (e) { /* already started */ }
+  });
+}
+function playSample(name, gain) {
+  const ctx = audio();
+  if (!ctx) return;
+  window.__kpSamplePlays.push(name);
+  if (window.__kpSamplePlays.length > 40) window.__kpSamplePlays.splice(0, window.__kpSamplePlays.length - 40);
+  if (sampleBuf[name]) { playBuffer(ctx, sampleBuf[name], gain); return; }
+  const started = performance.now();
+  decodeSample(ctx, name).then((buf) => {
+    if (buf && performance.now() - started < 900) playBuffer(ctx, buf, gain);
+    else if (!buf && name === 'cash') cashInCue(0);
+  });
+}
+let lastCashAt = 0;
+function playCash(gain) {
+  const now = performance.now();
+  if (now - lastCashAt < 420) return;
+  lastCashAt = now;
+  playSample('cash', gain == null ? 0.85 : gain);
+}
+window.KPPrepareSfx = () => {
+  const ctx = audio();
+  if (!ctx) return Promise.resolve(false);
+  return Promise.all(Object.keys(SAMPLE_FILES).map((name) => decodeSample(ctx, name)))
+    .then(() => !!(sampleBuf.cash && sampleBuf.siren));
+};
 const jr = (amt) => 1 + (Math.random() * 2 - 1) * amt; // per-play pitch/timing jitter
 function coinTick(at, freq, vol) {
   // One coin strike: two detuned sine partials plus a bandpassed click.
@@ -341,20 +446,20 @@ function knockSfx(at, vol) {
 }
 function paperSlide(at, dur) { noiseHit({ at: at || 0, dur: dur || 0.22, vol: 0.04, freq: 850, freq2: 2400, q: 1.1 }); }
 const sfx = {
-  credit(amount) { duckAmbient(); cashInCue(amount || 0); },
-  debit() { coinPour(); },
+  credit(amount) { duckAmbient(); playCash(0.9); },
+  debit() { playCash(0.8); },
   diceStart() { for (let i = 0; i < 7; i++) noiseHit({ at: i * 0.12 * jr(0.25), dur: 0.035, vol: 0.07 * (1 - i / 9), freq: 1700 + Math.random() * 900, q: 1.6 }); },
   diceSettle(doubles) { knockSfx(0, 0.1); knockSfx(0.09, 0.08); if (doubles) sfx.horn(); },
   hop() { noiseHit({ dur: 0.04, vol: 0.06, freq: 700, ftype: 'lowpass' }); tone({ f: 320, dur: 0.045, vol: 0.045 }); },
   land() { knockSfx(0, 0.12); },
-  buy() { for (let i = 0; i < 6; i++) coinTick(i * 0.06, 5200 - i * 150, 0.05); paperSlide(0.05, 0.25); },
+  buy() { playCash(0.9); },
   buildDuplex() { knockSfx(0, 0.08); knockSfx(0.13, 0.08); for (let i = 0; i < 3; i++) coinTick(0.26 + i * 0.06, 5000, 0.045); },
   buildMansion() { coinCascade(500000, 700); [523, 659, 784].forEach((f, i) => tone({ f, at: 0.1 + i * 0.09, dur: 0.3, type: 'triangle', vol: 0.045 })); },
   build(kind) { if (kind === 'mansion') sfx.buildMansion(); else sfx.buildDuplex(); },
   stamp() { paperSlide(0, 0.1); tone({ f: 130, f2: 60, at: 0.05, dur: 0.16, vol: 0.13 }); noiseHit({ at: 0.05, dur: 0.07, vol: 0.05, freq: 420, ftype: 'lowpass' }); },
   // The siren alone; the cell clang is its own beat, retimed to the
   // door visual (KP13 baked it into the siren at a fixed offset).
-  siren() { duckAmbient(); for (let i = 0; i < 7; i++) tone({ f: i % 2 ? 720 : 960, at: i * 0.17, dur: 0.17, type: 'triangle', vol: 0.05 }); },
+  siren() { duckAmbient(); playSample('siren', 0.62); },
   clang(at) { tone({ f: 1400, at: at || 0, dur: 0.3, type: 'square', vol: 0.03 }); tone({ f: 220, at: (at || 0) + 0.02, dur: 0.4, type: 'triangle', vol: 0.075 }); },
   // Up NEPA: crowd murmur swell under the bright return notes.
   chime() { noiseHit({ dur: 0.9, vol: 0.04, freq: 480, ftype: 'lowpass', attack: 0.3 }); tone({ f: 880, at: 0.05, dur: 0.14, vol: 0.07 }); tone({ f: 1174, at: 0.16, dur: 0.2, vol: 0.07 }); },
@@ -399,6 +504,7 @@ window.KPBeat = (name, data) => {
   } catch (e) { /* sound is garnish, never a blocker */ }
 };
 window.KPSfxHop = () => sfx.hop();
+window.KPPreviewSfx = (name) => { if (sfx[name]) sfx[name](); };
 function renderMuteBtn() {
   const b = $('muteBtn');
   b.innerHTML = window.icon(audioState === 1 ? 'soundVoice' : audioState === 2 ? 'sound' : 'mute', 20);
@@ -1009,6 +1115,8 @@ if (inviteCode) {
 // ---------------------------------------------------------------------------
 function showView(id) {
   for (const v of ['view-landing', 'view-lobby', 'view-game']) $(v).classList.toggle('active', v === id);
+  document.body.classList.toggle('in-game', id === 'view-game');
+  if (id === 'view-game' && window.KPShell) window.KPShell.refresh('enter');
 }
 function focusPlayer() {
   if (!state) return null;
@@ -1385,16 +1493,23 @@ function wireSheetButtons(root, viewer) {
   root.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { root.closest('.scrim').classList.remove('show'); }));
   root.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
     const space = Number(b.dataset.space);
+    const act = b.dataset.act;
+    const scrim = root.closest('.scrim');
     const as = state.mode === 'pass' ? viewer : undefined;
     const sendAct = (type, obj) => { const o = Object.assign({}, obj || {}); if (as != null) o.as = as; send(type, o); };
+    // Deals sit on the deed itself. These open their own sheet.
+    if (act === 'deal-swap') { if (scrim) scrim.classList.remove('show'); openTrade(null, space); return; }
+    if (act === 'deal-pass') { if (scrim) scrim.classList.remove('show'); openDeedPass(space); return; }
+    if (act === 'deal-loan') { if (scrim) scrim.classList.remove('show'); openDeedLoan(space); return; }
+    if (act === 'deal-break') { sendAs('call_deal_break', {}); if (scrim) scrim.classList.remove('show'); return; }
     // KP14: build clicks stay silent. A click sound would lie when the
     // server refuses; the build beat sounds when the building lands.
-    if (b.dataset.act === 'build-duplex') { sendAct('build', { space, kind: 'duplex' }); }
-    if (b.dataset.act === 'build-mansion') { sendAct('build', { space, kind: 'mansion' }); }
-    if (b.dataset.act === 'sell-building') sendAct('sell_building', { space });
-    if (b.dataset.act === 'mortgage') sendAct('mortgage', { space });
-    if (b.dataset.act === 'unmortgage') sendAct('unmortgage', { space });
-    setTimeout(() => root.closest('.scrim').classList.remove('show'), 120);
+    if (act === 'build-duplex') { sendAct('build', { space, kind: 'duplex' }); }
+    if (act === 'build-mansion') { sendAct('build', { space, kind: 'mansion' }); }
+    if (act === 'sell-building') sendAct('sell_building', { space });
+    if (act === 'mortgage') sendAct('mortgage', { space });
+    if (act === 'unmortgage') sendAct('unmortgage', { space });
+    setTimeout(() => { if (scrim) scrim.classList.remove('show'); }, 120);
   }));
 }
 
@@ -2012,48 +2127,98 @@ function openMyDeeds() {
     onSpaceTap(Number(b.dataset.openDeed));
   }));
 }
-function openTrade(presetTo) {
+function swapDeedGrid(playerId, room) {
+  const ids = window.KP_DATA.OWNABLE.filter((i) => room.props[i] && room.props[i].o === playerId);
+  if (!ids.length) return '<p class="caption">No deeds yet.</p>';
+  return '<div class="swap-grid">' + ids.map((i) => {
+    const sp = window.KP_DATA.SPACES[i];
+    const pr = room.props[i];
+    const band = sp.type === 'street' ? window.KP_DATA.GROUPS[sp.group].color : (sp.type === 'station' ? '#3d3d3d' : '#3f7fbf');
+    const tag = pr.b >= 5 ? 'Mansion' : pr.b > 0 ? (pr.b + ' duplex') : pr.m ? 'Mortgaged' : pr.pl ? 'Pledged' : 'Site';
+    return '<button type="button" class="swap-deed" data-deed="' + i + '" aria-pressed="false">' +
+      '<span class="swap-band" style="background:' + band + '"></span>' +
+      '<span class="swap-tick" aria-hidden="true"></span>' +
+      '<span class="swap-name">' + esc(sp.name) + '</span>' +
+      '<span class="swap-tag">' + tag + '</span></button>';
+  }).join('') + '</div>';
+}
+function markSwapDeed(rootId, space) {
+  const b = document.querySelector('#' + rootId + ' .swap-deed[data-deed="' + space + '"]');
+  if (!b) return;
+  b.classList.add('on');
+  b.setAttribute('aria-pressed', 'true');
+}
+function openTrade(presetTo, presetSpace) {
   const room = state;
   const me = focusPlayer();
   if (!me || spectator) return;
   const others = room.players.filter((p) => p.id !== me.id && !p.bankrupt);
   if (!others.length) { toast('No living player to trade with.'); return; }
+  let partner = presetTo;
+  if (partner == null && presetSpace != null && room.props[presetSpace] && room.props[presetSpace].o != null && room.props[presetSpace].o !== me.id) {
+    partner = room.props[presetSpace].o;
+  }
   $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + (room.inf ? 'Propose a swap contract' : 'Propose a trade') + '</h3>' +
     (room.mode === 'pass' ? '<label style="display:block;font-weight:800;font-size:12px;margin:10px 0 6px;">You dey act as</label><select class="textin" id="actAs">' + room.players.filter((p) => !p.bankrupt).map((p) => '<option value="' + p.id + '"' + (p.id === me.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>' : '') +
     (room.inf ? '<p class="caption">For Inflation Mode, swaps na contracts: propose anytime, except during an auction, another player debt, or a pause. The other side gets 30 seconds to answer. If e no dey for contract board, e no happen.</p>' : '<p class="caption">Trades fit happen any time. Deeds with buildings for their set no fit trade until the buildings sell.</p>') +
     '<label style="display:block;font-weight:800;font-size:12px;margin:12px 0 6px;">Trade with</label>' +
-    '<select class="textin" id="tradeTo">' + others.map((p) => '<option value="' + p.id + '"' + (presetTo != null && Number(presetTo) === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>' +
-    '<div class="trade-cols mt8"><div><b>You give</b><input class="num-in mt8" id="giveCash" type="number" min="0" placeholder="Cash ₦">' +
-    '<div class="mt8" id="giveDeeds">' + deedRowsFor(me.id, room, true) + '</div>' +
+    '<select class="textin" id="tradeTo">' + others.map((p) => '<option value="' + p.id + '"' + (partner != null && Number(partner) === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>' +
+    '<div class="trade-side"><div class="trade-side-h">You give</div><input class="num-in" id="giveCash" type="number" min="0" inputmode="numeric" placeholder="Cash ₦">' +
+    '<div class="mt8" id="giveDeeds">' + swapDeedGrid(me.id, room) + '</div>' +
     '<label class="deed-check"><input type="number" id="giveGoojf" min="0" max="' + me.goojf + '" value="0" style="width:64px;"> <span>Get Out cards (you hold ' + me.goojf + ')</span></label></div>' +
-    '<div><b>You want</b><input class="num-in mt8" id="wantCash" type="number" min="0" placeholder="Cash ₦">' +
+    '<div class="trade-side"><div class="trade-side-h">You want</div><input class="num-in" id="wantCash" type="number" min="0" inputmode="numeric" placeholder="Cash ₦">' +
     '<div class="mt8" id="wantDeeds"></div>' +
-    '<label class="deed-check"><input type="number" id="wantGoojf" min="0" value="0" style="width:64px;"> <span>Get Out cards</span></label></div></div>' +
+    '<label class="deed-check"><input type="number" id="wantGoojf" min="0" value="0" style="width:64px;"> <span>Get Out cards</span></label></div>' +
     '<div id="honourBox"></div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Cancel</button><button class="btn" id="tradeGo">Propose</button></div>';
   $('listScrim').classList.add('show');
   wireSheetButtons($('listSheet'), me.id);
+  const actSel = $('actAs');
+  const actorId = () => (actSel ? Number(actSel.value) : me.id);
+  const fillHonour = () => {
+    if (!room.inf) { $('honourBox').innerHTML = ''; return; }
+    const checked = Array.from($('wantDeeds').querySelectorAll('.swap-deed.on')).map((c) => Number(c.dataset.deed));
+    const withPass = checked.filter((i) => room.inf.contracts.some((c) => c.type === 'pass' && c.street === i));
+    $('honourBox').innerHTML = withPass.length
+      ? '<p class="caption mt8">Pass chips dey on streets you dey request. Tick the ones you go honour as new owner:</p>' + withPass.map((i) => '<label class="deed-check"><input type="checkbox" data-honour-req="' + i + '"><span>Honour Pass on ' + esc(window.KP_DATA.SPACES[i].name) + '</span></label>').join('')
+      : '';
+  };
+  const applyPreset = () => {
+    if (presetSpace == null) return;
+    const owner = room.props[presetSpace] && room.props[presetSpace].o;
+    const side = owner === actorId() ? 'giveDeeds' : 'wantDeeds';
+    markSwapDeed(side, presetSpace);
+    fillHonour();
+  };
   const fillWant = () => {
     const toId = Number($('tradeTo').value);
-    $('wantDeeds').innerHTML = deedRowsFor(toId, room, true);
-    if (room.inf) {
-      const checked = Array.from($('wantDeeds').querySelectorAll('[data-deed]:checked')).map((c) => Number(c.dataset.deed));
-      const withPass = checked.filter((i) => room.inf.contracts.some((c) => c.type === 'pass' && c.street === i));
-      $('honourBox').innerHTML = withPass.length
-        ? '<p class="caption mt8">Pass chips dey on streets you dey request. Tick the ones you go honour as new owner:</p>' + withPass.map((i) => '<label class="deed-check"><input type="checkbox" data-honour-req="' + i + '"><span>Honour Pass on ' + esc(window.KP_DATA.SPACES[i].name) + '</span></label>').join('')
-        : '';
-      $('wantDeeds').querySelectorAll('[data-deed]').forEach((c) => c.addEventListener('change', fillWant));
-    }
+    $('wantDeeds').innerHTML = swapDeedGrid(toId, room);
+    applyPreset();
   };
+  const toggleCard = (b) => {
+    const on = !b.classList.contains('on');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
+  $('giveDeeds').addEventListener('click', (e) => {
+    const b = e.target.closest('.swap-deed');
+    if (!b) return;
+    toggleCard(b);
+  });
+  $('wantDeeds').addEventListener('click', (e) => {
+    const b = e.target.closest('.swap-deed');
+    if (!b) return;
+    toggleCard(b);
+    fillHonour();
+  });
   $('tradeTo').addEventListener('change', fillWant);
-  const actSel = $('actAs');
   if (actSel) actSel.addEventListener('change', () => {
-    $('giveDeeds').innerHTML = deedRowsFor(Number(actSel.value), room, true);
+    $('giveDeeds').innerHTML = swapDeedGrid(Number(actSel.value), room);
     fillWant();
   });
   fillWant();
   $('tradeGo').addEventListener('click', () => {
-    const grab = (rootId) => Array.from($(rootId).querySelectorAll('[data-deed]:checked')).map((c) => Number(c.dataset.deed));
+    const grab = (rootId) => Array.from($(rootId).querySelectorAll('.swap-deed.on')).map((c) => Number(c.dataset.deed));
     const honour = Array.from($('listSheet').querySelectorAll('[data-honour-req]:checked')).map((c) => Number(c.dataset.honourReq));
     const o = {
       to: Number($('tradeTo').value),
@@ -2063,6 +2228,52 @@ function openTrade(presetTo) {
     };
     if (room.mode === 'pass') { const sel = $('actAs'); o.as = sel ? Number(sel.value) : me.id; }
     send('trade_propose', o);
+    closeScrim('listScrim');
+  });
+}
+function openDeedPass(space) {
+  const room = state;
+  const me = focusPlayer();
+  if (!room || !room.inf || !me) return;
+  const sp = window.KP_DATA.SPACES[space];
+  const ownerId = room.props[space] && room.props[space].o;
+  const owner = byId(ownerId);
+  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">Buy a Pass</h3>' +
+    '<p class="lead">' + esc(sp.name) + (owner ? ' · Owner: <b>' + esc(owner.name) + '</b>' : '') + '</p>' +
+    '<p class="caption">A chip means: when you land here and rent suppose fire, you pay ₦0 and one chip burns. Chips die at this phase end.</p>' +
+    '<div class="join-row mt8"><select class="textin" id="passChips"><option value="1">1 chip</option><option value="2">2 chips</option></select>' +
+    '<input class="textin" id="passPrice" type="number" min="5000" inputmode="numeric" placeholder="Price ₦ (min 5,000)" style="text-transform:none;letter-spacing:normal;text-align:left;"></div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Cancel</button><button class="btn" id="passGo">Propose Pass</button></div>';
+  $('listScrim').classList.add('show');
+  wireSheetButtons($('listSheet'), me.id);
+  $('passGo').addEventListener('click', () => {
+    const o = { kind: 'pass', street: space, chips: Number($('passChips').value), price: Number($('passPrice').value || 0) };
+    if (room.mode === 'pass') o.as = me.id;
+    send('contract_propose', o);
+    closeScrim('listScrim');
+  });
+}
+function openDeedLoan(space) {
+  const room = state;
+  const me = focusPlayer();
+  if (!room || !room.inf || !me) return;
+  const sp = window.KP_DATA.SPACES[space];
+  const lenders = room.players.filter((p) => p.id !== me.id && !p.bankrupt);
+  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">Pledge a loan</h3>' +
+    '<p class="lead">Security: <b>' + esc(sp.name) + '</b></p>' +
+    '<p class="caption">Phase 2 and up. Max 80 percent of the printed price (' + fmtN(Math.floor(sp.price * 0.8)) + '). Interest na one flat pick.</p>' +
+    '<label style="display:block;font-weight:800;font-size:12px;margin:8px 0 6px;">Lender</label>' +
+    '<select class="textin" id="loanLender">' + lenders.map((p) => '<option value="' + p.id + '">' + esc(p.name) + '</option>').join('') + '</select>' +
+    '<div class="join-row mt8"><input class="textin" id="loanAmount" type="number" min="0" inputmode="numeric" placeholder="Amount ₦" style="text-transform:none;letter-spacing:normal;text-align:left;">' +
+    '<select class="textin" id="loanPct"><option value="0">0%</option><option value="10" selected>10%</option><option value="20">20%</option><option value="30">30%</option></select>' +
+    '<select class="textin" id="loanTerm"><option value="1">1 lap</option><option value="2" selected>2 laps</option><option value="3">3 laps</option></select></div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Cancel</button><button class="btn" id="loanGo">Propose loan</button></div>';
+  $('listScrim').classList.add('show');
+  wireSheetButtons($('listSheet'), me.id);
+  $('loanGo').addEventListener('click', () => {
+    const o = { kind: 'loan', to: Number($('loanLender').value), pledgedSpace: space, amount: Number($('loanAmount').value || 0), interestPct: Number($('loanPct').value), termLaps: Number($('loanTerm').value) };
+    if (room.mode === 'pass') o.as = me.id;
+    send('contract_propose', o);
     closeScrim('listScrim');
   });
 }

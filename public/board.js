@@ -465,6 +465,22 @@ const KPBoard = {
           : '<button class="btn small ghost" data-act="unmortgage" data-space="' + i + '">Lift mortgage ' + D.fmtN(D.unmortgageCost(sp.price)) + '</button>') +
         '</div><p class="caption mt8">You fit build anytime, even when no be your turn. The server checks the live state when your action land. Even building, full sets and pledges still apply.</p>';
     }
+    const dealActorId = state.mode === 'pass' ? state.turnPlayerId : viewerId;
+    const meDeal = byId[dealActorId];
+    const dealOthers = meDeal && !meDeal.bankrupt && state.players.some((p) => p.id !== meDeal.id && !p.bankrupt);
+    if (meDeal && pr && pr.o != null && dealOthers) {
+      const mine = pr.o === meDeal.id;
+      html += '<div class="deed-deals"><div class="deed-deals-k">Deals</div><div class="btnrow">';
+      html += '<button type="button" class="btn" data-act="deal-swap" data-space="' + i + '">' + (mine ? 'Offer in a swap' : 'Swap for this') + '</button>';
+      if (state.inf && sp.type === 'street' && !mine && state.inf.phase < 4) {
+        html += '<button type="button" class="btn" data-act="deal-pass" data-space="' + i + '">Buy a Pass</button>';
+      }
+      if (state.inf && mine && state.inf.phase >= 2 && state.inf.phase < 4 && !pr.m && !pr.pl) {
+        html += '<button type="button" class="btn" data-act="deal-loan" data-space="' + i + '">Pledge a loan</button>';
+      }
+      if (state.inf) html += '<button type="button" class="btn ghost" data-act="deal-break" data-space="' + i + '">Deal Break</button>';
+      html += '</div><p class="caption">Deals for this deed. If e no dey for contract board, e no happen.</p></div>';
+    }
     html += '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
     html += '</div></div>';
     return html;

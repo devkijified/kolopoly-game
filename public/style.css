@@ -36,6 +36,7 @@
   --btn-h: 43px; --btn-h-s: 38px; --chip-h: 28px;
   --topbar-h: 59px;
   --rail-w: 344px;
+  --app-h: 100svh;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; }
@@ -452,11 +453,15 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 #abEnd .autoend-fill { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--gold); pointer-events: none; }
 .autoend-label { flex: 0 0 100%; text-align: center; font-size: var(--fs-caption); font-weight: 700; color: var(--gold-deep); }
 
-/* Alerts: bank app style money cards */
+/* Alerts: bank app style money cards. Fixed overlay only: no vw, no
+   translate on the layer (both nudge the visual viewport on phones),
+   and nothing here is allowed to change the board's box. */
 .alerts {
-  position: fixed; top: calc(var(--topbar-h) + 6px); left: 50%; transform: translateX(-50%);
-  z-index: 80; width: min(92vw, 380px); display: flex; flex-direction: column; gap: 8px;
+  position: fixed; top: calc(var(--topbar-h) + 6px); left: 0; right: 0; margin: 0 auto;
+  transform: none;
+  z-index: 80; width: min(380px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 8px;
   pointer-events: none;
+  contain: layout paint;
 }
 .alert-card {
   display: flex; flex-direction: column; align-items: stretch;
@@ -816,7 +821,7 @@ select.textin { appearance: none; }
   #infBar { padding: 6px 10px; }
   #view-game.active {
     display: grid; grid-template-columns: minmax(0, 1fr) var(--rail-w);
-    height: calc(100dvh - var(--topbar-h));
+    height: calc(var(--app-h) - var(--topbar-h));
   }
   /* KP11: the landscape board fills its whole stage box beside the
      rail, edge to edge, same law as portrait: no stage padding inside
@@ -1025,7 +1030,7 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
      over. The rail takes its natural height under the stage and
      scrolls internally if it must; the dock stays pinned at the
      bottom. One view only. */
-  #view-game.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
+  #view-game.active { display: flex; flex-direction: column; height: calc(var(--app-h) - var(--topbar-h)); }
   .game-stage { order: 1; flex: 1 1 0%; min-height: 0; padding: 0; display: flex; flex-direction: column; }
   .game-rail { display: contents; }
   .board-outer { flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; display: flex; }
@@ -2049,3 +2054,105 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   font: inherit; font-size: 14px; font-weight: 800;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
+
+/* Shell lock: the game column uses --app-h (a pixel height), never
+   100dvh, so a toolbar dip cannot shrink the board or the dock. */
+body.in-game {
+  height: var(--app-h);
+  min-height: 0;
+  max-height: var(--app-h);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Deals live on the deed card, full-width taps. */
+.deed-deals {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--gold-deep);
+}
+.deed-deals-k {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--gold-deep);
+  margin-bottom: 8px;
+}
+.deed-deals .btnrow { margin-top: 0; flex-direction: column; }
+.deed-deals .btn { width: 100%; min-height: 44px; }
+
+/* Swap sheet: deed cards, not a checkbox list. */
+.trade-side { margin-top: 14px; }
+.trade-side-h {
+  font-family: 'Aeonik Pro', 'Figtree', sans-serif;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+.swap-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.swap-deed {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 96px;
+  padding: 0 0 8px;
+  border-radius: 14px;
+  border: 1.5px solid #e3d7c3;
+  background: #fffdf4;
+  overflow: hidden;
+  text-align: left;
+  color: var(--ink);
+  box-shadow: 0 2px 0 rgba(43, 32, 24, 0.06);
+  touch-action: manipulation;
+}
+.swap-deed .swap-band { height: 12px; flex: none; }
+.swap-deed .swap-name {
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 8px 26px 0 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.swap-deed .swap-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding: 3px 8px 0;
+}
+.swap-tick {
+  position: absolute;
+  top: 18px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: #fff;
+}
+.swap-deed.on {
+  border-color: var(--gold-deep);
+  box-shadow: 0 0 0 2px rgba(232, 169, 12, 0.55);
+  background: #fff6dc;
+}
+.swap-deed.on .swap-tick {
+  background: var(--green);
+  border-color: var(--green-deep);
+}
+.swap-deed.on .swap-tick::after {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: translate(4px, 5px) rotate(-45deg);
+}
+.swap-deed:active { transform: translateY(1px); }

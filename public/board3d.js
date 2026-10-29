@@ -2268,6 +2268,10 @@ function setScene(name) {
   lastFitW = 0; lastFitH = 0;
   fitCanvas(true);
 }
+function alertOverlay() {
+  const box = document.getElementById('alerts');
+  return !!(box && box.childElementCount);
+}
 function fitCanvas(force) {
   if (!renderer || !activeName) return;
   if (activeName === 'landing') return; // KP15: no GL stage on the landing
@@ -2275,6 +2279,14 @@ function fitCanvas(force) {
   if (!host) return;
   let w = host.clientWidth, h = host.clientHeight;
   if (!w || !h) return;
+  // A debit/credit card is an overlay. Refitting here used to follow
+  // 100dvh and visualViewport while the toolbar dipped, and setSize
+  // clears the drawing buffer: black border, shrink, then a snap back.
+  if (alertOverlay()) return;
+  // Address-bar sized dips (height only, well under a rotation) are
+  // not a new layout. Ignore them even after the card has left.
+  if (!force && lastFitW && Math.abs(w - lastFitW) < 8 && Math.abs(h - lastFitH) < 8) return;
+  if (!force && lastFitH && h < lastFitH && (lastFitH - h) < 180 && Math.abs(w - lastFitW) < 48) return;
   // KP11: the game board's layout is built from this box's own aspect;
   // reflow it whenever the fitted size says the aspect class changed
   // (first activation, rotation, a rail that grows or shrinks).
@@ -2546,6 +2558,8 @@ function initGL() {
   if (!gl) return;
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // Match the board well. A resize clears the buffer; black reads as a border flash.
+    renderer.setClearColor(0x241708, 1);
   } catch (e) { renderer = null; return; }
   try {
     const dbgExt = renderer.getContext().getExtension('WEBGL_debug_renderer_info');
@@ -2641,9 +2655,13 @@ function initGL() {
   }
   window.addEventListener('resize', () => { fitCanvas(true); motion(1.2); });
   window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(true); motion(1.2); }, 250));
-  // mobile browser chrome showing or hiding mid-game changes the visible
-  // height without a window resize on some phones: refit from the viewport
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { fitCanvas(false); motion(0.5); });
+  // Toolbar show/hide fires visualViewport on some phones without a
+  // real window resize. Do not refit while an alert is up, and do not
+  // treat a chrome dip as a new board size (fitCanvas ignores those).
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => {
+    if (alertOverlay()) return;
+    fitCanvas(false);
+  });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastTs = 0; motion(0.8); } });
   // graphics quality button beside the mute button: cycles Auto,
   // Ultra, High, Balanced, Lite, and labels the detection while Auto
