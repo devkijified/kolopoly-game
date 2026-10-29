@@ -228,6 +228,16 @@ try {
   await sleep(300);
   await tp.screenshot({ path: SHOTS + 'kp-share.png' });
   check('share card overlay rendered a canvas', await tp.evaluate(() => !!document.querySelector('#shareOverlay canvas')));
+  const cardPx = await tp.evaluate(() => {
+    const cv = document.querySelector('#shareOverlay canvas');
+    if (!cv) return null;
+    const x = cv.getContext('2d');
+    const frame = x.getImageData(30, 200, 1, 1).data;
+    const band = x.getImageData(120, 150, 1, 1).data;
+    const paper = x.getImageData(540, 700, 1, 1).data;
+    return { frame: Array.from(frame), band: Array.from(band), paper: Array.from(paper), w: cv.width, h: cv.height };
+  });
+  check('share card is a designed portrait, gold frame on an ink header', !!cardPx && cardPx.w === 1080 && cardPx.h === 1350 && cardPx.frame[0] > 160 && cardPx.frame[1] > 100 && cardPx.band[0] < 80 && cardPx.paper[0] > 180, JSON.stringify(cardPx && { w: cardPx.w, frame: cardPx.frame, band: cardPx.band }));
   await A.close(); await B.close();
 
   // ---------------------------------------------------------- scenario 2
@@ -326,6 +336,11 @@ try {
     };
   });
   check('infobar shows Index 5.1x; water chip reads ₦100 under the accessible name Pure water ₦100', /5\.1x/.test(infBarInfo.text) && /₦100(?![0-9])/.test(infBarInfo.chipText) && /Pure water ₦100(?![0-9])/.test(infBarInfo.chipLabel), JSON.stringify(infBarInfo).slice(0, 140));
+  const phaseChrome = await payerPage.evaluate(() => {
+    const bar = document.getElementById('infBar').getBoundingClientRect();
+    return { h: Math.round(bar.height), w: Math.round(bar.width), chip: document.getElementById('roomChip').textContent.replace(/\s+/g, ' ').trim(), mode: document.getElementById('modePill').textContent.trim() };
+  });
+  check('inflation clock sits in the header and the phase strip does not take a row', phaseChrome.mode === 'Inflation' && /· \d{1,2}:\d{2}$/.test(phaseChrome.chip) && phaseChrome.h <= 2 && phaseChrome.w <= 2, JSON.stringify(phaseChrome));
   await sleep(500);
   await payerPage.screenshot({ path: SHOTS + 'kp-inflation.png' });
   await E.close(); await F.close();
@@ -432,7 +447,7 @@ try {
   }
   // Sweep the visible rail controls; the forbidden toast must never appear.
   await front(J);
-  await clickId(J, 'sbGist');
+  await clickId(J, 'sbLog');
   await sleep(400);
   await J.evaluate(() => { document.querySelectorAll('.scrim.show').forEach((s) => s.classList.remove('show')); });
   await clickId(J, 'sbDeeds');
@@ -779,6 +794,18 @@ try {
       return { h: Math.round(tr.height), players: Math.round(b.getBoundingClientRect().height), view: Math.round(Math.min(v.getBoundingClientRect().width, v.getBoundingClientRect().height)), label: v.getAttribute('aria-label') || '' };
     });
     check(tag + ' game: the icon tray is one compact row and its targets are at least 40px', !!tray && tray.h <= 56 && tray.h >= 40 && tray.players >= 40 && tray.view >= 40, JSON.stringify(tray));
+    if (W === 390) {
+      await MP.click('#hudPlayers');
+      await MP.waitForFunction(() => !!document.querySelector('#hudSheet [data-opp]:not([data-self])'), { timeout: 8000 });
+      await MP.click('#hudSheet [data-opp]:not([data-self])');
+      const opp = await MP.evaluate(() => ({
+        trade: !!document.getElementById('oppTrade'),
+        deeds: !!document.getElementById('oppDeeds'),
+        h: (() => { const b = document.getElementById('oppTrade'); return b ? Math.round(b.getBoundingClientRect().height) : 0; })()
+      }));
+      check('tapping an opponent opens trade and deeds', opp.trade && opp.deeds && opp.h >= 40, JSON.stringify(opp));
+      await MP.evaluate(() => document.querySelectorAll('.scrim.show').forEach((s) => s.classList.remove('show')));
+    }
     await MP.screenshot({ path: SHOTS + 'kp21-hud-' + W + '.png' });
     if (W === 390) {
       await MP.evaluate(() => {
@@ -798,6 +825,29 @@ try {
       const zoom = await MP.evaluate(() => window.KP3D && window.KP3D.camZoom ? window.KP3D.camZoom() : null);
       check('390 follow: the camera tightens toward 2.2x on the token', zoom != null && zoom < 0.7, 'zoom=' + zoom);
       await MP.evaluate(() => { if (window.KP3D && window.KP3D.setView) window.KP3D.setView('full'); });
+    }
+    await MP.evaluate(() => {
+      window.__kolopolyRenderEnd({
+        code: 'KBVG', status: 'ended', mode: 'online',
+        winner: { playerId: 9, name: 'Tife' },
+        endReason: 'host',
+        endTable: [
+          { name: 'Tife', title: 'Certified Nepo Landlord', netWorth: 1804000, lessons: ['You touch ₦1,500,000. By the end the street don pay you.'] },
+          { name: 'BOT Ade', title: 'Estate Collector', netWorth: 1683000, bot: true, lessons: ['You touch ₦1,500,000 for this game, but you finish lighter.'] },
+          { name: 'BOT Ngozi', title: 'Kirikiri Regular', netWorth: 1634000, bot: true, lessons: ['Kirikiri see you twice.'] }
+        ]
+      });
+    });
+    const lessonInk = await MP.evaluate(() => {
+      const el = document.querySelector('#endOverlay .end-lessons');
+      return el ? getComputedStyle(el).color : '';
+    });
+    check(tag + ' final table flavour reads in ink, not washed cream', lessonInk === 'rgb(92, 76, 61)', lessonInk);
+    await MP.screenshot({ path: SHOTS + 'kp22-final-' + W + '.png' });
+    if (W === 390) {
+      await MP.click('#endShare');
+      await MP.waitForFunction(() => document.querySelector('#shareOverlay canvas'), { timeout: 8000 });
+      await MP.screenshot({ path: SHOTS + 'kp22-share-390.png' });
     }
     await MP.close();
   }
@@ -1041,22 +1091,27 @@ try {
   await sleep(250);
   const cp1 = await W.evaluate(() => window.__copied);
   check('without a share sheet the fallback copies the invitation text plus the URL', typeof cp1 === 'string' && cp1.includes('Join me to play Kolopoly. Room ' + code13 + ' dey wait for you.') && cp1.includes('?join=' + code13), String(cp1));
-  // Gist still owns the messages glyph, now with no bubble anywhere near the header.
+  // The table record is one Log control. It is not a chat bubble, and
+  // the old Gist button and the tray duplicate are both gone.
   await clickId(W, 'botAdd1');
   await waitState(W, (s) => s.players.length === 2, 'W bot seated');
   await W.click('#startBtn');
   await waitState(W, (s) => s.status === 'playing', 'B13 game playing', 15000);
   await sleep(600);
   const gist13 = await W.evaluate(() => {
-    const g = document.querySelector('#sbGist .u-ic');
+    const g = document.querySelector('#sbLog .u-ic');
+    const label = document.querySelector('#sbLog .u-lb');
     const tmp = document.createElement('div');
-    tmp.innerHTML = window.icon('messages', 21);
-    // Compare parser readback to parser readback: innerHTML serialization
-    // expands self-closing SVG tags, so the raw icon string never equals
-    // a live element's innerHTML even for the identical glyph.
-    return { gist: g ? g.innerHTML : '', messages: tmp.innerHTML };
+    tmp.innerHTML = window.icon('book', 21);
+    return {
+      gist: g ? g.innerHTML : '',
+      book: tmp.innerHTML,
+      label: label ? label.textContent : '',
+      old: !!document.getElementById('sbGist'),
+      feed: !!document.getElementById('hudFeed')
+    };
   });
-  check('Gist still renders the messages glyph', gist13.gist === gist13.messages, gist13.gist.slice(0, 60));
+  check('Log is the one table record and it wears the book glyph', gist13.gist === gist13.book && gist13.label === 'Log' && gist13.old === false && gist13.feed === false, JSON.stringify(gist13).slice(0, 160));
   await W.close();
 
   console.log('B14: KP14 landing: the join card, picks and inputs carry no hard borders; the selected mode card wears the gold ring; the slogan line rides the hero; KP17: the type sits under the scene on cream and the scene band is pure illustration');

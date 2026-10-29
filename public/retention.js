@@ -71,28 +71,57 @@
     return res.json();
   }
 
-  function renderShelf(inv) {
+  function renderShelf(inv, uses) {
     const shelf = $('marketShelf');
     if (!shelf) return;
     const data = inv || { cowries: 0, kola: 0, yams: 0, cloth: 0 };
+    if (window.KPGoods) {
+      shelf.innerHTML = window.KPGoods.slots(data, { uses: uses || {} });
+      shelf.querySelectorAll('[data-good]').forEach((b) => b.addEventListener('click', () => {
+        const face = window.KPGoods.face[b.dataset.good];
+        if (face) setLine(face.use);
+      }));
+      return;
+    }
     shelf.innerHTML = GOODS.map(([key, label]) =>
       '<div class="market-good"><span class="n">' + (data[key] || 0) + '</span><span class="k">' + label + '</span></div>'
     ).join('');
+  }
+  function paintShelfBtn(view) {
+    const b = $('shelfBtn');
+    if (!b) return;
+    const landing = document.getElementById('view-landing');
+    const onLanding = !!(landing && landing.classList.contains('active'));
+    if (!onLanding || !clientId()) { b.classList.add('hidden'); return; }
+    b.classList.remove('hidden');
+    b.classList.toggle('ready', !!(view && view.canClaim));
+    b.setAttribute('aria-label', view && view.canClaim ? 'Claim the market drop' : 'Market shelf');
+    if (!b.dataset.drawn) {
+      b.dataset.drawn = '1';
+      b.innerHTML = '<svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="18" rx="10" ry="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 17c2 2 10 2 12 0" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+    }
+  }
+  function setShelfOpen(on) {
+    const card = $('marketCard');
+    const close = $('shelfClose');
+    if (card) card.classList.toggle('market-open', !!on);
+    if (close) close.classList.toggle('hidden', !on);
   }
   function renderClaim(view) {
     const btn = $('claimBtn');
     if (!btn || !view) return;
     if (view.canClaim) {
       btn.disabled = false;
-      btn.textContent = "Claim today's drop";
-      if (view.warmReady) setLine("Yesterday's visit is still warm. Today's drop carries a little extra.");
-      else setLine('Once each Lagos day: cowries, kola, yam and cloth for your shelf.');
+      btn.textContent = 'Claim';
+      if (view.warmReady) setLine('Extra in today drop.');
+      else setLine('Tap Claim. Spend the goods in a match.');
     } else {
       btn.disabled = true;
-      btn.textContent = 'Collected today';
-      setLine('You don collect today market drop. The next one opens with Lagos dawn.');
+      btn.textContent = 'Stocked';
+      setLine('Dawn restocks the shelf.');
     }
-    renderShelf(view.inventory);
+    renderShelf(view.inventory, view.uses);
+    paintShelfBtn(view);
   }
   function renderSwitch() {
     const box = $('optWhisper');
@@ -259,7 +288,12 @@
         setLine('The market no answer. Try the claim again.');
         return;
       }
-      setLine(out.line);
+      const landed = $('marketLanded');
+      if (landed && out.granted) {
+        const g = out.granted;
+        landed.textContent = '+' + g.cowries + ' cowries  +' + g.kola + ' kola  +' + g.yams + ' yam  +' + g.cloth + ' cloth';
+      }
+      setLine(out.already ? 'Dawn restocks the shelf.' : 'Shelf stocked. Spend am in a match.');
       renderClaim(out);
       if (out.first) {
         claimPending = true;
@@ -296,6 +330,13 @@
 
   const claimBtn = $('claimBtn');
   if (claimBtn) claimBtn.addEventListener('click', onClaim);
+  const shelfBtn = $('shelfBtn');
+  if (shelfBtn) shelfBtn.addEventListener('click', () => {
+    const card = $('marketCard');
+    setShelfOpen(!(card && card.classList.contains('market-open')));
+  });
+  const shelfClose = $('shelfClose');
+  if (shelfClose) shelfClose.addEventListener('click', () => setShelfOpen(false));
   const box = $('optWhisper');
   if (box) box.addEventListener('change', () => {
     if (syncing) return;

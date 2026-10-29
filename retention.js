@@ -13,6 +13,15 @@ const BASE_DROP = { cowries: 6, kola: 2, yams: 1, cloth: 1 };
 // Soft extra when yesterday (Lagos) was also claimed. Missing a day
 // pays the base again. There is no streak counter to reset.
 const WARM_EXTRA = { cowries: 3, kola: 1, yams: 0, cloth: 0 };
+// What a good does at the table. Claim never pays table cash. The
+// player spends the shelf during a match: cowries and cloth become
+// cash, one kola covers the next rent, one yam covers the next fee.
+const USES = {
+  cowries: { cost: 3, kind: 'cash', amount: 50000 },
+  kola: { cost: 1, kind: 'rent', amount: 100000 },
+  yams: { cost: 1, kind: 'fee', amount: 200000 },
+  cloth: { cost: 1, kind: 'cash', amount: 150000 }
+};
 const POT_MARKS = [200000, 500000, 1000000, 2000000];
 const NUDGE_GAP_MS = 30 * 60 * 1000;
 
@@ -198,8 +207,52 @@ function createRetention(opts) {
         subscribed: !!(p.push && p.push.endpoint),
         muted: !!p.pushMuted,
         denied: !!p.pushDenied
+      },
+      uses: {
+        cowries: { cost: USES.cowries.cost, kind: USES.cowries.kind, amount: USES.cowries.amount },
+        kola: { cost: USES.kola.cost, kind: USES.kola.kind, amount: USES.kola.amount },
+        yams: { cost: USES.yams.cost, kind: USES.yams.kind, amount: USES.yams.amount },
+        cloth: { cost: USES.cloth.cost, kind: USES.cloth.kind, amount: USES.cloth.amount }
       }
     };
+  }
+
+  function inventoryOf(p) {
+    return {
+      cowries: p.inventory.cowries,
+      kola: p.inventory.kola,
+      yams: p.inventory.yams,
+      cloth: p.inventory.cloth
+    };
+  }
+  // Debit the shelf. The table calls this when a seated player spends.
+  // Claim stays goods-only. A short shelf does not go negative.
+  function take(clientId, good) {
+    const id = cleanClientId(clientId);
+    const use = USES[good];
+    if (!id || !use) return { ok: false, error: 'good' };
+    if (!db.players[id]) return { ok: false, error: 'short' };
+    const p = normalize(db.players[id]);
+    if (p.inventory[good] < use.cost) return { ok: false, error: 'short' };
+    p.inventory[good] -= use.cost;
+    save();
+    return {
+      ok: true,
+      good,
+      cost: use.cost,
+      kind: use.kind,
+      amount: use.amount,
+      inventory: inventoryOf(p)
+    };
+  }
+  function restore(clientId, good, qty) {
+    const id = cleanClientId(clientId);
+    const use = USES[good];
+    if (!id || !use || !db.players[id]) return;
+    const p = normalize(db.players[id]);
+    const n = Math.max(0, Math.floor(Number(qty) || use.cost));
+    p.inventory[good] += n;
+    save();
   }
 
   function claim(body) {
@@ -243,8 +296,8 @@ function createRetention(opts) {
         warm,
         granted,
         line: warm
-          ? 'Market remember you from yesterday. Extra cowries and kola dey inside.'
-          : 'Cowries, kola, yam and cloth don enter your shelf.'
+          ? 'Market remember you from yesterday. Extra cowries and kola dey your shelf. Spend them inside a match.'
+          : 'Cowries, kola, yam and cloth don enter your shelf. Spend them inside a match.'
       })
     };
   }
@@ -470,6 +523,8 @@ function createRetention(opts) {
     accepts,
     handle,
     link,
+    take,
+    restore,
     onSeatWaiting,
     onPot,
     sweepDrops,
@@ -477,4 +532,4 @@ function createRetention(opts) {
   };
 }
 
-module.exports = { createRetention, GOODS, BASE_DROP, WARM_EXTRA, NUDGES, lagosDay };
+module.exports = { createRetention, GOODS, BASE_DROP, WARM_EXTRA, USES, NUDGES, lagosDay };

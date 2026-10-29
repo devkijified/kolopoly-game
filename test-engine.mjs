@@ -287,6 +287,113 @@ try {
     check('a collected shelf is not whispered', collectedHits.length === 0);
   }
 
+  console.log('R3: shelf goods spend inside a match and do not touch the auction clock');
+  {
+    const id = 'retention-spend-001';
+    const host = new Client('Spend');
+    await host.connect();
+    host.send('create_room', { name: 'Spend', token: 'danfo', mode: 'online', clientId: id, settings: { gameMode: 'classic', timed: false, turnTimerSec: 0 } });
+    await host.waitFor((s) => s.status === 'lobby', 'spend lobby');
+    const guest = new Client('Keep');
+    await guest.connect();
+    guest.send('join_room', { code: host.code, name: 'Keep', token: 'keke' });
+    await host.waitFor((s) => s.players.length === 2, 'spend guest in');
+    const claimed = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-06-01' });
+    check('spend test starts from a stocked shelf, still not table cash', claimed.json.inventory.cowries === 6 && claimed.json.cash == null && !('streak' in claimed.json));
+    host.send('start_game', {});
+    await host.waitFor((s) => s.status === 'playing', 'spend game on');
+    const me = () => host.state.players.find((p) => p.id === host.playerId);
+    const other = () => host.state.players.find((p) => p.id !== host.playerId);
+    host.send('use_shelf', { good: 'cowries' });
+    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cash === 1550000, 'cowries became cash');
+    const afterC = await api('GET', '/api/retention?clientId=' + id + '&day=2026-06-01');
+    check('three cowries left the shelf and the hand gained ₦50,000', afterC.json.inventory.cowries === 3 && me().cash === 1550000);
+    host.send('use_shelf', { good: 'nope' });
+    await sleep(200);
+    check('an unknown good is refused', host.errors.some((m) => /shelf|good/i.test(m)));
+    const beforeShort = me().cash;
+    host.send('use_shelf', { good: 'cowries' });
+    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cash === beforeShort + 50000, 'second cowrie change');
+    host.errors = [];
+    host.send('use_shelf', { good: 'cowries' });
+    await sleep(250);
+    check('a short shelf does not pay cash', me().cash === beforeShort + 50000 && host.errors.some((m) => /enough/i.test(m)));
+    // Auction: land a buy, decline, spend cloth, clock stays put.
+    const waitTurn = async () => {
+      for (let n = 0; n < 8 && host.state.turnPlayerId !== host.playerId; n++) {
+        const tid = host.state.turnPlayerId;
+        if (host.state.phase === 'roll') {
+          host.send('test_set_position', { playerId: tid, space: 17 });
+          host.send('test_dice', { rolls: [[1, 2]] });
+          guest.send('roll', {});
+          await host.waitFor((s) => s.phase === 'end' && s.turnPlayerId === tid, 'guest idle end');
+          guest.send('end_turn', {});
+          await host.waitFor((s) => s.turnPlayerId !== tid, 'guest passed');
+        } else {
+          guest.send('end_turn', {});
+          await sleep(200);
+        }
+      }
+    };
+    await waitTurn();
+    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'spend turn to roll');
+    const cashBeforeAuction = me().cash;
+    host.send('test_set_position', { playerId: host.playerId, space: 0 });
+    host.send('test_dice', { rolls: [[2, 3]] });
+    host.send('roll', {});
+    await host.waitFor((s) => s.phase === 'buy', 'deed offered');
+    host.send('decline', {});
+    await host.waitFor((s) => !!s.auction, 'auction for the clock check');
+    const end0 = host.state.auction.endsAt;
+    host.send('use_shelf', { good: 'cloth' });
+    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cash === cashBeforeAuction + 150000, 'cloth became cash');
+    check('spending cloth during an auction does not add clock time', host.state.auction && host.state.auction.endsAt === end0, String(host.state.auction && host.state.auction.endsAt));
+    host.send('pass_bid', {});
+    guest.send('pass_bid', {});
+    await host.waitFor((s) => !s.auction, 'auction closed after the spend', 8000);
+    if (host.state.turnPlayerId === host.playerId && host.state.phase === 'end') {
+      host.send('end_turn', {});
+      await host.waitFor((s) => s.turnPlayerId !== host.playerId, 'buy turn passed');
+    }
+    // Kola covers the next rent. Makoko site rent is ₦2,000.
+    await waitTurn();
+    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'back to roll for kola');
+    host.send('use_shelf', { good: 'kola' });
+    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).shelfRent === true, 'kola cover armed');
+    host.send('test_give', { playerId: other().id, space: 1 });
+    const cashBeforeRent = me().cash;
+    const ownerBefore = other().cash;
+    host.send('test_set_position', { playerId: host.playerId, space: 38 });
+    host.send('test_dice', { rolls: [[1, 2]] });
+    host.send('roll', {});
+    await host.waitFor((s) => {
+      const p = s.players.find((x) => x.id === host.playerId);
+      return p && p.shelfRent === false && p.position === 1;
+    }, 'kola rent resolved');
+    check('kola cover paid the landlord and the tenant kept the rent', me().cash === cashBeforeRent + 200000 && other().cash === ownerBefore + 2000, JSON.stringify({ me: me().cash, owner: other().cash, before: cashBeforeRent }));
+    // Yam covers Lagos consumption tax, ₦100,000, into the pot.
+    if (host.state.phase === 'end' && host.state.turnPlayerId === host.playerId) {
+      host.send('end_turn', {});
+      await host.waitFor((s) => s.turnPlayerId !== host.playerId, 'rent turn passed');
+    }
+    await waitTurn();
+    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'back to roll for yam');
+    host.send('use_shelf', { good: 'yams' });
+    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).shelfFee === true, 'yam cover armed');
+    const cashBeforeTax = me().cash;
+    const potBefore = host.state.pot;
+    host.send('test_set_position', { playerId: host.playerId, space: 35 });
+    host.send('test_dice', { rolls: [[1, 2]] });
+    host.send('roll', {});
+    await host.waitFor((s) => {
+      const p = s.players.find((x) => x.id === host.playerId);
+      return p && p.shelfFee === false && p.position === 38;
+    }, 'yam fee resolved');
+    check('yam cover paid the fee into the pot and the hand did not drop', me().cash === cashBeforeTax && host.state.pot === potBefore + 100000, JSON.stringify({ cash: me().cash, pot: host.state.pot, potBefore }));
+    host.ws.close();
+    guest.ws.close();
+  }
+
   // ------------------------------------------------------------- CLASSIC ---
   console.log('C1: starting cash, Salary Alert on passing START, buy at list price');
   {
