@@ -81,7 +81,7 @@ function createRetention(opts) {
   const test = !!opts.test;
   const file = opts.file || path.join(__dirname, 'data', 'retention.json');
   const vapid = loadVapid(opts.env || process.env, test);
-  const db = { players: {}, tokens: {} };
+  const db = { players: {}, tokens: {}, stats: emptyStats() };
   let saveWarned = false;
   const testLog = [];
 
@@ -91,6 +91,7 @@ function createRetention(opts) {
       if (parsed && typeof parsed === 'object') {
         db.players = parsed.players && typeof parsed.players === 'object' ? parsed.players : {};
         db.tokens = parsed.tokens && typeof parsed.tokens === 'object' ? parsed.tokens : {};
+        db.stats = mergeStats(parsed.stats);
       }
     } catch (e) {
       if (e.code !== 'ENOENT') console.log('Retention shelf started empty.');
@@ -293,6 +294,7 @@ function createRetention(opts) {
     const first = p.claimCount === 0;
     p.claimCount += 1;
     p.lastClaimDay = day;
+    bumpStat('claims', day);
     save();
     return {
       status: 200,
@@ -435,6 +437,121 @@ function createRetention(opts) {
     return sent;
   }
 
+  function emptyStats() {
+    return { claims: {}, tablesStarted: {}, tablesFinished: {}, afk: {} };
+  }
+  function mergeStats(src) {
+    const stats = emptyStats();
+    if (!src || typeof src !== 'object') return stats;
+    for (const kind of Object.keys(stats)) {
+      const bucket = src[kind];
+      if (!bucket || typeof bucket !== 'object') continue;
+      for (const [day, n] of Object.entries(bucket)) {
+        if (!validDay(day)) continue;
+        const v = Math.floor(Number(n) || 0);
+        if (v > 0) stats[kind][day] = v;
+      }
+    }
+    return stats;
+  }
+  function pruneStats() {
+    const keep = new Set();
+    let cursor = lagosDay(new Date());
+    for (let i = 0; i < 21; i++) {
+      keep.add(cursor);
+      cursor = prevDay(cursor);
+    }
+    for (const bucket of Object.values(db.stats)) {
+      for (const day of Object.keys(bucket)) {
+        if (!keep.has(day)) delete bucket[day];
+      }
+    }
+  }
+  function bumpStat(kind, day) {
+    if (!db.stats[kind]) db.stats[kind] = {};
+    const d = validDay(day) ? String(day) : lagosDay(new Date());
+    db.stats[kind][d] = Math.floor(Number(db.stats[kind][d]) || 0) + 1;
+    pruneStats();
+  }
+  function dayCount(kind, day) {
+    const bucket = db.stats[kind] || {};
+    return Math.floor(Number(bucket[day]) || 0);
+  }
+  // House ledger only. Counts and health. No shelf names, client ids,
+  // reconnect tokens, or push key material.
+  function noteDay(kind, day) {
+    if (kind !== 'tablesStarted' && kind !== 'tablesFinished' && kind !== 'afk') return;
+    bumpStat(kind, day);
+    save();
+  }
+  function fileStatus() {
+    const usingOverride = !!(opts.env && String(opts.env.KP_RETENTION_FILE || '').trim());
+    let present = false;
+    let bytes = 0;
+    let writable = false;
+    try {
+      const st = fs.statSync(file);
+      present = st.isFile();
+      bytes = st.size;
+    } catch (e) { present = false; }
+    try {
+      fs.accessSync(path.dirname(file), fs.constants.W_OK);
+      writable = true;
+    } catch (e) { writable = false; }
+    return {
+      present,
+      writable,
+      bytes,
+      override: usingOverride,
+      label: usingOverride ? 'custom' : 'retention.json'
+    };
+  }
+  function opsSummary() {
+    const day = lagosDay(new Date());
+    const yesterday = prevDay(day);
+    let shelves = 0;
+    let claimedToday = 0;
+    let subscribers = 0;
+    let muted = 0;
+    let denied = 0;
+    for (const p of Object.values(db.players)) {
+      if (!p || typeof p !== 'object') continue;
+      shelves += 1;
+      if (p.lastClaimDay === day) claimedToday += 1;
+      if (p.push && p.push.endpoint) subscribers += 1;
+      if (p.pushMuted) muted += 1;
+      if (p.pushDenied) denied += 1;
+    }
+    const roll = (kind) => dayCount(kind, day) + dayCount(kind, yesterday);
+    return {
+      day,
+      yesterday,
+      shelves,
+      claimedToday,
+      today: {
+        claims: dayCount('claims', day),
+        tablesStarted: dayCount('tablesStarted', day),
+        tablesFinished: dayCount('tablesFinished', day),
+        afkTakeovers: dayCount('afk', day)
+      },
+      rolling: {
+        window: 'two Lagos days',
+        claims: roll('claims'),
+        tablesStarted: roll('tablesStarted'),
+        tablesFinished: roll('tablesFinished'),
+        afkTakeovers: roll('afk')
+      },
+      push: {
+        enabled: !!vapid.enabled,
+        source: vapid.source || 'off',
+        subscribers,
+        muted,
+        denied
+      },
+      file: fileStatus()
+    };
+  }
+
   function accepts(req) {
     const clean = (req.url || '').split('?')[0];
     return clean === '/api/retention'
@@ -534,6 +651,8 @@ function createRetention(opts) {
     onSeatWaiting,
     onPot,
     sweepDrops,
+    noteDay,
+    opsSummary,
     testLog
   };
 }

@@ -176,12 +176,14 @@ async function scriptBotTurn(g, setup, gate, label, tries) {
 }
 
 // ---------------------------------------------------------------------------
+const serverEnv = { ...process.env, PORT: String(PORT), KP_TEST: '1', KP_RETENTION_FILE: RETENTION_FILE };
+delete serverEnv.KP_ADMIN_TOKEN;
 const server = spawn(process.execPath, ['server.js'], {
   cwd: new URL('.', import.meta.url).pathname,
-  env: { ...process.env, PORT: String(PORT), KP_TEST: '1', KP_RETENTION_FILE: RETENTION_FILE },
+  env: serverEnv,
   stdio: ['ignore', 'pipe', 'pipe']
 });
-await new Promise((resolve) => server.stdout.on('data', (d) => { if (String(d).includes('listening')) resolve(); }));
+await new Promise((resolve) => server.stdout.on('data', (d) => { if (String(d).includes('Kolopoly listening')) resolve(); }));
 console.log('server up on ' + PORT);
 
 const HTTP = 'http://127.0.0.1:' + PORT;
@@ -218,6 +220,18 @@ try {
     const appRes = await fetch(HTTP + '/app.js');
     const appCache = appRes.headers.get('cache-control') || '';
     check('app.js stays revalidated on the network', appRes.status === 200 && appCache.includes('no-cache') && !/max-age=604800/.test(appCache), appCache);
+  }
+
+  // --------------------------------------------------------------- OPS DOOR ---
+  console.log('OPS0: with no house key the desk stays shut');
+  {
+    const closed = await fetch(HTTP + '/ops');
+    const closedText = await closed.text();
+    check('unset house key answers 503', closed.status === 503);
+    check('the shut door names the missing variable', closedText.includes('Ops locked until KP_ADMIN_TOKEN is set'));
+    check('the shut door asks not to be indexed', String(closed.headers.get('x-robots-tag') || '').includes('noindex'));
+    const snap = await api('GET', '/ops/snapshot');
+    check('the snapshot stays shut with the key unset', snap.status === 503 && snap.json && snap.json.message === 'Ops locked until KP_ADMIN_TOKEN is set');
   }
 
   // ----------------------------------------------------- RETURN RETENTION ---
