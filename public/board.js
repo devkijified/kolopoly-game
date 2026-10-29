@@ -474,55 +474,181 @@ const KPBoard = {
     const cv = document.createElement('canvas');
     cv.width = 1080; cv.height = 1350;
     const x = cv.getContext('2d');
-    x.fillStyle = '#f5efe2'; x.fillRect(0, 0, 1080, 1350);
-    x.strokeStyle = '#e8a90c'; x.lineWidth = 14; x.strokeRect(28, 28, 1024, 1294);
-    x.strokeStyle = '#2b2018'; x.lineWidth = 3; x.strokeRect(52, 52, 976, 1246);
-    x.textAlign = 'center';
-    x.fillStyle = '#2b2018';
-    x.font = '700 96px "Aeonik Pro", sans-serif';
-    x.fillText('KOLOPOLY', 540, 170);
-    x.font = '700 30px "Figtree", sans-serif';
-    x.fillStyle = '#e8a90c';
-    const titles = { jackpot: 'OWAMBE JACKPOT', landlord: 'LANDLORD DON LAND', kirikiri: 'KIRIKIRI GUEST', final: 'THE FINAL TABLE', phase: 'INFLATION DON LAND' };
-    x.fillText(titles[kind] || 'KOLOPOLY', 540, 250);
-    x.fillStyle = '#2b2018';
-    if (kind === 'final' && data.rows) {
-      let y = 380;
-      x.font = '700 44px "Aeonik Pro", sans-serif';
-      for (const r of data.rows.slice(0, 6)) {
-        x.textAlign = 'left';
-        x.fillText((r.crown ? '♛ ' : '') + r.name, 110, y);
-        x.textAlign = 'right';
-        x.fillText(D.fmtN(r.netWorth), 970, y);
-        x.font = '600 30px "Figtree", sans-serif';
-        x.fillStyle = '#5c4c3d';
-        x.textAlign = 'left';
-        x.fillText(r.title, 110, y + 42);
-        x.fillStyle = '#2b2018';
-        x.font = '700 44px "Aeonik Pro", sans-serif';
-        y += 108;
+    const ink = '#2b2018';
+    const cream = '#f6efe2';
+    const gold = '#e8a90c';
+    const goldSoft = '#ffc857';
+    const paper = '#fffaf0';
+    const rr = (l, t, w, h, r) => {
+      x.beginPath();
+      x.moveTo(l + r, t);
+      x.arcTo(l + w, t, l + w, t + h, r);
+      x.arcTo(l + w, t + h, l, t + h, r);
+      x.arcTo(l, t + h, l, t, r);
+      x.arcTo(l, t, l + w, t, r);
+      x.closePath();
+    };
+    x.fillStyle = cream;
+    x.fillRect(0, 0, 1080, 1350);
+    const sun = x.createRadialGradient(880, 160, 10, 880, 200, 460);
+    sun.addColorStop(0, 'rgba(255, 200, 87, 0.7)');
+    sun.addColorStop(1, 'rgba(255, 200, 87, 0)');
+    x.fillStyle = sun;
+    x.fillRect(0, 0, 1080, 640);
+    x.fillStyle = 'rgba(43, 32, 24, 0.1)';
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 8; col++) {
+        x.beginPath();
+        x.arc(78 + col * 16, 86 + row * 16, row % 2 ? 2.2 : 3.1, 0, Math.PI * 2);
+        x.fill();
       }
-      x.textAlign = 'center';
-      if (data.deal) {
-        x.font = '600 32px "Figtree", sans-serif';
+    }
+    // Lagos roofline, comic flat colour, sitting above the footer.
+    x.fillStyle = ink;
+    const roofs = [[48, 1040, 64, 150], [118, 990, 46, 200], [170, 1060, 70, 130], [250, 960, 38, 230], [300, 1020, 80, 170], [760, 1000, 54, 190], [820, 1068, 90, 122], [920, 980, 40, 210], [970, 1048, 70, 142]];
+    for (const b of roofs) { x.fillRect(b[0], b[1], b[2], b[3]); }
+    x.fillStyle = goldSoft;
+    for (const b of roofs) {
+      for (let wy = b[1] + 16; wy < 1168; wy += 22) {
+        for (let wx = b[0] + 8; wx < b[0] + b[2] - 8; wx += 16) {
+          x.fillRect(wx, wy, 6, 8);
+        }
+      }
+    }
+    x.strokeStyle = gold;
+    x.lineWidth = 22;
+    x.strokeRect(24, 24, 1032, 1302);
+    x.strokeStyle = ink;
+    x.lineWidth = 5;
+    x.strokeRect(48, 48, 984, 1254);
+    x.fillStyle = ink;
+    rr(78, 78, 924, 168, 28);
+    x.fill();
+    x.textAlign = 'left';
+    x.font = '700 84px "Aeonik Pro", sans-serif';
+    const leftWord = 'KOLO';
+    const rightWord = 'POLY';
+    const lw = x.measureText(leftWord).width;
+    const rw = x.measureText(rightWord).width;
+    const wx0 = 540 - (lw + rw) / 2;
+    x.fillStyle = cream;
+    x.fillText(leftWord, wx0, 168);
+    x.fillStyle = goldSoft;
+    x.fillText(rightWord, wx0 + lw, 168);
+    x.textAlign = 'center';
+    x.font = '700 26px Figtree, sans-serif';
+    x.fillStyle = gold;
+    const titles = { jackpot: 'OWAMBE JACKPOT', landlord: 'LANDLORD DON LAND', kirikiri: 'KIRIKIRI GUEST', final: 'THE FINAL TABLE', phase: 'INFLATION DON LAND' };
+    x.fillText(titles[kind] || 'KOLOPOLY', 540, 214);
+    if (kind === 'final' && data.rows) {
+      x.font = '700 30px Figtree, sans-serif';
+      const shout = 'Landlord don land';
+      const bw = Math.min(720, x.measureText(shout).width + 72);
+      rr(540 - bw / 2, 268, bw, 64, 32);
+      x.fillStyle = paper;
+      x.fill();
+      x.lineWidth = 4;
+      x.strokeStyle = ink;
+      x.stroke();
+      x.beginPath();
+      x.moveTo(500, 332);
+      x.lineTo(540, 358);
+      x.lineTo(548, 332);
+      x.closePath();
+      x.fillStyle = paper;
+      x.fill();
+      x.stroke();
+      x.fillStyle = ink;
+      x.fillText(shout, 540, 310);
+      let y = 390;
+      const rows = data.rows.slice(0, 6);
+      rows.forEach((r, i) => {
+        const h = 118;
+        rr(96, y, 888, h, 22);
+        x.fillStyle = i === 0 ? '#fff1c2' : paper;
+        x.fill();
+        x.lineWidth = i === 0 ? 6 : 3;
+        x.strokeStyle = i === 0 ? gold : '#e3d7c3';
+        x.stroke();
+        x.beginPath();
+        x.arc(168, y + h / 2, 30, 0, Math.PI * 2);
+        x.fillStyle = i === 0 ? gold : ink;
+        x.fill();
+        x.fillStyle = i === 0 ? ink : goldSoft;
+        x.font = '700 28px "Aeonik Pro", sans-serif';
+        x.textAlign = 'center';
+        x.fillText(String(i + 1), 168, y + h / 2 + 10);
+        if (i === 0) {
+          x.strokeStyle = gold;
+          x.lineWidth = 3;
+          x.beginPath();
+          x.moveTo(148, y + 28);
+          x.lineTo(158, y + 14);
+          x.lineTo(168, y + 26);
+          x.lineTo(178, y + 12);
+          x.lineTo(188, y + 28);
+          x.stroke();
+        }
+        x.textAlign = 'left';
+        x.fillStyle = ink;
+        x.font = '700 36px "Aeonik Pro", sans-serif';
+        const name = r.name || '';
+        x.fillText(name, 214, y + 48);
+        if (r.bot) {
+          const nw = x.measureText(name).width;
+          x.font = '800 16px Figtree, sans-serif';
+          const tag = 'BOT';
+          const tw = x.measureText(tag).width + 18;
+          const tx = Math.min(214 + nw + 12, 700);
+          rr(tx, y + 26, tw, 26, 13);
+          x.fillStyle = ink;
+          x.fill();
+          x.fillStyle = goldSoft;
+          x.textAlign = 'center';
+          x.fillText(tag, tx + tw / 2, y + 44);
+          x.textAlign = 'left';
+        }
+        x.font = '600 22px Figtree, sans-serif';
+        x.fillStyle = '#5c4c3d';
+        x.fillText(r.title || '', 214, y + 86);
+        x.textAlign = 'right';
+        x.fillStyle = ink;
+        x.font = '700 32px "Aeonik Pro", sans-serif';
+        x.fillText(D.fmtN(r.netWorth), 950, y + 68);
+        y += h + 14;
+      });
+      if (data.deal && y < 1120) {
+        x.textAlign = 'center';
+        x.font = '700 26px Figtree, sans-serif';
         x.fillStyle = '#0f7a50';
-        wrapText(x, 'Deal of the Game: ' + data.deal, 540, y + 30, 880, 42);
+        wrapText(x, 'Deal of the Game: ' + data.deal, 540, Math.min(y + 20, 1140), 860, 34);
       }
     } else {
-      x.font = '700 74px "Aeonik Pro", sans-serif';
-      wrapText(x, data.name || '', 540, 430, 900, 84);
+      rr(120, 300, 840, 760, 36);
+      x.fillStyle = 'rgba(255, 250, 240, 0.92)';
+      x.fill();
+      x.lineWidth = 5;
+      x.strokeStyle = ink;
+      x.stroke();
+      x.fillStyle = ink;
+      x.textAlign = 'center';
+      x.font = '700 64px "Aeonik Pro", sans-serif';
+      wrapText(x, data.name || '', 540, 420, 760, 74);
       if (data.amount != null) {
-        x.font = '700 120px "Aeonik Pro", sans-serif';
+        x.font = '700 108px "Aeonik Pro", sans-serif';
         x.fillStyle = kind === 'kirikiri' ? '#b02e2e' : '#0f7a50';
-        x.fillText(D.fmtN(data.amount), 540, 620);
-        x.fillStyle = '#2b2018';
+        x.fillText(D.fmtN(data.amount), 540, 640);
       }
-      x.font = '600 40px "Figtree", sans-serif';
-      wrapText(x, data.line || '', 540, data.amount != null ? 740 : 560, 880, 54);
+      x.fillStyle = ink;
+      x.font = '600 36px Figtree, sans-serif';
+      wrapText(x, data.line || '', 540, data.amount != null ? 740 : 620, 760, 48);
     }
-    x.font = '700 34px "Figtree", sans-serif';
-    x.fillStyle = '#5c4c3d';
-    x.fillText('Room ' + (data.code || '····') + ' · Play KOLOPOLY with your people', 540, 1240);
+    x.fillStyle = ink;
+    x.fillRect(78, 1184, 924, 96);
+    x.fillStyle = cream;
+    x.font = '700 28px Figtree, sans-serif';
+    x.textAlign = 'center';
+    x.fillText('Room ' + (data.code || '····') + '  ·  Play KOLOPOLY with your people', 540, 1242);
     return cv;
   }
 };

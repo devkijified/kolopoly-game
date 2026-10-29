@@ -11,16 +11,25 @@ function fmtMatchClock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
+function headerClockMs(room) {
+  if (!room || (room.status !== 'playing' && room.status !== 'countdown')) return null;
+  if (room.gameEndsAt) return room.gameEndsAt - Date.now();
+  if (room.inf) {
+    const end = room.inf.phaseEndsAt || room.inf.hornAt;
+    if (end) return end - Date.now();
+  }
+  return null;
+}
 function updateRoomChip(room) {
   const chip = $('roomChip');
   if (!room || !room.code) { chip.classList.add('hidden'); roomChipShown = ''; return; }
   chip.classList.remove('hidden');
-  const timed = !!room.gameEndsAt && (room.status === 'playing' || room.status === 'countdown');
-  const left = timed ? room.gameEndsAt - Date.now() : 0;
-  const key = room.code + '|' + (timed ? fmtMatchClock(left) : '') + '|' + (timed && left < 60000 ? 'u' : '');
+  const left = headerClockMs(room);
+  const show = left != null;
+  const key = room.code + '|' + (show ? fmtMatchClock(left) : '') + '|' + (show && left < 60000 ? 'u' : '');
   if (key === roomChipShown) return;
   roomChipShown = key;
-  chip.innerHTML = 'Room ' + esc(room.code) + (timed ? ' · <span class="chip-time' + (left < 60000 ? ' urgent' : '') + '">' + fmtMatchClock(left) + '</span>' : '');
+  chip.innerHTML = 'Room ' + esc(room.code) + (show ? ' · <span class="chip-time' + (left < 60000 ? ' urgent' : '') + '">' + fmtMatchClock(left) + '</span>' : '');
 }
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 window.KPesc = esc;
@@ -288,6 +297,23 @@ function coinTick(at, freq, vol) {
   tone({ f: freq * 1.34 * jr(0.02), at, dur: 0.05, vol: vol * 0.6 });
   noiseHit({ at, dur: 0.02, vol: vol * 0.5, freq: 4300 + Math.random() * 2300, q: 2.5 });
 }
+function cashInCue(amount) {
+  // Money in: three or four coin strikes into a soft drawer. Short,
+  // metallic, not a notification ding. Bigger sums add one more coin.
+  const n = (amount || 0) >= 200000 ? 4 : 3;
+  const pitches = [1480, 1760, 2093, 2349];
+  for (let i = 0; i < n; i++) {
+    const at = i * 0.062;
+    const f = pitches[i] * jr(0.015);
+    tone({ f, at, dur: 0.07, type: 'triangle', vol: 0.06 });
+    tone({ f: f * 2.37, at, dur: 0.04, type: 'sine', vol: 0.022 });
+    noiseHit({ at, dur: 0.012, vol: 0.035, freq: 3100, q: 3.4 });
+  }
+  const tail = n * 0.062;
+  tone({ f: 523, at: tail, dur: 0.07, type: 'triangle', vol: 0.028 });
+  tone({ f: 784, at: tail + 0.06, dur: 0.12, type: 'triangle', vol: 0.036 });
+  tone({ f: 130, f2: 70, at: tail + 0.02, dur: 0.1, type: 'sine', vol: 0.03 });
+}
 function coinCascade(amount, durMs) {
   // Money in: metallic drips that accelerate, then settle. The drip
   // count scales with the amount and the run lasts as long as the
@@ -315,7 +341,7 @@ function knockSfx(at, vol) {
 }
 function paperSlide(at, dur) { noiseHit({ at: at || 0, dur: dur || 0.22, vol: 0.04, freq: 850, freq2: 2400, q: 1.1 }); }
 const sfx = {
-  credit(amount, durMs) { duckAmbient(); coinCascade(amount || 0, durMs); },
+  credit(amount) { duckAmbient(); cashInCue(amount || 0); },
   debit() { coinPour(); },
   diceStart() { for (let i = 0; i < 7; i++) noiseHit({ at: i * 0.12 * jr(0.25), dur: 0.035, vol: 0.07 * (1 - i / 9), freq: 1700 + Math.random() * 900, q: 1.6 }); },
   diceSettle(doubles) { knockSfx(0, 0.1); knockSfx(0.09, 0.08); if (doubles) sfx.horn(); },
@@ -387,7 +413,7 @@ $('muteBtn').addEventListener('click', () => {
   try { localStorage.setItem('kolopolyAudio', String(audioState)); } catch (e) { }
   renderMuteBtn();
   if (audioState === 3 && window.KPRetention) window.KPRetention.muteFromSound();
-  if (audioState !== 3) { unlockAudio(); logSfx('credit', null, 'ui'); sfx.credit(25000, 450); }
+  if (audioState !== 3) { unlockAudio(); logSfx('tap', null, 'ui'); sfx.tap(); }
 });
 renderMuteBtn();
 // KP14 part 1: the Share button in the freed header slot carries the
@@ -676,6 +702,13 @@ function connect() {
         ms: quiet ? 7000 : 5200,
         actions: quiet ? [{ label: 'I dey here', primary: true, run: () => bumpLocalActive() }] : []
       });
+      return;
+    }
+    if (msg.type === 'shelf') {
+      if (msg.inventory) shelfView = Object.assign({}, shelfView || {}, { inventory: msg.inventory, ok: true });
+      const box = document.querySelector('#hudSheet #shelfBox');
+      if (box && shelfView) paintShelfBox($('hudSheet'));
+      if (msg.line) toast(esc(msg.line));
       return;
     }
     if (msg.type === 'state') {
@@ -1117,7 +1150,7 @@ function processFeed(room, prev) {
     // (retimed to the door visual); the feed keeps the buzz only.
     if (e.kind === 'kirikiri') { buzz([70, 50, 70]); }
     if (e.kind === 'timeout') toast(esc((e.auto ? '(auto) ' : '') + e.text), 5200);
-    if (e.kind === 'jackpot' && e.amount < 100000) { logSfx('chime', null, 'feed'); sfx.chime(); sfx.credit(e.amount, 520); }
+    if (e.kind === 'jackpot' && e.amount < 100000) { logSfx('chime', null, 'feed'); sfx.chime(); }
     if (e.kind === 'jackpot' && e.amount >= 100000) {
       spray();
       logSfx('cheer', null, 'feed');
@@ -1418,16 +1451,14 @@ function renderGame(room) {
     // has no drop glyph; KP20's file scope is app.js and style.css).
     const pwAmt = [50, 100, 200, 500][room.inf.phase - 1];
     const priceWord = room.inf.index <= 1 ? 'Printed prices' : ('Prices ' + room.inf.index + 'x');
+    // The phase name, index and water price stay in the DOM for the
+    // gauge, but the bar itself is out of the layout. The clock the
+    // player reads is the header chip. Deal Break and contracts live
+    // on the Deals sheet, one door.
     infBar.innerHTML = '<span class="ph">' + esc(phaseFace(room.inf.phaseName)) + '</span>' +
       '<span class="idx" title="How dear things don be, against the printed board">' + priceWord + '</span>' +
       '<span class="water-chip" role="img" aria-label="Pure water ₦' + pwAmt + '" title="Pure water ₦' + pwAmt + '"><svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c2.9 3.7 6.3 7.5 6.3 11a6.3 6.3 0 1 1-12.6 0c0-3.5 3.4-7.3 6.3-11z"/><path d="M9.3 14.6a2.8 2.8 0 0 0 1.9 3.2"/></svg>₦' + pwAmt + '</span>' +
-      '<span>Salary ' + fmtN(room.inf.salary) + '</span>' +
-      '<span class="clk" id="infClock"></span>' +
-      '<button id="dealBreakBtn">' + window.icon('clock', 14) + ' Deal Break</button>' +
-      '<button id="contractsBtn">' + window.icon('card', 14) + ' Contracts (' + room.inf.contracts.length + ')</button>' +
-      '<span class="infbar-note">Pure water na the gauge: one sachet start from ₦50 these days, and na im price dey tell us how market don be. The Index na the maths; the sachet na the memory.</span>';
-    $('dealBreakBtn').addEventListener('click', () => sendAs('call_deal_break', {}));
-    $('contractsBtn').addEventListener('click', () => openContracts());
+      '<span class="clk" id="infClock"></span>';
   } else {
     infBar.classList.add('hidden');
   }
@@ -1620,9 +1651,7 @@ function renderActionBar(room) {
     '<span class="u-ic">' + window.icon(ic, 21) + '</span>' +
     '<span class="u-lb">' + label + '</span></button>';
   let secHtml = ubtn('sbDeeds', 'docText', 'Deeds');
-  if (!spectator) secHtml += ubtn('sbTrade', 'swapH', room.inf ? 'Swap' : 'Trade');
-  if (room.inf && !spectator) secHtml += ubtn('sbContracts', 'card', 'Contracts');
-  secHtml += ubtn('sbGist', 'messages', 'Gist');
+  secHtml += ubtn('sbLog', 'book', 'Log');
   // Lesson 11: a way out, with an honest two tap confirm. The host also
   // carries the room ending option.
   if (!spectator && me && !me.bankrupt && room.status === 'playing') {
@@ -1631,9 +1660,7 @@ function renderActionBar(room) {
   }
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
-  wire('sbTrade', () => openTrade());
-  wire('sbContracts', () => openContracts());
-  wire('sbGist', () => openGist());
+  wire('sbLog', () => openGist());
   wire('sbLeave', () => {
     if (!leaveArmed) { leaveArmed = true; renderActionBar(room); setTimeout(() => { leaveArmed = false; if (state) renderActionBar(state); }, 4000); return; }
     leaveArmed = false;
@@ -1987,7 +2014,7 @@ function openMyDeeds() {
     onSpaceTap(Number(b.dataset.openDeed));
   }));
 }
-function openTrade() {
+function openTrade(presetTo) {
   const room = state;
   const me = focusPlayer();
   if (!me || spectator) return;
@@ -1997,7 +2024,7 @@ function openTrade() {
     (room.mode === 'pass' ? '<label style="display:block;font-weight:800;font-size:12px;margin:10px 0 6px;">You dey act as</label><select class="textin" id="actAs">' + room.players.filter((p) => !p.bankrupt).map((p) => '<option value="' + p.id + '"' + (p.id === me.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>' : '') +
     (room.inf ? '<p class="caption">For Inflation Mode, swaps na contracts: propose anytime, except during an auction, another player debt, or a pause. The other side gets 30 seconds to answer. If e no dey for contract board, e no happen.</p>' : '<p class="caption">Trades fit happen any time. Deeds with buildings for their set no fit trade until the buildings sell.</p>') +
     '<label style="display:block;font-weight:800;font-size:12px;margin:12px 0 6px;">Trade with</label>' +
-    '<select class="textin" id="tradeTo">' + others.map((p) => '<option value="' + p.id + '">' + esc(p.name) + '</option>').join('') + '</select>' +
+    '<select class="textin" id="tradeTo">' + others.map((p) => '<option value="' + p.id + '"' + (presetTo != null && Number(presetTo) === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>' +
     '<div class="trade-cols mt8"><div><b>You give</b><input class="num-in mt8" id="giveCash" type="number" min="0" placeholder="Cash ₦">' +
     '<div class="mt8" id="giveDeeds">' + deedRowsFor(me.id, room, true) + '</div>' +
     '<label class="deed-check"><input type="number" id="giveGoojf" min="0" max="' + me.goojf + '" value="0" style="width:64px;"> <span>Get Out cards (you hold ' + me.goojf + ')</span></label></div>' +
@@ -2146,8 +2173,6 @@ function paintHud(room) {
   if (players) players.innerHTML = window.icon('users', 20) + '<span class="hud-badge">' + room.players.length + '</span>';
   const deals = $('hudDeals');
   if (deals) deals.innerHTML = window.icon(room.inf ? 'card' : 'swapH', 20);
-  const feed = $('hudFeed');
-  if (feed) feed.innerHTML = window.icon('messages', 20);
   syncBoardView();
 }
 function openHud(kind) {
@@ -2156,14 +2181,15 @@ function openHud(kind) {
   if (kind === 'feed') { openGist(); return; }
   if (kind === 'deals') {
     $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Deals</h3>' +
-      '<p class="caption">Build, mortgage and trade fit any time. Only the dice and the landing stay with the turn.</p>' +
-      '<div class="btnrow"><button class="btn" id="hudTrade">Trade</button>' +
-      (room.inf ? '<button class="btn" id="hudContracts">Contracts</button>' : '') +
+      '<p class="caption">Trade, contracts and Deal Break. One door. Dice and landings stay with the turn.</p>' +
+      '<div class="btnrow"><button class="btn" id="hudTrade">Offer a trade</button>' +
+      (room.inf ? '<button class="btn" id="hudContracts">Contracts</button><button class="btn" id="hudDealBreak">Deal Break</button>' : '') +
       '<button class="btn ghost" data-close="1">Close</button></div>';
     $('hudScrim').classList.add('show');
     wireSheetButtons($('hudSheet'), myId);
     const tr = $('hudTrade'); if (tr) tr.addEventListener('click', () => { closeScrim('hudScrim'); openTrade(); });
     const ct = $('hudContracts'); if (ct) ct.addEventListener('click', () => { closeScrim('hudScrim'); openContracts(); });
+    const db = $('hudDealBreak'); if (db) db.addEventListener('click', () => { closeScrim('hudScrim'); sendAs('call_deal_break', {}); });
     return;
   }
   if (kind === 'wallet') {
@@ -2172,29 +2198,139 @@ function openHud(kind) {
       ? '<p class="caption">Sapa dey near: one bad landing fit cost you ' + fmtN(fp.sapa.exposure) + '.</p>' : '';
     $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + (fp ? esc($('walletLabel').textContent) : 'Cash') + '</h3>' +
       '<p class="lead">' + (fp ? fmtN(fp.cash) : 'Spectating') + '</p>' + sapa +
-      '<p class="caption">You fit build, mortgage or trade anytime. Dice and landings stay with the turn.</p>' +
+      '<div class="shelf-head"><span class="shelf-kicker">SHELF</span></div>' +
+      '<div class="market-shelf" id="shelfBox"></div>' +
+      '<p class="shelf-tip" id="shelfTip"></p>' +
       '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
     $('hudScrim').classList.add('show');
     wireSheetButtons($('hudSheet'), myId);
+    paintShelfBox($('hudSheet'));
     return;
   }
+  const meId = focusPlayer() ? focusPlayer().id : null;
   const rows = room.players.map((p) => {
     const marks = (p.id === room.turnPlayerId ? ' · turn' : '') + (p.inJail ? ' · Kirikiri' : '') + (p.bankrupt ? ' · out' : '') + (p.bot ? ' · ' + (p.afkTaken ? 'AFK' : 'BOT') : '');
-    return '<div class="hud-sheet-row"><span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 18) + '</span>' +
+    const self = meId != null && p.id === meId;
+    return '<button type="button" class="hud-sheet-row" data-opp="' + p.id + '"' + (self ? ' data-self="1"' : '') + '><span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 18) + '</span>' +
       '<div class="grow"><b>' + esc(p.name) + '</b><div class="caption">' + p.deeds + ' deeds' + marks + '</div></div>' +
-      '<span class="cash">' + fmtN(p.cash) + '</span></div>';
+      '<span class="cash">' + fmtN(p.cash) + '</span></button>';
   }).join('');
   $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Players</h3>' + rows +
-    '<p class="caption">You fit build, mortgage or trade anytime, even on another person turn.</p>' +
+    '<p class="caption">Tap a player. Trade or look at their deeds.</p>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
   $('hudScrim').classList.add('show');
   wireSheetButtons($('hudSheet'), myId);
+  $('hudSheet').querySelectorAll('[data-opp]').forEach((row) => row.addEventListener('click', () => openOpponent(Number(row.dataset.opp))));
+}
+function openOpponent(playerId) {
+  const room = state;
+  const p = byId(playerId);
+  const me = focusPlayer();
+  if (!room || !p) return;
+  if (me && p.id === me.id) { openMyDeeds(); return; }
+  const dead = !!p.bankrupt;
+  $('hudSheet').innerHTML = '<div class="grab"></div><div id="oppMenu" data-player="' + p.id + '">' +
+    '<h3 class="title">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + '</h3>' +
+    '<p class="caption">' + p.deeds + ' deeds · ' + fmtN(p.cash) + (dead ? ' · out of the table' : '') + '</p>' +
+    '<div class="btnrow"><button class="btn" id="oppTrade"' + (dead ? ' disabled' : '') + '>Offer a trade</button>' +
+    '<button class="btn" id="oppDeeds">View deeds</button></div>' +
+    '<div class="btnrow"><button class="btn ghost" id="oppBack">Back</button><button class="btn ghost" data-close="1">Close</button></div></div>';
+  wireSheetButtons($('hudSheet'), myId);
+  const back = $('oppBack');
+  if (back) back.addEventListener('click', () => openHud('players'));
+  const trade = $('oppTrade');
+  if (trade) trade.addEventListener('click', () => { closeScrim('hudScrim'); openTrade(p.id); });
+  const deeds = $('oppDeeds');
+  if (deeds) deeds.addEventListener('click', () => { closeScrim('hudScrim'); openTheirDeeds(p.id); });
+}
+function openTheirDeeds(playerId) {
+  const room = state;
+  const p = byId(playerId);
+  if (!room || !p) return;
+  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + esc(p.name) + ': deeds</h3>' +
+    '<p class="caption">Look only. Their hand, not yours.</p>' +
+    '<div class="mt8">' + deedRowsFor(p.id, room, false) + '</div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('listScrim').classList.add('show');
+  wireSheetButtons($('listSheet'), myId);
+  $('listSheet').querySelectorAll('[data-open-deed]').forEach((b) => b.addEventListener('click', () => {
+    closeScrim('listScrim');
+    onSpaceTap(Number(b.dataset.openDeed));
+  }));
+}
+let shelfView = null;
+const SHELF_FACE = {
+  cowries: { label: 'Cowries', cost: 3, use: '3 cowries → ₦50,000 cash' },
+  kola: { label: 'Kola', cost: 1, use: 'Next rent, up to ₦100,000' },
+  yams: { label: 'Yam', cost: 1, use: 'Next fee or tax, up to ₦200,000' },
+  cloth: { label: 'Cloth', cost: 1, use: '₦150,000 cash for your hand' }
+};
+const SHELF_ICON = {
+  cowries: '<svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="18" rx="10" ry="7" fill="#f4e2b0" stroke="#2b2018" stroke-width="1.6"/><path d="M10 17c2 2 10 2 12 0" fill="none" stroke="#8a5a10" stroke-width="1.4"/><ellipse cx="16" cy="12" rx="4" ry="2.2" fill="#e8a90c"/></svg>',
+  kola: '<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="9" fill="#c4552a" stroke="#2b2018" stroke-width="1.6"/><path d="M16 9v16M10 14c3 2 9 2 12 0" fill="none" stroke="#6a2410" stroke-width="1.3"/></svg>',
+  yams: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 8c2 6 1 12 4 16 4 2 9-1 8-6-1-6-4-12-8-13-2 0-3 1-4 3z" fill="#e7c27a" stroke="#2b2018" stroke-width="1.6"/><path d="M14 14c2 2 4 2 6 0" fill="none" stroke="#8a5a10" stroke-width="1.2"/></svg>',
+  cloth: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 10h18l-2 14H9L7 10z" fill="#f7f1e4" stroke="#2b2018" stroke-width="1.6"/><path d="M7 10l4-4h10l4 4" fill="#e8a90c" stroke="#2b2018" stroke-width="1.4"/><path d="M12 14h8M12 18h8" stroke="#c4552a" stroke-width="1.4"/></svg>'
+};
+window.KPGoods = {
+  face: SHELF_FACE,
+  slots(inv, opts) {
+    opts = opts || {};
+    const data = inv || {};
+    const uses = opts.uses || {};
+    const armed = opts.armed || {};
+    return Object.keys(SHELF_FACE).map((key) => {
+      const face = SHELF_FACE[key];
+      const cost = uses[key] && uses[key].cost ? uses[key].cost : face.cost;
+      const have = data[key] || 0;
+      const on = armed[key] ? ' armed' : '';
+      const empty = have < 1 ? ' empty' : '';
+      return '<button type="button" class="good-slot' + on + empty + '" data-good="' + key + '" data-cost="' + cost + '" data-have="' + have + '" aria-label="' + face.label + ', ' + have + '">' +
+        '<span class="good-n">' + have + '</span>' +
+        '<span class="good-ico">' + SHELF_ICON[key] + '</span>' +
+        '<span class="good-k">' + face.label + '</span>' +
+        '<span class="good-cost">×' + cost + '</span></button>';
+    }).join('');
+  }
+};
+function shelfHTML(view) {
+  const inv = (view && view.inventory) || { cowries: 0, kola: 0, yams: 0, cloth: 0 };
+  const fp = (typeof focusPlayer === 'function') ? focusPlayer() : null;
+  return window.KPGoods.slots(inv, {
+    uses: view && view.uses,
+    armed: { kola: !!(fp && fp.shelfRent), yams: !!(fp && fp.shelfFee) }
+  });
+}
+function paintShelfBox(root) {
+  const box = root && root.querySelector ? root.querySelector('#shelfBox') : $('shelfBox');
+  if (!box) return;
+  const draw = (view) => {
+    if (!box.isConnected) return;
+    box.innerHTML = shelfHTML(view);
+    const tip = root && root.querySelector ? root.querySelector('#shelfTip') : null;
+    box.querySelectorAll('[data-good]').forEach((b) => b.addEventListener('click', () => {
+      const key = b.dataset.good;
+      const face = SHELF_FACE[key];
+      const cost = Number(b.dataset.cost || face.cost);
+      const have = Number(b.dataset.have || 0);
+      const playing = !!(state && state.status === 'playing' && !spectator && focusPlayer());
+      if (!playing) { if (tip) tip.textContent = 'Spend am inside a match.'; return; }
+      if (have < cost) { if (tip) tip.textContent = 'Need ' + cost + ' ' + face.label.toLowerCase() + '.'; return; }
+      if (tip) tip.textContent = face.use;
+      send('use_shelf', { good: key });
+    }));
+  };
+  if (shelfView) draw(shelfView);
+  const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
+  if (!id) { draw(shelfView); return; }
+  fetch('/api/retention?clientId=' + encodeURIComponent(id)).then((r) => r.json()).then((view) => {
+    if (view && view.ok) { shelfView = view; draw(view); }
+  }).catch(() => { if (!shelfView) draw(null); });
 }
 function openGist() {
   const room = state;
   const items = (room.feed || []).slice().reverse().map((e) =>
     '<div class="feed-item"><span class="k">' + esc(e.kind) + '</span><div>' + esc((e.auto ? '(auto) ' : '') + e.text) + '</div></div>').join('') || '<p class="caption">Nothing don happen yet.</p>';
-  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">Game gist</h3><div class="mt8">' + items + '</div>' +
+  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">Wahala log</h3><p class="caption">Wetin don happen for this table. No be chat.</p><div class="mt8">' + items + '</div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
   $('listScrim').classList.add('show');
   wireSheetButtons($('listSheet'), myId);
@@ -2216,12 +2352,15 @@ function renderEnd(room) {
     try { if (won) { logSfx('cheer', null, 'end'); sfx.cheer(); } else { logSfx('lose', null, 'end'); sfx.lose(); } } catch (e) { }
   }
   const rows = room.endTable.map((r, idx) =>
-    '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta end-title">' + esc(r.title) + '</span>' +
-    (r.lessons && r.lessons.length ? r.lessons.map((l) => '<span class="end-lessons">' + esc(l) + '</span>').join('') : '') +
-    '</td><td class="end-worth">' + fmtN(r.netWorth) + '</td></tr>').join('');
+    '<li class="end-row' + (idx === 0 ? ' winner' : '') + '">' +
+    '<div class="end-rank">' + (idx === 0 ? window.icon('crown', 22) : String(idx + 1)) + '</div>' +
+    '<div class="end-who"><div class="end-name">' + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' <span class="end-flag">resigned</span>' : r.bankrupt ? ' <span class="end-flag">out</span>' : '') + '</div>' +
+    '<div class="end-title">' + esc(r.title) + '</div>' +
+    (r.lessons && r.lessons.length ? r.lessons.map((l) => '<p class="end-lessons">' + esc(l) + '</p>').join('') : '') +
+    '</div><div class="end-worth">' + fmtN(r.netWorth) + '</div></li>').join('');
   const hasReal = room.endTable.some((r) => r.realNetWorth != null);
-  const realRows = hasReal ? room.endTable.slice().sort((a, b) => b.realNetWorth - a.realNetWorth).map((r) =>
-    '<tr><td>' + esc(r.name) + '<br><span class="meta end-title">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</span></td><td class="end-worth">' + fmtN(r.realNetWorth) + '</td></tr>').join('') : '';
+  const realRows = hasReal ? room.endTable.slice().sort((a, b) => b.realNetWorth - a.realNetWorth).map((r, idx) =>
+    '<li class="end-row"><div class="end-rank">' + (idx + 1) + '</div><div class="end-who"><div class="end-name">' + esc(r.name) + '</div><div class="end-title">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</div></div><div class="end-worth">' + fmtN(r.realNetWorth) + '</div></li>').join('') : '';
   const winName = room.winner ? room.winner.name : (room.endTable[0] && room.endTable[0].name) || 'Nobody';
   o.innerHTML = '<div class="end-card">' +
     '<p class="end-kicker">FINAL TABLE</p>' +
@@ -2230,11 +2369,11 @@ function renderEnd(room) {
     (room.endReason === 'abandoned' ? '<p class="end-reason">Everybody leave the table, so the room close.</p>' : '') +
     (room.endReason === 'host' ? '<p class="end-reason">The host end the room.</p>' : '') +
     '<div class="end-tables">' +
-      '<section class="end-panel"><h3 class="end-panel-title">Nominal</h3><p class="end-panel-sub">Wetin the numbers talk</p>' +
-        '<table class="end-table"><tr><th>Player and title</th><th>Net worth</th></tr>' + rows + '</table></section>' +
-      (hasReal ? '<section class="end-panel"><h3 class="end-panel-title">Real</h3><p class="end-panel-sub">Phase 1 buying power (Index ' + (room.inf ? room.inf.index : '') + 'x)</p>' +
-        '<table class="end-table"><tr><th>Player</th><th>Real net worth</th></tr>' + realRows + '</table>' +
-        '<p class="end-note">Nominal no be real. The argument between these two tables na the lesson.</p></section>' : '') +
+      '<section class="end-panel"><h3 class="end-panel-title">The table</h3><p class="end-panel-sub">Net worth, highest first</p>' +
+        '<ol class="end-board">' + rows + '</ol></section>' +
+      (hasReal ? '<section class="end-panel"><h3 class="end-panel-title">Buying power</h3><p class="end-panel-sub">Same money at Phase 1 prices</p>' +
+        '<ol class="end-board">' + realRows + '</ol>' +
+        '<p class="end-note">The naira on the table and the naira wey fit buy the same thing no be the same number.</p></section>' : '') +
     '</div>' +
     (room.dealOfGame ? '<p class="end-deal">Deal of the Game: ' + esc(room.dealOfGame) + '</p>' : '') +
     (room.interestLine ? '<p class="end-note">' + esc(room.interestLine) + '</p>' : '') +
@@ -2245,7 +2384,7 @@ function renderEnd(room) {
   o.classList.add('show');
   $('endShare').addEventListener('click', () => {
     openShare('final', {
-      rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0 })),
+      rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0, bot: !!(r.bot || r.afkTaken) })),
       deal: room.dealOfGame, code: room.code
     });
   });
@@ -2263,6 +2402,7 @@ function renderEnd(room) {
   });
   if (window.KPRetention) window.KPRetention.onWin(!!(room.winner && myId && room.winner.playerId === myId));
 }
+window.__kolopolyRenderEnd = renderEnd;
 let shareCanvas = null;
 function openShare(kind, data) {
   shareCanvas = window.KPBoard.drawShareCard(kind, data);
@@ -2430,7 +2570,6 @@ if (tray) tray.addEventListener('click', (e) => {
   if (b.id === 'hudPlayers') openHud('players');
   else if (b.id === 'hudCashBtn') openHud('wallet');
   else if (b.id === 'hudDeals') openHud('deals');
-  else if (b.id === 'hudFeed') openHud('feed');
 });
 const viewBtn = $('viewToggle');
 if (viewBtn) viewBtn.addEventListener('pointerdown', (e) => {

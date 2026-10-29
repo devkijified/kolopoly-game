@@ -305,6 +305,7 @@ function newPlayer(name, token, colorIdx) {
     goojf: [], doublesCount: 0, lap: 0, minCash: D.START_CASH,
     everMortgaged: false, kirikiriTrips: 0, lastRentReceived: 0,
     rentsReceived: 0, rentsPaid: 0, finesPaid: [], shield: false,
+    shelfRent: false, shelfFee: false,
     chaosRole: null, firstRentForgiven: false, local: false,
     bot: false, botBrain: null,
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
@@ -448,6 +449,7 @@ function publicRoom(room) {
       isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
       inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
+      shelfRent: !!p.shelfRent, shelfFee: !!p.shelfFee,
       sapa: room.inf ? sapaFor(room, p) : null,
       pendingChoice: (room.pendingChoices[p.id] || [])[0] !== undefined ? room.pendingChoices[p.id][0] : null,
       deeds: D.OWNABLE.filter((i) => room.props[i].owner === p.id).length,
@@ -513,8 +515,23 @@ function sendToKirikiri(room, player, reason) {
 // Charge a player; if they cannot cover it from cash, the game enters the
 // debt phase and waits for them to raise funds, trade, or go bankrupt.
 // resume: tag handled by settleDebt. Returns true if paid at once.
+function coverFineWithYam(room, player, amount, reason, opts) {
+  // One yam covers the next bank fee or tax, up to ₦200,000. The market
+  // pays the pot. Anything above the cap still comes out of the hand.
+  if (!player || !player.shelfFee || !opts || opts.stat !== 'fine' || amount <= 0) return amount;
+  const cover = Math.min(200000, amount);
+  player.shelfFee = false;
+  if (opts.toPot && cover > 0) {
+    room.pot += cover;
+    try { retention.onPot(room); } catch (e) { /* a whisper never blocks a fee */ }
+  }
+  pushFeed(room, 'info', player.name + ' yam cover ' + D.fmtN(cover) + ' of ' + reason + '. Market pay am.', { playerId: player.id, amount: cover });
+  setMessage(room, 'Yam cover: ' + player.name + ' no pay ' + D.fmtN(cover) + ' (' + reason + ').');
+  return amount - cover;
+}
 function charge(room, player, amount, to, reason, resume, opts) {
   opts = opts || {};
+  amount = coverFineWithYam(room, player, amount, reason, opts);
   if (amount <= 0) { afterCharge(room, resume, player); return true; }
   if (player.cash >= amount) {
     payNow(room, player, amount, to, reason, opts);
@@ -663,9 +680,25 @@ function resolveLanding(room, player, opts) {
             afterCharge(room, opts.after || 'endPhase', player);
             return;
           }
+          // One kola covers the next rent, up to ₦100,000. The market pays
+          // the landlord, so the tenant feels the save and the owner still collects.
+          const fullRent = rent;
+          if (player.shelfRent && rent > 0) {
+            player.shelfRent = false;
+            const cover = Math.min(100000, rent);
+            moveMoney(room, null, owner, cover,
+              'Kola cover: market pay ' + owner.name + ' ' + D.fmtN(cover) + ' rent for ' + sp.name + '. ' + player.name + ' no pay that part.',
+              { stat: 'rent', spaceName: sp.name });
+            if (cover >= rent) {
+              setMessage(room, 'Kola cover don pay the rent for ' + sp.name + '. ' + player.name + ' pay ₦0.');
+              afterCharge(room, opts.after || 'endPhase', player);
+              return;
+            }
+            rent -= cover;
+          }
           const rentReason = phaseMult > 1
-            ? 'Rent for ' + sp.name + ': ' + D.fmtN(printedRent) + ' x ' + phaseMult + ' (your roll) = ' + D.fmtN(rent)
-            : 'Rent for ' + sp.name;
+            ? 'Rent for ' + sp.name + ': ' + D.fmtN(printedRent) + ' x ' + phaseMult + ' (your roll) = ' + D.fmtN(fullRent) + (rent < fullRent ? '. You pay ' + D.fmtN(rent) + ' after kola' : '')
+            : ('Rent for ' + sp.name + (rent < fullRent ? ' after kola cover' : ''));
           if (phaseMult > 1) stamp(room, 'rent', rentReason + ', paid by ' + player.name + ' to ' + owner.name + '.', rent, player.id);
           charge(room, player, rent, owner, rentReason, opts.after || 'endPhase',
             { stat: 'rent', spaceName: sp.name });
@@ -1214,7 +1247,7 @@ function startGame(room) {
     p.bankrupt = false; p.goojf = []; p.doublesCount = 0; p.lap = 0;
     p.minCash = D.START_CASH; p.everMortgaged = false; p.kirikiriTrips = 0;
     p.lastRentReceived = 0; p.rentsReceived = 0; p.rentsPaid = 0; p.finesPaid = [];
-    p.shield = false; p.chaosRole = null; p.firstRentForgiven = false; p.resigned = false;
+    p.shield = false; p.shelfRent = false; p.shelfFee = false; p.chaosRole = null; p.firstRentForgiven = false; p.resigned = false;
     p.lastStartPassAt = 0; p.dealBreakLap = -1; p.sapaWindowUsed = false;
     p.peakCash = D.START_CASH; p.purchases = []; p.salaryNote2 = false;
   }
@@ -2300,6 +2333,42 @@ function handleConnection(ws) {
     if (ctx.spectator || !ctx.player) return fail('Spectators fit only watch.');
 
     const me = actorOf(msg);
+
+    // Shelf spend. Goods stay on the phone until this moment. Cowries and
+    // cloth become cash. Kola arms the next rent. Yam arms the next fee.
+    // The auction clock is not touched.
+    if (msg.type === 'use_shelf') {
+      if (!me || me.bankrupt || me.bot) return fail('You no fit spend the shelf now.');
+      if (room.status !== 'playing') return fail('Spend the shelf when the table dey play.');
+      if (room.paused) return fail('The game is paused, waiting for players.');
+      const good = String(msg.good || '');
+      const shelfId = room.mode === 'pass' ? (ctx.player && ctx.player.clientId) : me.clientId;
+      if (!shelfId) return fail('This phone no get a market shelf yet. Claim the drop first.');
+      if (good === 'kola' && me.shelfRent) return fail('You already hold a kola rent cover. Land on a rent first.');
+      if (good === 'yams' && me.shelfFee) return fail('You already hold a yam fee cover. Let the next fee land first.');
+      const taken = retention.take(shelfId, good);
+      if (!taken.ok) return fail(taken.error === 'short' ? 'Your shelf no get enough for that.' : 'That good no dey for the shelf.');
+      let line = '';
+      if (taken.kind === 'cash') {
+        const word = good === 'cloth' ? 'Aso-ebi cloth' : 'Cowries';
+        line = word + ' don turn ' + D.fmtN(taken.amount) + ' for your hand.';
+        moveMoney(room, null, me, taken.amount, me.name + ' spend ' + good + '. ' + line, { stat: 'other' });
+        settleDebtIfPossible(room);
+      } else if (taken.kind === 'rent') {
+        me.shelfRent = true;
+        line = 'Kola cover dey on you. Next rent, up to ₦100,000, the market go pay.';
+        pushFeed(room, 'info', me.name + ' crack kola. ' + line, { playerId: me.id });
+        setMessage(room, me.name + ' hold kola rent cover.');
+      } else if (taken.kind === 'fee') {
+        me.shelfFee = true;
+        line = 'Yam cover dey on you. Next fee or tax, up to ₦200,000, the market go pay.';
+        pushFeed(room, 'info', me.name + ' set yam down. ' + line, { playerId: me.id });
+        setMessage(room, me.name + ' hold yam fee cover.');
+      }
+      send({ type: 'shelf', inventory: taken.inventory, line: taken.kind === 'cash' ? '' : line, good });
+      broadcast(room);
+      return;
+    }
 
     // ---- Auction intents (any solvent player) ------------------------------
     if (msg.type === 'bid') {

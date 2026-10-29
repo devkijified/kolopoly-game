@@ -24,6 +24,7 @@
   <div class="spacer"></div>
   <span class="chip hidden" id="roomChip"></span>
   <span class="chip hidden" id="modePill"></span>
+  <button class="iconbtn hidden" id="shelfBtn" type="button" aria-label="Today's market drop"></button>
   <button class="iconbtn hidden" id="tierBtn" aria-label="Graphics quality"></button>
   <button class="iconbtn" id="shareBtn" aria-label="Share or invite"></button>
   <button class="iconbtn" id="muteBtn" aria-label="Sound and voice on"></button>
@@ -334,11 +335,15 @@
       </div>
     </div>
     <div class="market-drop" id="marketCard">
-      <p class="overline">DAILY MARKET DROP</p>
-      <h2 class="title" id="marketTitle">Lagos market shelf</h2>
-      <p class="caption" id="marketLine">Once each Lagos day: cowries, kola, yam and cloth for your shelf.</p>
+      <div class="shelf-head">
+        <span class="shelf-kicker">SHELF</span>
+        <span class="shelf-kicker" id="marketTitle">Today</span>
+      </div>
       <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
-      <button class="btn block" type="button" id="claimBtn">Claim today's drop</button>
+      <p class="shelf-tip" id="marketLine"></p>
+      <p class="shelf-tip" id="marketLanded"></p>
+      <button class="btn block" type="button" id="claimBtn">Claim</button>
+      <button class="btn ghost block mt8 hidden" type="button" id="shelfClose">Close</button>
       <div class="whisper-row">
         <div class="grow">
           <div class="whisper-name">Whispers</div>
@@ -408,7 +413,6 @@
         <button type="button" class="hud-ico" id="hudPlayers" aria-label="Players at the table"></button>
         <button type="button" class="hud-cash" id="hudCashBtn" aria-label="Your cash"><span id="hudCashAmt">₦0</span></button>
         <button type="button" class="hud-ico" id="hudDeals" aria-label="Deals"></button>
-        <button type="button" class="hud-ico" id="hudFeed" aria-label="Game gist"></button>
         <button type="button" class="hud-ico" id="viewToggle" aria-label="Full board. Tap to follow your token." aria-pressed="false"></button>
       </div>
       <div class="msgbar"><span class="msg-cue" id="msgCue" style="display:none"></span><span id="msgText">Welcome to Kolopoly.</span></div>
