@@ -175,6 +175,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .switch input:checked + .track { background: var(--green); }
 .switch input:checked + .track::after { left: 22px; }
+.switch input:disabled + .track { opacity: 0.45; }
 .join-row { display: flex; gap: 8px; }
 .join-row .textin { text-transform: uppercase; letter-spacing: 3px; font-weight: 800; text-align: center; }
 .banner {
@@ -1862,7 +1863,27 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 }
 .retention-sheet .btn { min-height: 44px; }
 .retention-sheet .btnrow { margin-top: 10px; }
+.retention-sheet .btnrow:not(:has(button:not(.hidden))) { display: none; }
 .retention-sheet .caption { margin-top: 6px; }
+.whisper-state {
+  margin: 10px 0 0; font-weight: 800; font-size: 14px; color: var(--ink);
+}
+.whisper-live {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; min-height: 48px; padding: 8px 8px 8px 12px;
+  border-radius: 14px; background: #e7f6ee;
+  box-shadow: inset 0 0 0 1px rgba(29, 158, 108, 0.35);
+}
+.whisper-live-mark {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  background: var(--green); box-shadow: 0 0 0 4px rgba(29, 158, 108, 0.18);
+}
+.whisper-live-name { flex: 1; font-weight: 800; font-size: 15px; color: var(--ink); }
+.whisper-live-off {
+  min-height: 36px; padding: 0 8px; border: none; background: transparent;
+  color: var(--ink-soft); font: inherit; font-size: 13px; font-weight: 800;
+  text-decoration: underline; text-underline-offset: 3px;
+}
 
 
 /* Rebuild polish: denser player strip + premium end card already above.
@@ -2006,6 +2027,28 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   font-weight: 700; font-size: 13px; text-decoration: underline; text-underline-offset: 3px;
 }
 #welcomeCard .play-go { margin-top: 8px; }
+.home-mode {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;
+}
+.home-mode-pick {
+  min-height: 44px; padding: 5px 10px; border-radius: 14px;
+  border: 1.5px solid var(--line); background: rgba(255, 250, 240, 0.72);
+  color: var(--ink); text-align: left;
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+}
+.home-mode-pick .hm-t {
+  font-family: 'Aeonik Pro', 'Figtree', sans-serif;
+  font-size: 15px; font-weight: 800; line-height: 1.1;
+}
+.home-mode-pick .hm-k {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: #a87400; line-height: 1.1;
+}
+.home-mode-pick.sel {
+  border-color: var(--gold-deep); background: #fff3d1;
+  box-shadow: 0 0 0 2px var(--gold);
+}
+.home-mode-pick:active { transform: scale(0.98); }
 #view-landing .market-drop { margin-top: 6px; padding-top: 0; box-shadow: none; }
 #view-landing .whisper-row { margin-top: 6px; min-height: 36px; gap: 8px; }
 #view-landing .whisper-name {
@@ -2013,7 +2056,11 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 }
 #view-landing .whisper-row .caption { margin: 0; font-weight: 800; }
 #view-landing .whisper-row .caption:empty { display: none; }
+#view-landing .whisper-row .caption[data-state="on"] { color: var(--green-deep); }
+#view-landing .whisper-row .caption[data-state="blocked"],
+#view-landing .whisper-row .caption[data-state="unavailable"] { color: var(--red-deep); }
 #view-landing .whisper-row .switch { margin-left: auto; }
+#view-landing .whisper-row.is-on .whisper-name { color: var(--green-deep); }
 .good-slot .good-n.incoming { background: var(--gold); color: var(--ink); }
 @keyframes claimPulse {
   0%, 100% { box-shadow: 0 8px 18px rgba(120, 78, 4, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4); }

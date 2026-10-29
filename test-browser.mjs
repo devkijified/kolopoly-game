@@ -1438,6 +1438,10 @@ try {
     const slogan = document.querySelector('.hero-slogan');
     const quick = box('welcomeQuick');
     const join = box('welcomeJoinCode');
+    const mode = document.getElementById('welcomeMode');
+    const mb = mode ? mode.getBoundingClientRect() : null;
+    const inf = document.querySelector('#welcomeMode [data-gmode="inflation"]');
+    const cla = document.querySelector('#welcomeMode [data-gmode="classic"]');
     return {
       vh: window.innerHeight,
       welcomes,
@@ -1447,6 +1451,10 @@ try {
       slogans: document.querySelectorAll('.hero-slogan').length,
       taglines: document.querySelectorAll('.tagline .tl').length,
       quick, join,
+      modeTop: mb ? Math.round(mb.top) : null,
+      modeBottom: mb ? Math.round(mb.bottom) : null,
+      infSel: !!(inf && inf.classList.contains('sel') && inf.getAttribute('aria-pressed') === 'true'),
+      claSel: !!(cla && cla.classList.contains('sel')),
       today: (document.getElementById('marketTitle') || {}).textContent || '',
       whisper: (document.getElementById('whisperCap') || {}).textContent || '',
       cow: face(cow), kola: face(kola), yam: face(yam), cloth: face(cloth),
@@ -1459,6 +1467,7 @@ try {
   check('home: the player name is the only greeting', home390.title === 'Tife' && home390.welcomes === 0 && home390.longCopy === false, JSON.stringify({ title: home390.title, welcomes: home390.welcomes, longCopy: home390.longCopy }));
   check('home: one slogan, no stacked taglines', home390.slogans === 1 && home390.taglines === 0 && home390.slogan === 'Break your kolo, buy the street.', JSON.stringify(home390.slogan));
   check('home: Quick play is the primary and it sits in the first screen', !!home390.quick && home390.quick.h >= 56 && home390.quick.bottom <= home390.vh && !!home390.join && home390.quick.h > home390.join.h && home390.quick.w >= home390.join.w, JSON.stringify({ quick: home390.quick, join: home390.join, vh: home390.vh }));
+  check('home: Quick play mode is on the welcome surface, Inflation selected, inside the first screen', home390.infSel && !home390.claSel && home390.modeTop != null && home390.modeTop >= 0 && home390.modeBottom <= home390.vh && home390.modeBottom <= home390.quick.top, JSON.stringify({ modeTop: home390.modeTop, modeBottom: home390.modeBottom, quick: home390.quick, vh: home390.vh }));
   check('home: the shelf is goods, not a Today brochure', home390.today === 'Shelf' && home390.cow && home390.cow.n.trim() === '+6' && home390.cow.have === '0', JSON.stringify(home390));
   check('home: whispers are a switch, not a paragraph', home390.whisper.trim() === '' && !/Off until you ask/.test(home390.whisper), home390.whisper);
   check('home: no horizontal overflow at 390', home390.overflow === true);
@@ -1477,11 +1486,13 @@ try {
   const H360 = await homeAt('H360', 360, 740);
   const home360 = await readHome(H360);
   check('home 360: Quick play is in the first screen and the name is not doubled', home360.title === 'Tife' && home360.welcomes === 0 && !!home360.quick && home360.quick.bottom <= home360.vh && home360.overflow === true, JSON.stringify({ title: home360.title, quick: home360.quick, vh: home360.vh }));
+  check('home 360: the mode control stays in the first screen with Inflation selected', home360.infSel && !home360.claSel && home360.modeBottom != null && home360.modeBottom <= home360.vh && home360.quick.bottom <= home360.vh, JSON.stringify({ modeBottom: home360.modeBottom, quick: home360.quick, vh: home360.vh }));
   await H360.screenshot({ path: SHOTS + 'kp23-home-360.png' });
   await H360.close();
   const H400 = await homeAt('H400', 400, 844);
   const home400 = await readHome(H400);
   check('home 400: one slogan and Quick play leads', home400.slogan === 'Break your kolo, buy the street.' && home400.welcomes === 0 && !!home400.quick && home400.quick.h > (home400.join ? home400.join.h : 0) && home400.overflow === true, JSON.stringify({ slogan: home400.slogan, quick: home400.quick, join: home400.join }));
+  check('home 400: Inflation is the visible Quick play mode', home400.infSel && !home400.claSel && home400.modeBottom != null && home400.modeBottom <= home400.vh, JSON.stringify({ modeBottom: home400.modeBottom, vh: home400.vh }));
   await H400.screenshot({ path: SHOTS + 'kp23-home-400.png' });
   await H400.close();
 
@@ -1544,6 +1555,204 @@ try {
   const tapped = await U2.evaluate(() => window.__reloads.length);
   check('tap reloads now when the table is still', tapped === 1, 'reloads=' + tapped);
   await U2.close();
+
+  console.log('B21: a stored Classic pick is visible on the welcome surface and Quick play obeys it');
+  const phone = { viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' };
+  const HM1 = await newPage('HM1');
+  await HM1.emulate(phone);
+  await HM1.evaluateOnNewDocument(() => {
+    localStorage.setItem('kolopolyName', 'Tife');
+    localStorage.setItem('kolopolyGameMode', 'classic');
+  });
+  await HM1.goto(BASE, { waitUntil: 'networkidle0' });
+  const storedHome = await HM1.evaluate(() => {
+    const welcome = document.getElementById('welcomeCard');
+    const join = document.getElementById('joinCard');
+    const inf = document.querySelector('#welcomeMode [data-gmode="inflation"]');
+    const cla = document.querySelector('#welcomeMode [data-gmode="classic"]');
+    const formCla = document.querySelector('#gameModeRow [data-gmode="classic"]');
+    const mode = document.getElementById('welcomeMode').getBoundingClientRect();
+    const quick = document.getElementById('welcomeQuick').getBoundingClientRect();
+    return {
+      welcomeOn: welcome && !welcome.classList.contains('hidden'),
+      joinHidden: join && join.classList.contains('hidden'),
+      inf: !!(inf && inf.classList.contains('sel')),
+      cla: !!(cla && cla.classList.contains('sel') && cla.getAttribute('aria-pressed') === 'true'),
+      formCla: !!(formCla && formCla.classList.contains('sel')),
+      modeAbove: mode.bottom <= quick.top + 1,
+      quickIn: quick.bottom <= window.innerHeight
+    };
+  });
+  check('a returning player sees Classic selected on the welcome surface, not only in the hidden form', storedHome.welcomeOn && storedHome.joinHidden && storedHome.cla && !storedHome.inf && storedHome.formCla && storedHome.modeAbove && storedHome.quickIn, JSON.stringify(storedHome));
+  await HM1.screenshot({ path: SHOTS + 'kp24-home-classic-390.png' });
+  await HM1.click('#welcomeMode [data-gmode="inflation"]');
+  const flipped = await HM1.evaluate(() => ({
+    inf: document.querySelector('#welcomeMode [data-gmode="inflation"]').classList.contains('sel'),
+    cla: document.querySelector('#welcomeMode [data-gmode="classic"]').classList.contains('sel'),
+    formInf: document.querySelector('#gameModeRow [data-gmode="inflation"]').classList.contains('sel'),
+    stored: localStorage.getItem('kolopolyGameMode')
+  }));
+  check('tapping Inflation on the welcome surface updates the pick, the form, and the saved mode', flipped.inf && !flipped.cla && flipped.formInf && flipped.stored === 'inflation', JSON.stringify(flipped));
+  await HM1.screenshot({ path: SHOTS + 'kp24-home-inflation-390.png' });
+  await HM1.close();
+
+  const Qclassic = await newPage('Qclassic');
+  await Qclassic.evaluateOnNewDocument(() => { localStorage.setItem('kolopolyName', 'Kemi'); localStorage.setItem('kolopolyGameMode', 'classic'); });
+  await Qclassic.goto(BASE, { waitUntil: 'networkidle0' });
+  await Qclassic.click('#welcomeQuick');
+  await waitState(Qclassic, (s) => s.status === 'lobby', 'classic quick room');
+  const classicRoom = await S(Qclassic);
+  check('welcome Quick play with Classic selected opens a Classic public room', classicRoom.settings.gameMode === 'classic' && classicRoom.isPublic === true, classicRoom.settings.gameMode);
+
+  const Qinf = await newPage('Qinf');
+  await Qinf.evaluateOnNewDocument(() => { localStorage.setItem('kolopolyName', 'Tobi'); });
+  await Qinf.goto(BASE, { waitUntil: 'networkidle0' });
+  const infPick = await Qinf.evaluate(() => document.querySelector('#welcomeMode [data-gmode="inflation"]').classList.contains('sel'));
+  check('a new returning player lands on Inflation', infPick === true);
+  await Qinf.click('#welcomeQuick');
+  await waitState(Qinf, (s) => s.status === 'lobby', 'inflation quick room');
+  const infRoom = await S(Qinf);
+  check('welcome Quick play on Inflation does not enter the waiting Classic room', infRoom.code !== classicRoom.code && infRoom.settings.gameMode === 'inflation', infRoom.code + ' vs ' + classicRoom.code + ' ' + infRoom.settings.gameMode);
+
+  const Qinf2 = await newPage('Qinf2');
+  await Qinf2.evaluateOnNewDocument(() => { localStorage.setItem('kolopolyName', 'Sade'); localStorage.setItem('kolopolyGameMode', 'inflation'); });
+  await Qinf2.goto(BASE, { waitUntil: 'networkidle0' });
+  await Qinf2.click('#welcomeQuick');
+  await waitState(Qinf2, (s) => s.status === 'lobby' && s.players.length === 2, 'second inflation quick seat');
+  const infRoom2 = await S(Qinf2);
+  check('a second Inflation Quick play joins that Inflation room', infRoom2.code === infRoom.code && infRoom2.settings.gameMode === 'inflation');
+  await Qclassic.close();
+  await Qinf.close();
+  await Qinf2.close();
+
+  console.log('B22: whispers drop the decline once push is on, and name blocked and unavailable');
+  const android = { viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36' };
+  const whisperUi = (page) => page.evaluate(() => {
+    const shown = (el) => {
+      if (!el || el.classList.contains('hidden')) return false;
+      let n = el;
+      while (n && n !== document.body) {
+        if (n.classList.contains('hidden')) return false;
+        n = n.parentElement;
+      }
+      return true;
+    };
+    const later = document.getElementById('retentionLater');
+    const live = document.getElementById('retentionLive');
+    const close = document.getElementById('retentionClose');
+    const whisper = document.getElementById('retentionWhisper');
+    const status = document.getElementById('retentionStatus');
+    const sheet = document.getElementById('retentionSheet');
+    const cap = document.getElementById('whisperCap');
+    const box = document.getElementById('optWhisper');
+    const off = document.getElementById('retentionOff');
+    return {
+      sheet: shown(sheet),
+      later: shown(later),
+      laterText: later ? later.textContent.trim() : '',
+      live: shown(live),
+      liveText: live ? live.innerText.replace(/\s+/g, ' ').trim() : '',
+      off: shown(off),
+      close: shown(close),
+      whisper: shown(whisper),
+      status: status && !status.classList.contains('hidden') ? status.textContent.trim() : '',
+      cap: cap ? cap.textContent.trim() : '',
+      state: cap ? (cap.dataset.state || '') : '',
+      checked: !!(box && box.checked),
+      disabled: !!(box && box.disabled)
+    };
+  });
+  async function armPush(page) {
+    await page.evaluate(() => {
+      window.__kpForcePerm = 'granted';
+      const fakeSub = {
+        endpoint: 'https://push.example.test/kolopoly/on',
+        toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', auth: 'BBBBBBBBBBBBBBBB' } }; }
+      };
+      const ready = Promise.resolve({
+        pushManager: {
+          getSubscription: () => Promise.resolve(null),
+          subscribe: () => Promise.resolve(fakeSub)
+        }
+      });
+      const fakeSW = {
+        register: () => Promise.resolve({}),
+        ready
+      };
+      try {
+        Object.defineProperty(navigator, 'serviceWorker', { configurable: true, get() { return fakeSW; } });
+      } catch (e) { /* the click path reports a failed subscribe */ }
+    });
+  }
+  const PW1 = await newPage('PW1');
+  await PW1.emulate(android);
+  await PW1.evaluateOnNewDocument(() => { localStorage.setItem('kolopolyName', 'Adaeze'); });
+  await PW1.goto(BASE, { waitUntil: 'networkidle0' });
+  await PW1.waitForFunction(() => {
+    const cap = document.getElementById('whisperCap');
+    return !!(cap && cap.dataset.state === '' && window.KPRetention);
+  }, { timeout: 8000 }).catch(() => {});
+  await PW1.evaluate(() => window.KPRetention.onWin(true));
+  await sleep(200);
+  const ask = await whisperUi(PW1);
+  check('the whisper ask still offers Turn on and Not now before the phone has allowed them', ask.sheet && ask.whisper && ask.later && ask.laterText === 'Not now' && !ask.live, JSON.stringify(ask));
+  await PW1.screenshot({ path: SHOTS + 'kp24-whispers-ask-390.png' });
+  await armPush(PW1);
+  await PW1.click('#retentionWhisper');
+  await PW1.waitForFunction(() => {
+    const live = document.getElementById('retentionLive');
+    const later = document.getElementById('retentionLater');
+    return !!(live && !live.classList.contains('hidden') && later && later.classList.contains('hidden'));
+  }, { timeout: 8000 }).catch(() => {});
+  const onUi = await whisperUi(PW1);
+  check('after whispers are on, Not now is gone and the sheet shows a clean on state', onUi.sheet && onUi.live && !onUi.later && !onUi.whisper && onUi.liveText.indexOf('Whispers on') >= 0 && onUi.off && onUi.cap === 'On' && onUi.checked && !onUi.disabled, JSON.stringify(onUi));
+  await PW1.screenshot({ path: SHOTS + 'kp24-whispers-on-390.png' });
+  await PW1.click('#retentionOff');
+  await sleep(300);
+  const mutedUi = await whisperUi(PW1);
+  check('turning whispers off leaves the decline hidden and shows the quiet state', !mutedUi.later && !mutedUi.live && mutedUi.status === 'Whispers muted' && mutedUi.cap === 'Muted' && !mutedUi.checked && mutedUi.whisper, JSON.stringify(mutedUi));
+  await PW1.evaluate(() => { window.__kpForcePerm = 'denied'; return window.KPRetention.refresh(); });
+  await sleep(400);
+  const blockedUi = await whisperUi(PW1);
+  check('a phone that refused whispers shows blocked, with no decline and no turn-on', !blockedUi.later && !blockedUi.whisper && !blockedUi.live && blockedUi.status === 'Whispers blocked' && blockedUi.cap === 'Blocked' && blockedUi.disabled && !blockedUi.checked, JSON.stringify(blockedUi));
+  await PW1.screenshot({ path: SHOTS + 'kp24-whispers-blocked-390.png' });
+  await PW1.close();
+
+  const PW2 = await newPage('PW2');
+  await PW2.emulate(android);
+  await PW2.evaluateOnNewDocument(() => {
+    localStorage.setItem('kolopolyName', 'Bola');
+    window.__kpForcePerm = 'granted';
+  });
+  await PW2.goto(BASE, { waitUntil: 'networkidle0' });
+  await PW2.waitForFunction(() => {
+    const cap = document.getElementById('whisperCap');
+    return !!(cap && cap.dataset.state === '' && window.KPRetention);
+  }, { timeout: 8000 }).catch(() => {});
+  await PW2.evaluate(() => window.KPRetention.onWin(true));
+  await PW2.waitForFunction(() => !document.getElementById('retentionSheet').classList.contains('hidden'), { timeout: 4000 }).catch(() => {});
+  const grantedAsk = await whisperUi(PW2);
+  check('a phone that already allowed notifications is not offered Not now', grantedAsk.sheet && grantedAsk.whisper && !grantedAsk.later && !grantedAsk.live, JSON.stringify(grantedAsk));
+  await PW2.close();
+
+  const PW3 = await newPage('PW3');
+  await PW3.emulate(android);
+  await PW3.evaluateOnNewDocument(() => {
+    localStorage.setItem('kolopolyName', 'Chidi');
+    window.__kpForcePush = 'off';
+  });
+  await PW3.goto(BASE, { waitUntil: 'networkidle0' });
+  await PW3.waitForFunction(() => {
+    const cap = document.getElementById('whisperCap');
+    return !!(cap && cap.dataset.state === 'unavailable');
+  }, { timeout: 8000 }).catch(() => {});
+  const unsupported = await whisperUi(PW3);
+  check('a phone that cannot take whispers says so on the shelf and does not open a decline', unsupported.cap === 'Unavailable' && unsupported.disabled && !unsupported.checked && !unsupported.sheet && !unsupported.later, JSON.stringify(unsupported));
+  await PW3.evaluate(() => window.KPRetention.onWin(true));
+  await sleep(200);
+  const unsupportedSheet = await whisperUi(PW3);
+  check('winning on an unsupported phone still does not raise a Not now', !unsupportedSheet.sheet && !unsupportedSheet.later, JSON.stringify(unsupportedSheet));
+  await PW3.close();
 
   const U3 = await newPage('U3');
   await U3.goto(BASE, { waitUntil: 'networkidle0' });
