@@ -183,32 +183,52 @@ function duckAmbient() {
   busAmbient.gain.setValueAtTime(0.22, t);
   busAmbient.gain.linearRampToValueAtTime(0.8, t + 0.7);
 }
-// Unlock AudioContext on the first real gesture so SFX are not silent after Start.
-// Default audioState is ON (1). We only unlock/resume; we never force-unmute a
-// player who chose state 3.
+// Sound stays on unless the player picked mute (state 3). Browsers
+// suspend AudioContext on hide, on silence, and sometimes mid-game.
+// A one-shot unlock used to remove the gesture listeners, so the next
+// suspend had nothing to resume it and the table went quiet by itself.
+// Gestures stay armed. A visible page always tries to resume. A player
+// who muted is never forced back on.
 let audioUnlocked = false;
+let audioWatching = false;
 function unlockAudio() {
   if (muted) return;
   try {
     const ctx = audio();
-    if (ctx && ctx.state === 'suspended') ctx.resume();
-    audioUnlocked = true;
+    if (!ctx) return;
+    if (!audioWatching) {
+      audioWatching = true;
+      ctx.addEventListener('statechange', () => {
+        if (!muted && ctx.state === 'suspended' && document.visibilityState === 'visible') {
+          ctx.resume().catch(() => {});
+        }
+      });
+    }
+    if (ctx.state === 'suspended') {
+      const p = ctx.resume();
+      if (p && p.then) p.then(() => { if (ctx.state === 'running') audioUnlocked = true; }).catch(() => {});
+    } else if (ctx.state === 'running') audioUnlocked = true;
   } catch (e) { /* garnish */ }
 }
 function armAudioUnlock() {
-  const once = () => {
-    unlockAudio();
-    window.removeEventListener('pointerdown', once, true);
-    window.removeEventListener('keydown', once, true);
-    window.removeEventListener('touchstart', once, true);
-  };
-  window.addEventListener('pointerdown', once, true);
-  window.addEventListener('keydown', once, true);
-  window.addEventListener('touchstart', once, true);
+  const onGesture = () => { if (!muted) unlockAudio(); };
+  window.addEventListener('pointerdown', onGesture, true);
+  window.addEventListener('keydown', onGesture, true);
+  window.addEventListener('touchend', onGesture, true);
 }
 armAudioUnlock();
+function whenRunning(ctx, fn) {
+  if (!ctx || muted) return;
+  if (ctx.state === 'running') { fn(); return; }
+  const p = ctx.resume();
+  if (p && p.then) p.then(() => { if (!muted && ctx.state === 'running') fn(); }).catch(() => {});
+}
+function heard(v) { return Math.min(0.34, (v || 0.08) * 1.75); }
 function tone(o) {
   const ctx = audio(); if (!ctx) return;
+  whenRunning(ctx, () => toneNow(ctx, o));
+}
+function toneNow(ctx, o) {
   const t = ctx.currentTime + (o.at || 0);
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
@@ -216,13 +236,16 @@ function tone(o) {
   osc.frequency.setValueAtTime(o.f, t);
   if (o.f2) osc.frequency.exponentialRampToValueAtTime(Math.max(30, o.f2), t + o.dur);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(o.vol || 0.08, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(heard(o.vol), t + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
   osc.connect(g); g.connect(o.ambient ? busAmbient : busMain);
   osc.start(t); osc.stop(t + o.dur + 0.05);
 }
 function noiseHit(o) {
   const ctx = audio(); if (!ctx) return;
+  whenRunning(ctx, () => noiseNow(ctx, o));
+}
+function noiseNow(ctx, o) {
   if (!noiseBuf) {
     noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 1.2), ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -237,7 +260,7 @@ function noiseHit(o) {
   if (o.freq2) f.frequency.exponentialRampToValueAtTime(o.freq2, t + o.dur);
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(o.vol || 0.05, t + (o.attack || 0.015));
+  g.gain.exponentialRampToValueAtTime(heard(o.vol == null ? 0.05 : o.vol), t + (o.attack || 0.015));
   g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
   src.connect(f); f.connect(g); g.connect(o.ambient ? busAmbient : busMain);
   src.start(t); src.stop(t + o.dur + 0.05);
@@ -257,7 +280,7 @@ function logSfx(event, beatT, beat) {
   window.__kpSfxLog.push({ event, scheduledAt: performance.now(), beatT: beatT != null ? beatT : performance.now(), beat: beat || 'ui' });
   if (window.__kpSfxLog.length > 300) window.__kpSfxLog.splice(0, window.__kpSfxLog.length - 300);
 }
-window.KPSfxEvents = ['diceStart', 'diceSettle', 'hop', 'land', 'credit', 'debit', 'buy', 'buildDuplex', 'buildMansion', 'stamp', 'siren', 'clang', 'cardSwish', 'cardSnap', 'auctionTick', 'gavel', 'phaseLetter', 'newsSting', 'phaseToll', 'turnRise', 'cheer', 'chime', 'tap'];
+window.KPSfxEvents = ['diceStart', 'diceSettle', 'hop', 'land', 'credit', 'debit', 'buy', 'buildDuplex', 'buildMansion', 'stamp', 'siren', 'clang', 'cardSwish', 'cardSnap', 'cardWahala', 'cardFamily', 'auctionTick', 'gavel', 'phaseLetter', 'newsSting', 'phaseToll', 'turnRise', 'cheer', 'chime', 'tap', 'decline', 'tax', 'lose', 'timeout'];
 const jr = (amt) => 1 + (Math.random() * 2 - 1) * amt; // per-play pitch/timing jitter
 function coinTick(at, freq, vol) {
   // One coin strike: two detuned sine partials plus a bandpassed click.
@@ -294,10 +317,10 @@ function paperSlide(at, dur) { noiseHit({ at: at || 0, dur: dur || 0.22, vol: 0.
 const sfx = {
   credit(amount, durMs) { duckAmbient(); coinCascade(amount || 0, durMs); },
   debit() { coinPour(); },
-  diceStart() { for (let i = 0; i < 7; i++) noiseHit({ at: i * 0.12 * jr(0.25), dur: 0.03, vol: 0.04 * (1 - i / 8), freq: 1700 + Math.random() * 900, q: 1.6, ambient: true }); },
-  diceSettle(doubles) { knockSfx(0, 0.06); knockSfx(0.09, 0.05); if (doubles) sfx.horn(); },
-  hop() { noiseHit({ dur: 0.03, vol: 0.028, freq: 700, ftype: 'lowpass', ambient: true }); tone({ f: 300, dur: 0.04, vol: 0.02, ambient: true }); },
-  land() { knockSfx(0, 0.075); },
+  diceStart() { for (let i = 0; i < 7; i++) noiseHit({ at: i * 0.12 * jr(0.25), dur: 0.035, vol: 0.07 * (1 - i / 9), freq: 1700 + Math.random() * 900, q: 1.6 }); },
+  diceSettle(doubles) { knockSfx(0, 0.1); knockSfx(0.09, 0.08); if (doubles) sfx.horn(); },
+  hop() { noiseHit({ dur: 0.04, vol: 0.06, freq: 700, ftype: 'lowpass' }); tone({ f: 320, dur: 0.045, vol: 0.045 }); },
+  land() { knockSfx(0, 0.12); },
   buy() { for (let i = 0; i < 6; i++) coinTick(i * 0.06, 5200 - i * 150, 0.05); paperSlide(0.05, 0.25); },
   buildDuplex() { knockSfx(0, 0.08); knockSfx(0.13, 0.08); for (let i = 0; i < 3; i++) coinTick(0.26 + i * 0.06, 5000, 0.045); },
   buildMansion() { coinCascade(500000, 700); [523, 659, 784].forEach((f, i) => tone({ f, at: 0.1 + i * 0.09, dur: 0.3, type: 'triangle', vol: 0.045 })); },
@@ -312,9 +335,15 @@ const sfx = {
   horn() { tone({ f: 185, dur: 0.16, type: 'sawtooth', vol: 0.055 }); tone({ f: 185, at: 0.22, dur: 0.2, type: 'sawtooth', vol: 0.055 }); },
   cheer() { noiseHit({ dur: 1.1, vol: 0.045, freq: 900, freq2: 1400, q: 0.6, attack: 0.25 }); tone({ f: 659, at: 0.1, dur: 0.12, vol: 0.05 }); tone({ f: 784, at: 0.22, dur: 0.12, vol: 0.05 }); tone({ f: 988, at: 0.34, dur: 0.22, vol: 0.05 }); },
   cardSwish() { paperSlide(0, 0.26); },
-  cardSnap() { noiseHit({ dur: 0.04, vol: 0.05, freq: 2100, q: 2 }); tone({ f: 340, dur: 0.05, type: 'triangle', vol: 0.04 }); },
+  cardSnap() { noiseHit({ dur: 0.04, vol: 0.06, freq: 2100, q: 2 }); tone({ f: 340, dur: 0.05, type: 'triangle', vol: 0.05 }); },
+  cardWahala() { paperSlide(0, 0.2); tone({ f: 196, dur: 0.18, type: 'sawtooth', vol: 0.055 }); tone({ f: 146, at: 0.1, dur: 0.22, type: 'triangle', vol: 0.07 }); },
+  cardFamily() { paperSlide(0, 0.18); tone({ f: 523, dur: 0.12, type: 'triangle', vol: 0.07 }); tone({ f: 659, at: 0.1, dur: 0.18, type: 'triangle', vol: 0.07 }); },
   swish() { paperSlide(0, 0.26); },
-  auctionTick() { tone({ f: 1500, dur: 0.035, vol: 0.02, ambient: true }); },
+  auctionTick() { tone({ f: 1480, dur: 0.05, vol: 0.07 }); },
+  decline() { noiseHit({ dur: 0.14, vol: 0.08, freq: 980, freq2: 360, q: 0.8 }); tone({ f: 220, f2: 110, dur: 0.22, type: 'triangle', vol: 0.08 }); },
+  tax() { tone({ f: 311, dur: 0.09, type: 'square', vol: 0.035 }); tone({ f: 233, at: 0.08, dur: 0.18, type: 'triangle', vol: 0.08 }); },
+  lose() { tone({ f: 392, f2: 196, dur: 0.36, type: 'triangle', vol: 0.08 }); tone({ f: 247, at: 0.16, f2: 123, dur: 0.42, type: 'triangle', vol: 0.07 }); },
+  timeout() { tone({ f: 880, dur: 0.08, vol: 0.09 }); tone({ f: 620, at: 0.1, dur: 0.12, vol: 0.08 }); },
   gavel() { duckAmbient(); knockSfx(0, 0.13); knockSfx(0.13, 0.1); },
   phaseLetter() { paperSlide(0, 0.3); tone({ f: 130, f2: 62, at: 0.22, dur: 0.15, vol: 0.12 }); },
   newsSting() { duckAmbient(); [523, 659, 784].forEach((f, i) => tone({ f, at: i * 0.09, dur: 0.15, type: 'triangle', vol: 0.04 })); noiseHit({ at: 0.27, dur: 0.18, vol: 0.035, freq: 2400, q: 1.5 }); },
@@ -335,7 +364,11 @@ window.KPBeat = (name, data) => {
     else if (name === 'land') sfx.land();
     else if (name === 'build') sfx.build(d.kind);
     else if (name === 'jailIn') { logSfx('siren', d.t, d.beat || 'render'); logSfx('clang', d.t, d.beat || 'render'); sfx.siren(); sfx.clang(1.26); buzz([70, 50, 70]); }
-    else if (name === 'cardLift') sfx.cardSwish();
+    else if (name === 'cardLift') {
+      if (d.deck === 'wahala') sfx.cardWahala();
+      else if (d.deck === 'family') sfx.cardFamily();
+      else sfx.cardSwish();
+    }
     else if (name === 'cardReveal') sfx.cardSnap();
   } catch (e) { /* sound is garnish, never a blocker */ }
 };
@@ -407,7 +440,11 @@ let toastShowing = false;
 // Toasts queue: a second toast never kills the first early. Ordinary toasts
 // hold 4.5s; big moments pass 5000+. Tapping a toast dismisses it.
 function toast(html, ms) {
-  toastQueue.push({ html, ms: ms || 4500 });
+  const item = html && typeof html === 'object'
+    ? html
+    : { html: html, ms: ms || 4500 };
+  item.ms = item.ms || 4500;
+  toastQueue.push(item);
   if (toastQueue.length > 3) toastQueue.splice(0, toastQueue.length - 3);
   pumpToast();
 }
@@ -416,7 +453,24 @@ function pumpToast() {
   toastShowing = true;
   const item = toastQueue.shift();
   const t = $('toast');
-  t.innerHTML = item.html;
+  const actions = item.actions || [];
+  const buttons = actions.map((a, i) =>
+    '<button type="button" class="t-btn' + (a.primary ? ' primary' : ' ghost') + '" data-toast-act="' + i + '">' + esc(a.label) + '</button>'
+  ).join('');
+  const close = actions.length ? '<button type="button" class="t-btn ghost" data-toast-dismiss="1">Close</button>' : '';
+  const body = item.body != null ? esc(item.body) : (item.html || '');
+  t.innerHTML =
+    (item.title ? '<div class="t-kicker">' + esc(item.title) + '</div>' : '') +
+    '<div class="t-body">' + body + '</div>' +
+    (buttons || close ? '<div class="t-actions">' + buttons + close + '</div>' : '');
+  t.querySelectorAll('[data-toast-act]').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const act = actions[Number(b.dataset.toastAct)];
+      if (act && act.run) act.run();
+      dismissToast();
+    });
+  });
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(dismissToast, item.ms);
@@ -427,7 +481,10 @@ function dismissToast() {
   toastShowing = false;
   setTimeout(pumpToast, 180);
 }
-$('toast').addEventListener('click', dismissToast);
+$('toast').addEventListener('click', (e) => {
+  if (e.target.closest('[data-toast-act]')) return;
+  dismissToast();
+});
 const alertQueue = [];
 let alertBusy = false;
 function queueAlert(kind, amount, text, balanceAfter, voiceLine) {
@@ -517,8 +574,10 @@ function syncWakeLock(room) {
   else releaseWakeLock();
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state && state.status === 'playing' && !state.paused) requestWakeLock();
-  else if (document.visibilityState === 'hidden') releaseWakeLock();
+  if (document.visibilityState === 'visible') {
+    if (!muted) unlockAudio();
+    if (state && state.status === 'playing' && !state.paused) requestWakeLock();
+  } else if (document.visibilityState === 'hidden') releaseWakeLock();
 });
 
 function showConnBanner(text) {
@@ -609,7 +668,16 @@ function connect() {
       if (msg.message === 'Join a room first.' && (state || hasSeat)) return;
       toast(esc(msg.message)); return;
     }
-    if (msg.type === 'notice') { toast(esc(msg.message), 5200); return; }
+    if (msg.type === 'notice') {
+      const quiet = msg.action === 'here' || /quiet|seat|bot/i.test(msg.message || '');
+      toast({
+        title: msg.title || (quiet ? 'You dey quiet' : 'Kolopoly'),
+        body: msg.message || '',
+        ms: quiet ? 7000 : 5200,
+        actions: quiet ? [{ label: 'I dey here', primary: true, run: () => bumpLocalActive() }] : []
+      });
+      return;
+    }
     if (msg.type === 'state') {
       if (!sessionLive) { sessionLive = true; flushQueue(); }
       onState(msg.room); return;
@@ -946,7 +1014,7 @@ function onState(room) {
   // KP14: a fresh high bid ticks softly; the turn arriving at THIS seat
   // gets the two-note rise. Both are render beats of this state push.
   if (prev && prev.auction && room.auction && room.auction.highBid !== prev.auction.highBid) { logSfx('auctionTick', null, 'state'); sfx.auctionTick(); }
-  if (prev && room.status === 'playing' && prev.turnPlayerId !== room.turnPlayerId && room.turnPlayerId === actingId()) { logSfx('turnRise', null, 'turnRender'); sfx.turnRise(); }
+  if (prev && room.status === 'playing' && prev.turnPlayerId !== room.turnPlayerId && room.turnPlayerId) { logSfx('turnRise', null, 'turnRender'); sfx.turnRise(); }
   if (!prev || prev.status !== room.status) {
     if (room.status === 'lobby') showView('view-lobby');
     else if (room.status === 'countdown' || room.status === 'playing' || room.status === 'ended') {
@@ -962,9 +1030,14 @@ function onState(room) {
   const mp = $('modePill');
   if (room.code) {
     mp.classList.remove('hidden');
-    mp.textContent = room.inf
-      ? 'Inflation · Phase ' + room.inf.phase
-      : 'Classic · ' + (room.settings.timed ? '60 min' : 'Untimed');
+    mp.classList.add('mode-live');
+    const face = room.inf ? phaseFace(room.inf.phaseName) : '';
+    mp.textContent = room.inf ? 'Inflation' : 'Classic';
+    const full = room.inf
+      ? ('Inflation, ' + face)
+      : (room.settings.timed ? 'Classic clock' : 'Classic, untimed');
+    mp.title = full;
+    mp.setAttribute('aria-label', full);
   } else mp.classList.add('hidden');
   processFeed(room, prev);
   processPositions(room);
@@ -974,6 +1047,38 @@ function onState(room) {
   prevStatus = room.status;
 }
 
+const PHASE_FACE = {
+  'Settling': 'Calm market',
+  'Inflation': 'Rent don rise',
+  'Sapa': 'Sapa dey',
+  'Sudden Death': 'Last round'
+};
+function phaseFace(name) { return PHASE_FACE[name] || name || ''; }
+function cueBoard(e, focusIds) {
+  const mine = e.playerId != null && focusIds.includes(e.playerId);
+  const t = e.text || '';
+  if (e.kind === 'deed' && e.amount != null) { logSfx('buy', null, 'feed'); sfx.buy(); return; }
+  if (e.kind === 'card') {
+    if (window.KP3D && window.KP3D.active) return;
+    if (/Wahala/.test(t)) { logSfx('cardWahala', null, 'feed'); sfx.cardWahala(); }
+    else { logSfx('cardFamily', null, 'feed'); sfx.cardFamily(); }
+    return;
+  }
+  if (e.kind === 'kirikiri') {
+    if (!(window.KP3D && window.KP3D.active)) { logSfx('siren', null, 'feed'); sfx.siren(); sfx.clang(0.35); }
+    return;
+  }
+  if (e.kind === 'timeout') { logSfx('timeout', null, 'feed'); sfx.timeout(); return; }
+  if (e.kind === 'auction') { logSfx('decline', null, 'feed'); sfx.decline(); return; }
+  if (e.kind === 'jackpot' || e.kind === 'gameEnd') return;
+  if (/mortgag|C of O don enter/i.test(t)) { logSfx('stamp', null, 'feed'); sfx.stamp(); }
+  if (e.kind === 'debit' && /FIRS|Income Tax|tax/i.test(t)) { logSfx('tax', null, 'feed'); sfx.tax(); }
+  if ((e.kind === 'credit' || e.kind === 'debit') && !mine) {
+    logSfx(e.kind, null, 'feed');
+    if (e.kind === 'credit') sfx.credit(e.amount || 10000, 480);
+    else sfx.debit();
+  }
+}
 function processFeed(room, prev) {
   const feed = room.feed || [];
   if (!feedPrimed) {
@@ -1007,11 +1112,12 @@ function processFeed(room, prev) {
     // button tap (a tap can be refused; the feed cannot lie). The
     // mansion-build deed entry carries no amount and stays silent here:
     // its sound is the build beat.
-    if (e.kind === 'deed' && e.amount != null && focusIds.includes(e.playerId)) { logSfx('buy', null, 'feed'); sfx.buy(); }
+    cueBoard(e, focusIds);
     // Kirikiri: the siren and clang ride the jailIn animation beat now
     // (retimed to the door visual); the feed keeps the buzz only.
     if (e.kind === 'kirikiri') { buzz([70, 50, 70]); }
     if (e.kind === 'timeout') toast(esc((e.auto ? '(auto) ' : '') + e.text), 5200);
+    if (e.kind === 'jackpot' && e.amount < 100000) { logSfx('chime', null, 'feed'); sfx.chime(); sfx.credit(e.amount, 520); }
     if (e.kind === 'jackpot' && e.amount >= 100000) {
       spray();
       logSfx('cheer', null, 'feed');
@@ -1255,8 +1361,8 @@ function wireSheetButtons(root, viewer) {
     if (b.dataset.act === 'build-duplex') { sendAct('build', { space, kind: 'duplex' }); }
     if (b.dataset.act === 'build-mansion') { sendAct('build', { space, kind: 'mansion' }); }
     if (b.dataset.act === 'sell-building') sendAct('sell_building', { space });
-    if (b.dataset.act === 'mortgage') { logSfx('stamp', null, 'ui'); sfx.stamp(); sendAct('mortgage', { space }); }
-    if (b.dataset.act === 'unmortgage') { logSfx('stamp', null, 'ui'); sfx.stamp(); sendAct('unmortgage', { space }); }
+    if (b.dataset.act === 'mortgage') sendAct('mortgage', { space });
+    if (b.dataset.act === 'unmortgage') sendAct('unmortgage', { space });
     setTimeout(() => root.closest('.scrim').classList.remove('show'), 120);
   }));
 }
@@ -1311,8 +1417,9 @@ function renderGame(room) {
     // inline SVG in the icon wrapper's exact stroke style (icons.js
     // has no drop glyph; KP20's file scope is app.js and style.css).
     const pwAmt = [50, 100, 200, 500][room.inf.phase - 1];
-    infBar.innerHTML = '<span class="ph">' + esc(room.inf.phaseName) + '</span>' +
-      '<span class="idx">Index ' + room.inf.index + 'x</span>' +
+    const priceWord = room.inf.index <= 1 ? 'Printed prices' : ('Prices ' + room.inf.index + 'x');
+    infBar.innerHTML = '<span class="ph">' + esc(phaseFace(room.inf.phaseName)) + '</span>' +
+      '<span class="idx" title="How dear things don be, against the printed board">' + priceWord + '</span>' +
       '<span class="water-chip" role="img" aria-label="Pure water ₦' + pwAmt + '" title="Pure water ₦' + pwAmt + '"><svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c2.9 3.7 6.3 7.5 6.3 11a6.3 6.3 0 1 1-12.6 0c0-3.5 3.4-7.3 6.3-11z"/><path d="M9.3 14.6a2.8 2.8 0 0 0 1.9 3.2"/></svg>₦' + pwAmt + '</span>' +
       '<span>Salary ' + fmtN(room.inf.salary) + '</span>' +
       '<span class="clk" id="infClock"></span>' +
@@ -1362,6 +1469,7 @@ function renderGame(room) {
     window.KPBoard.legalSet = set;
   } else window.KPBoard.legalSet = null;
   window.KPBoard.render(room);
+  paintHud(room);
   renderWallet(room);
   renderActionBar(room);
   renderAuction(room);
@@ -1378,14 +1486,26 @@ function renderGame(room) {
   prevTurnPlayer = room.turnPlayerId;
 }
 
+function paintCash(n) {
+  const s = typeof n === 'number' ? fmtN(n) : String(n);
+  const w = $('walletCash'); if (w) w.textContent = s;
+  const h = $('hudCashAmt'); if (h) h.textContent = s;
+}
 function renderWallet(room) {
   const fp = focusPlayer();
-  if (!fp) { $('walletCash').textContent = 'Spectating'; $('walletLabel').textContent = 'YOU DEY WATCH'; return; }
+  const cashBtn = $('hudCashBtn');
+  if (!fp) {
+    paintCash('Spectating');
+    $('walletLabel').textContent = 'YOU DEY WATCH';
+    if (cashBtn) cashBtn.classList.remove('warn');
+    return;
+  }
   $('walletLabel').textContent = (room.mode === 'pass' ? esc(fp.name).toUpperCase() + "'S CASH" : 'YOUR CASH');
+  if (cashBtn) cashBtn.classList.toggle('warn', !!(fp.sapa && fp.sapa.warn));
   const target = fp.cash;
   if (displayedCash === null || Math.abs(target - displayedCash) < 1) {
     displayedCash = target;
-    $('walletCash').textContent = fmtN(target);
+    paintCash(target);
   } else {
     const from = displayedCash;
     const start = performance.now();
@@ -1393,7 +1513,7 @@ function renderWallet(room) {
     const stepFn = (t) => {
       const k = Math.min(1, (t - start) / 550);
       displayedCash = Math.round(from + (target - from) * k);
-      $('walletCash').textContent = fmtN(displayedCash);
+      paintCash(displayedCash);
       if (k < 1) cashAnim = requestAnimationFrame(stepFn);
     };
     cashAnim = requestAnimationFrame(stepFn);
@@ -1434,7 +1554,7 @@ function renderActionBar(room) {
   } else if (room.status === 'ended') {
     html = '<p class="caption" style="align-self:center;">Game don finish. See the final table.</p>';
   } else if (room.auction) {
-    html = '<p class="caption" style="align-self:center;">Auction dey run. Bid for the panel above.</p>';
+    html = '';
   } else if (room.debt) {
     if (room.debt.playerId === me.id) {
       html = '<button class="btn" id="abManage">' + window.icon('book', 18) + ' Raise money</button>' +
@@ -1446,8 +1566,9 @@ function renderActionBar(room) {
   } else if (room.buildPlace && room.buildPlace.playerId === me.id) {
     html = '<p class="caption" style="align-self:center;">You win the last ' + room.buildPlace.kind + '. Tap a highlighted street to place am.</p>';
   } else if (room.turnPlayerId !== me.id && room.mode !== 'pass') {
-    // Lesson 5: waiting is no longer dead time. The quiet hint says so.
-    html = '<p class="caption" style="align-self:center;">Na ' + esc(turn ? turn.name : '') + ' turn. Your deeds still dey work: build, mortgage or trade anytime.</p>';
+    // Lesson 5: management stays open. The hint lives in the players sheet,
+    // not as a second paragraph under the board.
+    html = '';
   } else {
     // My action (online: me; pass: the turn player, acting through this phone)
     const actor = room.mode === 'pass' ? turn : me;
@@ -1630,10 +1751,24 @@ document.addEventListener('keydown', () => autoEndCancel(), true);
 
 function roomAmount(i) { return window.KP_DATA.SPACES[i].price || 0; }
 
+let auctionAnchor = null;
+function stableAuctionEnds(a) {
+  const key = a.kind + ':' + (a.space == null ? '' : a.space);
+  if (!auctionAnchor || auctionAnchor.key !== key) auctionAnchor = { key, endsAt: a.endsAt };
+  else if (a.endsAt > auctionAnchor.endsAt + 8000) auctionAnchor = { key, endsAt: a.endsAt };
+  else if (a.endsAt < auctionAnchor.endsAt) auctionAnchor.endsAt = a.endsAt;
+  return auctionAnchor.endsAt;
+}
 function renderAuction(room) {
   const slot = $('auctionSlot');
+  const overlay = $('auctionOverlay');
   const a = room.auction;
-  if (!a) { slot.innerHTML = ''; return; }
+  if (!a) {
+    auctionAnchor = null;
+    if (slot) slot.innerHTML = '';
+    if (overlay) { overlay.classList.remove('show'); overlay.innerHTML = ''; }
+    return;
+  }
   const label = a.kind === 'deed' ? window.KP_DATA.SPACES[a.space].name : (a.kind === 'duplex' ? 'The last duplex' : 'The last mansion');
   const high = a.highBidder ? byId(a.highBidder) : null;
   const bidder = room.mode === 'pass' ? (bidAs != null ? bidAs : room.turnPlayerId) : myId;
@@ -1641,9 +1776,12 @@ function renderAuction(room) {
   const phaseLine = room.inf && a.kind === 'deed'
     ? '<p class="caption">Phase ' + room.inf.phase + ' context: printed rent on this street go multiply by ' + (room.inf.phase === 1 ? 'nothing yet' : room.inf.phase === 2 ? 'the lowest die' : 'the bigger die') + '. Auction price na the bid, always.</p>'
     : '';
-  slot.innerHTML = '<div class="auction-card">' +
+  const ends = stableAuctionEnds(a);
+  const host = overlay || slot;
+  if (slot && host !== slot) slot.innerHTML = '';
+  host.innerHTML = '<div class="auction-card">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('gavel', 18) + ' Auction: ' + esc(label) + '</b>' +
-    '<span class="turn-timer" data-deadline="' + a.endsAt + '">' + Math.max(0, Math.round((a.endsAt - Date.now()) / 1000)) + 's</span></div>' +
+    '<span class="turn-timer" data-deadline="' + ends + '" data-auction-clock="1">' + Math.max(0, Math.round((ends - Date.now()) / 1000)) + 's</span></div>' +
     '<p style="margin:6px 0 0;">High bid: <b>' + (a.highBid > 0 ? fmtN(a.highBid) + ' by ' + esc(high ? high.name : '') : 'no bid yet') + '</b> · Next minimum: <b>' + fmtN(a.minNext) + '</b></p>' +
     phaseLine +
     (room.mode === 'pass' ? '<p class="caption" style="margin-top:6px;">Bidding as: ' + room.players.filter((p) => a.eligible.includes(p.id) && !p.bankrupt).map((p) => '<button class="chip" data-bidas="' + p.id + '" style="' + (bidder === p.id ? 'background:var(--gold);' : '') + '">' + esc(p.name) + '</button>').join(' ') + '</p>' : '') +
@@ -1655,12 +1793,13 @@ function renderAuction(room) {
       '<button class="btn small red block mt8" id="bidPass">Pass</button>'
       : '<p class="caption" style="margin-top:6px;">' + (spectator ? 'You dey watch.' : 'You don pass for this auction, or you no dey eligible.') + '</p>') +
     '</div>';
-  slot.querySelectorAll('[data-bid]').forEach((b) => b.addEventListener('click', () => {
+  if (overlay) overlay.classList.add('show');
+  host.querySelectorAll('[data-bid]').forEach((b) => b.addEventListener('click', () => {
     const o = { amount: Number(b.dataset.bid) };
     if (room.mode === 'pass') o.as = bidder;
     send('bid', o);
   }));
-  slot.querySelectorAll('[data-bidas]').forEach((b) => b.addEventListener('click', () => { bidAs = Number(b.dataset.bidas); renderAuction(room); }));
+  host.querySelectorAll('[data-bidas]').forEach((b) => b.addEventListener('click', () => { bidAs = Number(b.dataset.bidas); renderAuction(room); }));
   const pass = $('bidPass');
   if (pass) pass.addEventListener('click', () => { const o = {}; if (room.mode === 'pass') o.as = bidder; send('pass_bid', o); });
 }
@@ -1964,6 +2103,93 @@ function openContracts() {
     closeScrim('listScrim');
   });
 }
+let endSoundFor = '';
+let boardView = 'full';
+try { boardView = localStorage.getItem('kolopolyView') === 'follow' ? 'follow' : 'full'; } catch (e) { }
+function rememberTable(room) {
+  const top = room.endTable && room.endTable[0];
+  if (!top || !room.code) return;
+  const id = room.code + ':' + top.name + ':' + top.netWorth;
+  try {
+    const key = 'kolopolyRecords';
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    if (list.some((r) => r.id === id)) return;
+    list.unshift({ id, name: top.name, netWorth: top.netWorth, mode: room.inf ? 'Inflation' : 'Classic', at: Date.now() });
+    localStorage.setItem(key, JSON.stringify(list.slice(0, 20)));
+  } catch (e) { /* private mode */ }
+}
+function openRecords() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem('kolopolyRecords') || '[]'); } catch (e) { list = []; }
+  const rows = list.map((r) => '<div class="records-row"><b>' + esc(r.name) + '</b> · ' + fmtN(r.netWorth) + '<div class="caption">' + esc(r.mode) + ' · this phone</div></div>').join('');
+  $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Top landlords</h3>' +
+    '<p class="caption">Tables that finished on this phone. A shared board for every player needs a saved store. That is the next pass.</p>' +
+    (rows || '<p class="caption">No table don finish on this phone yet.</p>') +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('hudScrim').classList.add('show');
+  wireSheetButtons($('hudSheet'), myId);
+}
+function paintViewToggle() {
+  const b = $('viewToggle');
+  if (!b) return;
+  const follow = boardView === 'follow';
+  b.setAttribute('aria-pressed', follow ? 'true' : 'false');
+  b.setAttribute('aria-label', follow ? 'Following the token. Tap for the full board.' : 'Full board. Tap to follow the token.');
+  b.innerHTML = window.icon(follow ? 'eye' : 'home', 20);
+}
+function syncBoardView() {
+  paintViewToggle();
+  if (window.KP3D && KP3D.setView && KP3D.getView && KP3D.getView() !== boardView) KP3D.setView(boardView);
+}
+function paintHud(room) {
+  const players = $('hudPlayers');
+  if (players) players.innerHTML = window.icon('users', 20) + '<span class="hud-badge">' + room.players.length + '</span>';
+  const deals = $('hudDeals');
+  if (deals) deals.innerHTML = window.icon(room.inf ? 'card' : 'swapH', 20);
+  const feed = $('hudFeed');
+  if (feed) feed.innerHTML = window.icon('messages', 20);
+  syncBoardView();
+}
+function openHud(kind) {
+  const room = state;
+  if (!room) return;
+  if (kind === 'feed') { openGist(); return; }
+  if (kind === 'deals') {
+    $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Deals</h3>' +
+      '<p class="caption">Build, mortgage and trade fit any time. Only the dice and the landing stay with the turn.</p>' +
+      '<div class="btnrow"><button class="btn" id="hudTrade">Trade</button>' +
+      (room.inf ? '<button class="btn" id="hudContracts">Contracts</button>' : '') +
+      '<button class="btn ghost" data-close="1">Close</button></div>';
+    $('hudScrim').classList.add('show');
+    wireSheetButtons($('hudSheet'), myId);
+    const tr = $('hudTrade'); if (tr) tr.addEventListener('click', () => { closeScrim('hudScrim'); openTrade(); });
+    const ct = $('hudContracts'); if (ct) ct.addEventListener('click', () => { closeScrim('hudScrim'); openContracts(); });
+    return;
+  }
+  if (kind === 'wallet') {
+    const fp = focusPlayer();
+    const sapa = fp && fp.sapa && fp.sapa.warn
+      ? '<p class="caption">Sapa dey near: one bad landing fit cost you ' + fmtN(fp.sapa.exposure) + '.</p>' : '';
+    $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + (fp ? esc($('walletLabel').textContent) : 'Cash') + '</h3>' +
+      '<p class="lead">' + (fp ? fmtN(fp.cash) : 'Spectating') + '</p>' + sapa +
+      '<p class="caption">You fit build, mortgage or trade anytime. Dice and landings stay with the turn.</p>' +
+      '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+    $('hudScrim').classList.add('show');
+    wireSheetButtons($('hudSheet'), myId);
+    return;
+  }
+  const rows = room.players.map((p) => {
+    const marks = (p.id === room.turnPlayerId ? ' · turn' : '') + (p.inJail ? ' · Kirikiri' : '') + (p.bankrupt ? ' · out' : '') + (p.bot ? ' · ' + (p.afkTaken ? 'AFK' : 'BOT') : '');
+    return '<div class="hud-sheet-row"><span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 18) + '</span>' +
+      '<div class="grow"><b>' + esc(p.name) + '</b><div class="caption">' + p.deeds + ' deeds' + marks + '</div></div>' +
+      '<span class="cash">' + fmtN(p.cash) + '</span></div>';
+  }).join('');
+  $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Players</h3>' + rows +
+    '<p class="caption">You fit build, mortgage or trade anytime, even on another person turn.</p>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('hudScrim').classList.add('show');
+  wireSheetButtons($('hudSheet'), myId);
+}
 function openGist() {
   const room = state;
   const items = (room.feed || []).slice().reverse().map((e) =>
@@ -1983,8 +2209,12 @@ function renderEnd(room) {
   unlockAudio();
   releaseWakeLock();
   try { sessionStorage.removeItem('kolopolySeat'); } catch (e) { }
-  logSfx('cheer', null, 'end');
-  try { sfx.cheer(); } catch (e) { }
+  rememberTable(room);
+  if (endSoundFor !== (room.code || '') + ':' + (room.winner && room.winner.playerId)) {
+    endSoundFor = (room.code || '') + ':' + (room.winner && room.winner.playerId);
+    const won = !!(room.winner && (room.winner.playerId === myId || room.mode === 'pass'));
+    try { if (won) { logSfx('cheer', null, 'end'); sfx.cheer(); } else { logSfx('lose', null, 'end'); sfx.lose(); } } catch (e) { }
+  }
   const rows = room.endTable.map((r, idx) =>
     '<tr class="' + (idx === 0 ? 'winner-row' : '') + '"><td>' + (idx === 0 ? window.icon('crown', 17) + ' ' : '') + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' (resigned)' : r.bankrupt ? ' (bankrupt)' : '') + '<br><span class="meta end-title">' + esc(r.title) + '</span>' +
     (r.lessons && r.lessons.length ? r.lessons.map((l) => '<span class="end-lessons">' + esc(l) + '</span>').join('') : '') +
@@ -2188,9 +2418,29 @@ document.addEventListener('pointerdown', (e) => {
   if (!b || b.disabled) return;
   if (b.hasAttribute('data-act') || b.hasAttribute('data-bid')) return;
   if (b.id === 'muteBtn' || b.id === 'tierBtn') return;
-  if (b.closest('#actionBar') || b.closest('#auctionSlot')) return;
+  if (b.closest('#actionBar') || b.closest('#auctionSlot') || b.closest('#auctionOverlay') || b.closest('#hudTray')) return;
   logSfx('tap', null, 'ui');
   sfx.tap();
 }, true);
 
+const tray = $('hudTray');
+if (tray) tray.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || b.id === 'viewToggle') return;
+  if (b.id === 'hudPlayers') openHud('players');
+  else if (b.id === 'hudCashBtn') openHud('wallet');
+  else if (b.id === 'hudDeals') openHud('deals');
+  else if (b.id === 'hudFeed') openHud('feed');
+});
+const viewBtn = $('viewToggle');
+if (viewBtn) viewBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  boardView = boardView === 'follow' ? 'full' : 'follow';
+  try { localStorage.setItem('kolopolyView', boardView); } catch (err) { }
+  if (window.KP3D && KP3D.setView) KP3D.setView(boardView);
+  paintViewToggle();
+});
+const recordsBtn = $('recordsBtn');
+if (recordsBtn) recordsBtn.addEventListener('click', () => openRecords());
+paintViewToggle();
 connect();

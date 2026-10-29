@@ -342,11 +342,11 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .bcenter .skyline svg { width: 100%; height: 100%; display: block; }
 .bcenter > *:not(.skyline) { position: relative; z-index: 1; }
 .bcenter .logo {
-  font-family: 'Aeonik Pro', sans-serif; letter-spacing: 1px; transform: rotate(-3.5deg);
+  font-family: 'Aeonik Pro', sans-serif; letter-spacing: 0; transform: rotate(-3.5deg);
   font-size: 20px; font-size: clamp(16px, 6cqw, 34px);
   text-shadow: 0 2px 0 rgba(232, 169, 12, 0.35);
 }
-.bcenter .logo .gold { color: var(--gold-deep); }
+.bcenter .logo .gold { color: var(--gold-deep); margin: 0; padding: 0; letter-spacing: 0; }
 .bcenter .meta { font-size: 11px; font-size: clamp(8px, 2.2cqw, 12px); }
 .bcenter .pot { font-family: 'Aeonik Pro', sans-serif; color: var(--gold-deep); font-size: 15px; font-size: clamp(13px, 4.2cqw, 22px); }
 .pot-visual { display: flex; flex-direction: column; align-items: center; }
@@ -1783,10 +1783,105 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 
 
 /* Rebuild polish: denser player strip + premium end card already above.
-   Keep chips from eating the stage on short phones. */
+   Keep chips from eating the stage on short phones. Primary stays
+   inside the 40 to 46px band the phone suite measures. */
 @media (max-width: 699px) {
   .players-strip { gap: 6px; padding: 4px 8px; }
   .players-strip .pchip { min-height: 40px; }
   .pchip .cash { font-size: 12px; }
-  .walletbar .actionbar .btn { min-height: 48px; }
+  .walletbar .actionbar .btn { min-height: 44px; height: 44px; }
+}
+
+/* ================= KP21: tray, one word, auction overlay =================
+   The player pills and the cash slab leave the portrait column. A
+   44px icon tray opens sheets for players, cash, deals and gist.
+   The phase strip stays one line. The auction sheet is a fixed
+   overlay, so opening it cannot shrink the board stage. */
+.hud-tray { display: none; }
+#auctionOverlay { display: none; }
+#auctionOverlay.show {
+  display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 72;
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  pointer-events: none; background: linear-gradient(180deg, rgba(24, 15, 8, 0), rgba(24, 15, 8, 0.28) 28%, rgba(24, 15, 8, 0.45));
+}
+#auctionOverlay.show .auction-card {
+  pointer-events: auto; margin: 0 auto; max-width: 520px;
+  max-height: min(46vh, 340px); overflow: auto;
+}
+#auctionOverlay .btn { min-height: 44px; }
+#modePill.mode-live {
+  background: var(--gold); color: var(--ink); border-color: transparent; font-weight: 800;
+}
+.hud-sheet-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 2px;
+  border-bottom: 1px solid var(--line); min-height: 48px;
+}
+.hud-sheet-row .avatar { width: 36px; height: 36px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.hud-sheet-row .cash { font-weight: 800; font-variant-numeric: tabular-nums; }
+.records-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+@media (max-width: 699px) {
+  .players-strip { display: none !important; }
+  .hud-tray {
+    display: flex; align-items: center; gap: 6px; min-height: 48px; max-height: 52px;
+  }
+  .hud-ico, .hud-cash {
+    position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
+    border: none; border-radius: 14px; background: var(--card); color: var(--ink);
+    box-shadow: 0 2px 6px rgba(43, 32, 24, 0.12); touch-action: manipulation;
+  }
+  .hud-cash {
+    width: auto; max-width: 42%; padding: 0 10px;
+    font-family: 'Aeonik Pro', sans-serif; font-size: 13px; font-weight: 800; letter-spacing: -0.3px;
+  }
+  .hud-cash.warn { box-shadow: 0 0 0 2px var(--red); }
+  .hud-ico[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
+  .hud-badge {
+    position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px;
+    border-radius: 99px; background: var(--ink); color: var(--gold);
+    font-size: 9px; font-weight: 800; line-height: 14px;
+  }
+  .wallet-top { display: none; }
+  .walletbar { padding-top: 6px; }
+  #auctionSlot { display: none; }
+}
+@media (max-width: 520px) {
+  #modePill:not(.hidden) { display: inline-flex !important; padding: 2px 7px; min-height: 28px; font-size: 11px; }
+  body:has(#view-game.active) .wordmark { font-size: 13px; letter-spacing: 0; }
+  body:has(#view-game.active) .topbar { gap: 3px; padding-left: 6px; padding-right: 4px; }
+  body:has(#view-game.active) #roomChip { padding: 2px 6px; font-size: 10px; }
+}
+
+/* Glass toasts. A quiet warning is a card with a real action, not a
+   flat 2015 chip. The body keeps the message the reconnect checks read. */
+.toast {
+  left: 12px; right: 12px; width: auto; max-width: 420px; margin: 0 auto;
+  transform: none; text-align: left;
+  bottom: calc(var(--wallet-h, 120px) + 16px + env(safe-area-inset-bottom));
+  padding: 14px 14px 12px; border-radius: 22px;
+  background: linear-gradient(180deg, rgba(52, 42, 26, 0.78), rgba(20, 16, 10, 0.86));
+  backdrop-filter: blur(18px) saturate(1.45); -webkit-backdrop-filter: blur(18px) saturate(1.45);
+  box-shadow: 0 22px 44px rgba(10, 6, 2, 0.38), inset 0 1px 0 rgba(255, 248, 232, 0.2), inset 0 0 0 1px rgba(255, 248, 232, 0.08);
+}
+.toast .t-kicker {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold);
+}
+.toast .t-body { font-size: 15px; font-weight: 650; line-height: 1.35; margin-top: 4px; color: #fff8ea; }
+.toast .t-actions { display: flex; gap: 8px; margin-top: 12px; }
+.toast .t-btn {
+  min-height: 44px; padding: 0 16px; border: none; border-radius: 14px;
+  font: inherit; font-size: 14px; font-weight: 800; cursor: pointer;
+}
+.toast .t-btn.primary {
+  background: linear-gradient(180deg, #ffe7a3, #e8a90c);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.toast .t-btn.ghost {
+  background: transparent; color: #fff8ea;
+  box-shadow: inset 0 0 0 1px rgba(255, 248, 232, 0.28);
+}
+.toast button { margin-left: 0; }
+@media (max-width: 699px) {
+  .toast { bottom: calc(228px + env(safe-area-inset-bottom)); z-index: 96; }
 }

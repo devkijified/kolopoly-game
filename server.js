@@ -37,9 +37,13 @@ const MAX_PLAYERS = 6;
 // and only dies when the window passes with nobody back.
 const ROOM_GRACE_MS = TEST ? 3000 : 600000;
 // AFK: warn, then bot-takeover (capped), before the seat stalls the table.
-const AFK_WARN1_MS = TEST ? 2500 : 45000;
-const AFK_WARN2_MS = TEST ? 5000 : 90000;
-const AFK_TAKEOVER_MS = TEST ? 8000 : 150000;
+// KP_TEST keeps the same windows as a real table. The old 8s test clock
+// stole a quiet second phone in the middle of a scripted turn (the seat
+// came back as "bot don comot"). Set KP_AFK_FAST=1 to use the short clock.
+const AFK_FAST = TEST && process.env.KP_AFK_FAST === '1';
+const AFK_WARN1_MS = AFK_FAST ? 2500 : 45000;
+const AFK_WARN2_MS = AFK_FAST ? 5000 : 90000;
+const AFK_TAKEOVER_MS = AFK_FAST ? 8000 : 150000;
 const AFK_MAX_TAKEOVERS = 2;
 
 const rooms = new Map();
@@ -1713,14 +1717,14 @@ setInterval(() => {
           if (room.afkTakeovers < AFK_MAX_TAKEOVERS && convertHumanToAfkBot(room, p)) { changed = true; }
           else if (room.afkTakeovers >= AFK_MAX_TAKEOVERS && p.afkWarn < 3) {
             p.afkWarn = 3;
-            try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', message: 'You don stay quiet too long. Move or the table go move without you.' })); } catch (e) { }
+            try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', action: 'here', title: 'Seat dey idle', message: 'You don quiet too long. Tap I dey here, or the table go move without you.' })); } catch (e) { }
           }
         } else if (idle >= AFK_WARN2_MS && p.afkWarn < 2) {
           p.afkWarn = 2;
-          try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', message: 'Still dey there? Tap any control sharp, or a bot go hold your seat.' })); } catch (e) { }
+          try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', action: 'here', title: 'Still dey there?', message: 'One more quiet stretch and a bot go hold this seat. Tap I dey here.' })); } catch (e) { }
         } else if (idle >= AFK_WARN1_MS && p.afkWarn < 1) {
           p.afkWarn = 1;
-          try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', message: 'You dey quiet. Make hand shake the screen before the seat go AFK.' })); } catch (e) { }
+          try { if (p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'notice', action: 'here', title: 'You dey quiet', message: 'Tap I dey here so your seat no turn bot.' })); } catch (e) { }
         }
       }
     }
@@ -2314,7 +2318,8 @@ function handleConnection(ws) {
       if (!Number.isFinite(amount) || amount < minNext) return fail('Bid must be at least ' + D.fmtN(minNext) + '.');
       a.highBid = amount;
       a.highBidder = me.id;
-      if (a.endsAt - now() < 5000) a.endsAt = now() + 5000;
+      // The auction clock is fixed at open. A bid or a pass never
+      // extends it, resets it, or adds time. It only runs down.
       setMessage(room, me.name + ' bid ' + D.fmtN(amount) + '.');
       broadcast(room);
       return;
