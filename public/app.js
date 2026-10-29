@@ -138,6 +138,7 @@ let myToken = null;
 let hasSeat = false;
 let sessionLive = false;
 let rejoinPending = false;
+let connectedOnce = false;
 const sendQueue = [];
 function saveSeat() {
   try {
@@ -761,8 +762,13 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(proto + '//' + location.host);
   ws.onopen = () => {
+    const again = connectedOnce;
+    connectedOnce = true;
     hideConnBanner();
     startHeartbeat();
+    // A dropped socket is the deploy signal. Ask the version line now,
+    // not on the next 60s or 120s poll.
+    if (again && window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
     // Resume the seat on every (re)connect: this is what makes a dropped
     // socket a brief pause instead of a stranger session mid-game. An invite
     // link for a different room wins over the stored seat.
@@ -798,10 +804,20 @@ function connect() {
       return;
     }
     if (msg.type === 'rejoin_failed') {
+      // The room is gone. A restart does this: in-memory tables die, the
+      // new process answers rejoin_failed, and an instant reload used to
+      // jump the page before the fresh-table banner could speak. The
+      // banner counts down, names a dead room, and only then reloads.
       rejoinPending = false;
       clearSeat();
+      hideConnBanner();
       try { sessionStorage.setItem('kolopolyRoomGone', '1'); } catch (e) { }
-      location.reload();
+      const throughBanner = () => {
+        if (window.KPUpdate && typeof window.KPUpdate.arm === 'function') window.KPUpdate.arm({ note: 'room' });
+        else location.reload();
+      };
+      if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow().then(throughBanner, throughBanner);
+      else throughBanner();
       return;
     }
     if (msg.type === 'error') {
@@ -849,11 +865,15 @@ function connect() {
     if (ev && ev.code === 4002) {
       // AFK bot took the seat: keep the seat token so a return can reclaim.
       showConnBanner('You don go quiet. A bot dey hold your seat. Come back sharp to reclaim.');
+      if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
       setTimeout(connect, 1800);
       return;
     }
     // Soft drop: never scream "disconnected" while the seat is still held.
+    // The version check runs on the drop itself, so a restart that already
+    // has the new build up can raise the banner before the reconnect.
     if (hasSeat) showConnBanner('Link dey reconnect. Your seat and money dey held.');
+    if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
     setTimeout(connect, 1800);
   };
 }

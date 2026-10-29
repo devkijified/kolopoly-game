@@ -216,7 +216,7 @@ try {
     const home = await fetch(HTTP + '/');
     const html = await home.text();
     check('the landing meta stamps the same build', html.includes('name="kolopoly-build" content="' + ver.json.build + '"') && !html.includes('__KOLOPOLY_BUILD__'));
-    check('the fresh-table banner is in the page, quiet in the markup', html.includes('id="updateBanner"') && html.includes('Tap to reload now') && html.includes('update-banner hidden'));
+    check('the fresh-table banner is in the page, quiet in the markup', html.includes('id="updateBanner"') && html.includes('id="updateKicker"') && html.includes('Tap to reload now') && html.includes('update-banner hidden'));
     const appRes = await fetch(HTTP + '/app.js');
     const appCache = appRes.headers.get('cache-control') || '';
     check('app.js stays revalidated on the network', appRes.status === 200 && appCache.includes('no-cache') && !/max-age=604800/.test(appCache), appCache);

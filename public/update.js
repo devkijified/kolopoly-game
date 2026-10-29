@@ -16,6 +16,9 @@
   let reloading = false;
   let tickTimer = null;
   let left = COUNTDOWN_SEC;
+  // '' is a fresh build. 'room' is a dead room on the same build.
+  // 'fresh-room' is both: a restart took the room and shipped a new build.
+  let note = '';
   let reloadImpl = function () { window.location.reload(); };
   let hadController = !!('serviceWorker' in navigator && navigator.serviceWorker.controller);
   let loadedBuild = readBuild();
@@ -37,12 +40,18 @@
     try { return !!(window.KPBoard && window.KPBoard.animating); }
     catch (e) { return false; }
   }
+  function lineText() {
+    const tail = left > 0 ? ('reloading in ' + left) : 'reloading now';
+    if (note === 'room') return 'Your room don close · ' + tail;
+    if (note === 'fresh-room') return 'Fresh table ready · your room don close · ' + tail;
+    return 'Fresh table ready · ' + tail;
+  }
   function paint() {
     const line = document.getElementById('updateLine');
+    const kicker = document.getElementById('updateKicker');
+    if (kicker) kicker.textContent = note === 'room' ? 'Room don close' : 'Fresh table';
     if (!line) return;
-    line.textContent = left > 0
-      ? ('Fresh table ready · reloading in ' + left)
-      : 'Fresh table ready · reloading now';
+    line.textContent = lineText();
   }
   function show() {
     const banner = document.getElementById('updateBanner');
@@ -71,10 +80,25 @@
     };
     step();
   }
+  function mergeNote(prev, incoming) {
+    const fresh = prev === '' || prev === 'fresh-room' || incoming === '' || incoming === 'fresh-room';
+    const room = prev === 'room' || prev === 'fresh-room' || incoming === 'room' || incoming === 'fresh-room';
+    if (fresh && room) return 'fresh-room';
+    if (room) return 'room';
+    return '';
+  }
   function arm(opts) {
     opts = opts || {};
-    if (armed) return;
+    const incoming = opts.note === 'room' ? 'room' : (opts.note === 'fresh-room' ? 'fresh-room' : '');
+    if (armed) {
+      // A later fact can enrich the line (a build change, or the room
+      // that died under it) without restarting the countdown.
+      const merged = mergeNote(note, incoming);
+      if (merged !== note) { note = merged; paint(); }
+      return;
+    }
     armed = true;
+    note = incoming;
     const requested = Object.prototype.hasOwnProperty.call(opts, 'seconds') ? Number(opts.seconds) : COUNTDOWN_SEC;
     left = Number.isFinite(requested) ? Math.max(0, Math.min(8, Math.round(requested))) : COUNTDOWN_SEC;
     show();
@@ -103,24 +127,28 @@
     watchWorker(reg.installing);
     reg.addEventListener('updatefound', () => watchWorker(reg.installing));
   }
-  async function poke() {
-    if (document.visibilityState === 'hidden') return;
+  // Returns true when the server is already on a newer build and the
+  // banner has been asked to show. A hidden tab waits; coming forward
+  // runs this again, so the countdown is seen rather than spent offscreen.
+  async function checkNow() {
+    if (document.visibilityState === 'hidden') return false;
     try {
       if (registration) await registration.update();
-    } catch (e) { /* a failed check leaves the open table alone */ }
+    } catch (e) { /* a failed worker check still leaves the version line */ }
     try {
       const res = await fetch('/api/version', { cache: 'no-store' });
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const data = await res.json();
       const build = data && data.build;
-      if (!build) return;
-      if (!loadedBuild) { loadedBuild = String(build); return; }
-      if (String(build) !== loadedBuild) arm();
+      if (!build) return false;
+      if (!loadedBuild) { loadedBuild = String(build); return false; }
+      if (String(build) !== loadedBuild) { arm(); return true; }
     } catch (e) { /* the version line can miss a round */ }
+    return false;
   }
   function schedule() {
     const wait = onLanding() ? LANDING_POLL_MS : TABLE_POLL_MS;
-    setTimeout(() => { poke().then(schedule, schedule); }, wait);
+    setTimeout(() => { checkNow().then(schedule, schedule); }, wait);
   }
 
   const nowBtn = document.getElementById('updateNow');
@@ -135,15 +163,18 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') poke();
+    if (document.visibilityState === 'visible') checkNow();
   });
   // Landing checks often. A match that stays on screen still checks,
   // slower, so a home-screen table hears a deploy without a tab switch.
-  setTimeout(poke, 2000);
+  // A socket drop does not wait for either of those: the client asks
+  // checkNow the moment the link falls and again when it returns.
+  setTimeout(checkNow, 2000);
   schedule();
 
   window.KPUpdate = {
     arm: arm,
+    checkNow: checkNow,
     setReload(fn) { if (typeof fn === 'function') reloadImpl = fn; }
   };
 })();
