@@ -1557,6 +1557,134 @@ try {
   const forced = await U3.evaluate(() => ({ n: window.__reloads.length, moving: window.KPBoard.animating }));
   check('the reload still forces when the hop outlasts the grace', forced.n === 1 && forced.moving === true, JSON.stringify(forced));
   await U3.close();
+
+  console.log('B24: alert shell stays put, cash/siren are short samples, deals sit on the deed, swap is a deed-card grid');
+  const cashSz = fs.statSync(new URL('./public/sfx/cash.mp3', import.meta.url)).size;
+  const sirenSz = fs.statSync(new URL('./public/sfx/siren.mp3', import.meta.url)).size;
+  check('cash sample is a tiny mp3', cashSz > 400 && cashSz < 40000, 'bytes=' + cashSz);
+  check('siren sample is a tiny mp3', sirenSz > 400 && sirenSz < 40000, 'bytes=' + sirenSz);
+  const UI = await newPage('UI');
+  await UI.goto(BASE, { waitUntil: 'networkidle0' });
+  const shell = await UI.evaluate(() => {
+    const before = getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim();
+    const h = window.KPShell.height();
+    const card = document.createElement('div');
+    card.className = 'alert-card debit';
+    document.getElementById('alerts').appendChild(card);
+    window.KPShell.consider(h - 96, window.innerWidth, 'resize');
+    const during = getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim();
+    card.remove();
+    window.KPShell.consider(h - 96, window.innerWidth, 'resize');
+    const after = getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim();
+    const rotated = window.KPShell.consider(h - 420, window.innerWidth + 200, 'orient');
+    window.KPShell.consider(h, window.innerWidth, 'orient');
+    return { before, during, after, h, rotated };
+  });
+  check('a toolbar-sized dip during an alert does not shrink the shell', shell.during === shell.before && shell.before === (shell.h + 'px'), JSON.stringify(shell));
+  check('the same dip after the alert still does not snap the shell', shell.after === shell.before, JSON.stringify(shell));
+  check('a real rotation still retargets the shell', shell.rotated === shell.h - 420, JSON.stringify(shell));
+  await typeName(UI, 'Tife');
+  await UI.click('#gameModeRow [data-gmode="inflation"]');
+  await UI.click('#createBtn');
+  await waitState(UI, (s) => s.status === 'lobby', 'B24 lobby');
+  await send(UI, 'add_bot', {});
+  await waitState(UI, (s) => s.players.some((p) => p.bot), 'bot seated');
+  await UI.click('#startBtn');
+  await waitState(UI, (s) => s.status === 'playing' && !!s.inf, 'B24 playing', 15000);
+  const seat = await S(UI);
+  const meId = seat.players.find((p) => !p.bot).id;
+  const botId = seat.players.find((p) => p.bot).id;
+  await send(UI, 'test_bot_hold', { playerId: botId, hold: true });
+  await UI.evaluate((me, bot) => {
+    for (const s of [5, 9, 14, 15, 18, 19, 23, 26, 31]) window.__kolopolySend('test_give', { playerId: me, space: s });
+    for (const s of [8, 11, 12, 16, 21, 24, 25, 34, 35]) window.__kolopolySend('test_give', { playerId: bot, space: s });
+  }, meId, botId);
+  await UI.waitForFunction((bot, me) => {
+    const s = window.__kolopolyState();
+    return !!(s && s.props[8].o === bot && s.props[9].o === me);
+  }, { timeout: 12000 }, botId, meId);
+  const locked = await UI.evaluate(() => {
+    const game = document.getElementById('view-game').getBoundingClientRect();
+    const top = document.querySelector('.topbar').getBoundingClientRect();
+    const app = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-h'));
+    return { gh: Math.round(game.height), top: Math.round(top.height), app, ih: window.innerHeight, inGame: document.body.classList.contains('in-game') };
+  });
+  check('the playing column is the locked shell', locked.inGame && Math.abs(locked.gh - (locked.app - locked.top)) <= 2, JSON.stringify(locked));
+  await UI.waitForFunction(() => document.querySelectorAll('.bspace').length >= 40, { timeout: 8000 });
+  await UI.evaluate(() => document.querySelectorAll('.bspace')[8].click());
+  await UI.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show') && document.querySelector('.deed-deals'), { timeout: 8000 });
+  const deedUi = await UI.evaluate(() => {
+    const deals = document.querySelector('.deed-deals');
+    const btns = [...deals.querySelectorAll('button')].map((b) => ({ t: b.textContent.trim(), h: Math.round(b.getBoundingClientRect().height) }));
+    const text = document.getElementById('deedSheet').innerText;
+    return { btns, bariga: /Bariga/.test(text), deals: /Deals/.test(text), owner: /BOT Ade/.test(text) };
+  });
+  check('Bariga deed card shows Deals on the card', deedUi.bariga && deedUi.deals && deedUi.owner && deedUi.btns.some((b) => b.t === 'Swap for this') && deedUi.btns.some((b) => b.t === 'Buy a Pass') && deedUi.btns.some((b) => b.t === 'Deal Break'), JSON.stringify(deedUi));
+  check('deed deal targets are at least 44px', deedUi.btns.every((b) => b.h >= 44), JSON.stringify(deedUi.btns));
+  await UI.evaluate(() => document.querySelector('.deed-deals').scrollIntoView({ block: 'center' }));
+  await sleep(200);
+  fs.mkdirSync('/opt/cursor/artifacts/screenshots', { recursive: true });
+  await UI.screenshot({ path: '/opt/cursor/artifacts/screenshots/deed-deals.png' });
+  await UI.click('.deed-deals [data-act="deal-swap"]');
+  await UI.waitForFunction(() => document.querySelector('#listScrim').classList.contains('show') && document.querySelectorAll('#listSheet .swap-deed').length >= 4, { timeout: 8000 });
+  const swapUi = await UI.evaluate(() => {
+    const sheet = document.getElementById('listSheet');
+    const cards = [...sheet.querySelectorAll('.swap-deed')];
+    const checks = sheet.querySelectorAll('#giveDeeds input[type="checkbox"], #wantDeeds input[type="checkbox"]');
+    const wantOn = sheet.querySelector('#wantDeeds .swap-deed.on');
+    const h = cards[0] ? Math.round(cards[0].getBoundingClientRect().height) : 0;
+    const arts = sheet.querySelectorAll('.swap-deed .tileart').length;
+    const priced = [...sheet.querySelectorAll('.swap-deed .pr')].filter((el) => /₦/.test(el.textContent)).length;
+    return {
+      cards: cards.length,
+      checks: checks.length,
+      bands: sheet.querySelectorAll('.swap-band').length,
+      arts,
+      priced,
+      h,
+      want: wantOn ? wantOn.querySelector('.swap-name').textContent : '',
+      headings: /You give/.test(sheet.innerText) && /You want/.test(sheet.innerText)
+    };
+  });
+  check('swap sheet is a grid of board deed tiles, not property checkboxes', swapUi.cards >= 8 && swapUi.checks === 0 && swapUi.bands === swapUi.cards && swapUi.arts === swapUi.cards && swapUi.priced === swapUi.cards && swapUi.headings && swapUi.h >= 150, JSON.stringify(swapUi));
+  check('Bariga starts selected on the want side', swapUi.want === 'Bariga', JSON.stringify(swapUi));
+  await UI.evaluate(() => {
+    const give = document.querySelector('#giveDeeds .swap-deed');
+    if (give) give.click();
+    document.getElementById('giveDeeds').scrollIntoView({ block: 'start' });
+  });
+  await sleep(200);
+  await UI.screenshot({ path: '/opt/cursor/artifacts/screenshots/swap-grid.png' });
+  await UI.evaluate(() => {
+    const want = document.querySelector('#wantDeeds .swap-deed.on');
+    if (want) want.scrollIntoView({ block: 'center' });
+  });
+  await sleep(200);
+  await UI.screenshot({ path: '/opt/cursor/artifacts/screenshots/swap-grid-want.png' });
+  const buf = await UI.evaluate(() => {
+    const c = document.querySelector('#boardWrap canvas');
+    if (!c) return null;
+    const before = { w: c.width, h: c.height };
+    const card = document.createElement('div');
+    card.className = 'alert-card debit';
+    document.getElementById('alerts').appendChild(card);
+    window.dispatchEvent(new Event('resize'));
+    const mid = { w: c.width, h: c.height };
+    card.remove();
+    return { before, mid };
+  });
+  check('an alert does not resize the board buffer', !!buf && buf.before.w === buf.mid.w && buf.before.h === buf.mid.h && buf.before.w > 0, JSON.stringify(buf));
+  const heard = await UI.evaluate(async () => {
+    const ok = await window.KPPrepareSfx();
+    window.__kpSamplePlays = [];
+    window.KPPreviewSfx('buy');
+    window.KPPreviewSfx('credit');
+    window.KPPreviewSfx('siren');
+    return { ok, plays: window.__kpSamplePlays.slice() };
+  });
+  check('cash and siren samples decode', heard.ok === true, JSON.stringify(heard));
+  check('buy and credit use the register; the siren is its own sample', heard.plays[0] === 'cash' && heard.plays.includes('siren') && heard.plays.filter((n) => n === 'siren').length === 1 && heard.plays.indexOf('siren') > 0, JSON.stringify(heard));
+  await UI.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

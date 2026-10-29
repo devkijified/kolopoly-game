@@ -69,7 +69,8 @@ const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff',
-  '.txt': 'text/plain'
+  '.txt': 'text/plain',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg'
 };
 const AUCTION_MS = TEST ? 4000 : 20000;
 const MAX_PLAYERS = 6;

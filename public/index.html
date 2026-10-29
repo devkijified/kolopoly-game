@@ -3,6 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+/* Shell height is the layout viewport, locked before first paint.
+   100dvh follows the mobile toolbar: a top alert makes the bar show,
+   the board shrinks, then it snaps back. A pixel lock does not. */
+(function () {
+  var h = window.innerHeight;
+  if (h) document.documentElement.style.setProperty('--app-h', h + 'px');
+})();
+</script>
 <link rel="icon" href="/icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
