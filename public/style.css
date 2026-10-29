@@ -1730,6 +1730,57 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   #infBar .idx, #infBar .water-chip { padding: 2px 4px; }
 }
 
+/* Daily market shelf and the soft keep-close sheet.
+   The shelf sits under the join card's first-screen actions, so the
+   360x740 mode-card fit is unchanged. Targets stay at least 44px. */
+.market-drop {
+  margin-top: 14px;
+  padding-top: 12px;
+  box-shadow: inset 0 1px 0 rgba(227, 215, 195, 0.9);
+}
+.market-drop .title { font-size: 18px; }
+.market-drop .overline { margin-bottom: 2px; }
+.market-shelf {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+}
+.market-good {
+  background: rgba(255, 250, 240, 0.8);
+  border-radius: 12px;
+  padding: 8px 2px;
+  text-align: center;
+  min-height: 48px;
+}
+.market-good .n { display: block; font-weight: 800; font-size: 16px; line-height: 1.1; }
+.market-good .k {
+  display: block; margin-top: 2px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.3px;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.market-drop .btn { min-height: 44px; }
+.whisper-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px;
+}
+.whisper-row .grow { flex: 1; min-width: 0; }
+.whisper-name { font-weight: 800; font-size: 14px; }
+.whisper-row .caption { margin-top: 2px; }
+.retention-sheet {
+  position: fixed; z-index: 96;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  margin: 0 auto; max-width: 420px;
+  background: var(--card); color: var(--ink);
+  border-radius: 18px; padding: 14px;
+  box-shadow: var(--shadow);
+}
+.retention-sheet .btn { min-height: 44px; }
+.retention-sheet .btnrow { margin-top: 10px; }
+.retention-sheet .caption { margin-top: 6px; }
+
 
 /* Rebuild polish: denser player strip + premium end card already above.
    Keep chips from eating the stage on short phones. Primary stays

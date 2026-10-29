@@ -24,6 +24,62 @@ No build step, no framework, no runtime CDN: Node (built-in http + the `ws`
 package) serves `public/`, and the server is authoritative for dice, money,
 deeds, auctions, contracts and timers. Clients send intents only.
 
+## Daily market and whispers
+
+Once each Lagos calendar day a player can claim a market drop onto a shelf
+of cowries, kola, yams and cloth. The shelf is not table cash and it does
+not change the board, the modes, or the money rules. A claim on the next
+Lagos day, when yesterday was also claimed, adds a small extra. A missed
+day pays the base drop again. There is no streak meter.
+
+The shelf is stored on the server in `data/retention.json`, keyed by the
+same device `clientId` the table already keeps, and by the seat reconnect
+token once a room has linked the two. `KP_RETENTION_FILE` overrides the
+path. On Render's free web service the disk is ephemeral, so the file
+survives only as long as the instance does. A persistent disk mounted over
+`data/`, or `KP_RETENTION_FILE` pointed at that disk, keeps shelves and
+push subscriptions across deploys.
+
+Whispers are Web Push. The phone asks only after a win or the first Claim,
+and only after an explicit tap. Sound off, and the Whispers switch on the
+shelf, both mute them. A permission denial is respected. The service worker
+shows the notification. Copy stays in the house voice (Owambe pot, a held
+seat, the daily drop).
+
+### VAPID keys on Render
+
+Push stays off until three environment variables are set. Generate them
+locally, then paste them into the Render service. Do not commit the private
+key. Keep the same keys, or every phone must subscribe again.
+
+```sh
+npm run vapid
+```
+
+That prints:
+
+```
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:you@yourdomain
+```
+
+`VAPID_SUBJECT` must be a `mailto:` address or an `https:` URL.
+
+On Render:
+
+1. Open the `kolopoly-game` web service.
+2. Go to Environment.
+3. Add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`.
+4. Save. Render redeploys.
+5. Confirm `GET /api/push/vapid` returns `"enabled": true` and a public key.
+   The private key is never in that response.
+
+`render.yaml` lists the same three variables with `sync: false`, so a
+blueprint deploy asks for them in the dashboard instead of storing them in
+git. No extra npm package is required: VAPID and the push body are signed
+with Node crypto.
+
 ## The money scale
 
 The board is priced at a $1 = ₦1,000 feel. Starting cash is ₦1,500,000, dealt

@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="icon" href="data:,">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#f5efe2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Kolopoly">
 <title>KOLOPOLY: Lagos property game</title>
 <meta name="description" content="KOLOPOLY, the Nigerian property trading board game for 2 to 6 players. Buy Lagos, dodge Kirikiri, catch the Owambe pot.">
 <link rel="stylesheet" href="/style.css">
@@ -326,6 +333,20 @@
         </select>
       </div>
     </div>
+    <div class="market-drop" id="marketCard">
+      <p class="overline">DAILY MARKET DROP</p>
+      <h2 class="title" id="marketTitle">Lagos market shelf</h2>
+      <p class="caption" id="marketLine">Once each Lagos day: cowries, kola, yam and cloth for your shelf.</p>
+      <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
+      <button class="btn block" type="button" id="claimBtn">Claim today's drop</button>
+      <div class="whisper-row">
+        <div class="grow">
+          <div class="whisper-name">Whispers</div>
+          <div class="caption" id="whisperCap">Off until you ask. Mute here any time. Sound off mutes them too.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="optWhisper"><span class="track"></span></label>
+      </div>
+    </div>
   </section>
   <p class="caption center landing-foot">2 to 6 players. Money scale: ₦1,000 in this game na the classic $1. Every amount shows exact, always.</p>
   <p class="center"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords on this phone</button></p>
@@ -428,12 +449,24 @@
 <div class="overlay" id="endOverlay"></div>
 <div class="overlay" id="shareOverlay"></div>
 <div class="overlay" id="phaseOverlay"></div>
+<div class="retention-sheet hidden" id="retentionSheet" role="dialog" aria-labelledby="retentionTitle">
+  <p class="overline">KEEP THE TABLE CLOSE</p>
+  <h2 class="title" id="retentionTitle">Keep this table close</h2>
+  <p class="caption" id="retentionBody"></p>
+  <p class="caption" id="retentionIos"></p>
+  <div class="btnrow">
+    <button class="btn" type="button" id="retentionInstall">Add to Home Screen</button>
+    <button class="btn green" type="button" id="retentionWhisper">Turn on whispers</button>
+  </div>
+  <button class="btn ghost block mt8" type="button" id="retentionLater">Not now</button>
+</div>
 
 <script src="/vendor/qrcode.js"></script>
 <script src="/game-data.js"></script>
 <script src="/icons.js"></script>
 <script src="/board.js"></script>
 <script src="/app.js"></script>
+<script src="/retention.js"></script>
 <script type="module" src="/board3d.js"></script>
 </body>
 </html>

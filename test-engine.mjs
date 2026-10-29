@@ -3,8 +3,11 @@
 // Exit code 0 means every check passed.
 import WebSocket from 'ws';
 import { spawn } from 'child_process';
+import fs from 'fs';
 
 const PORT = 4199;
+const RETENTION_FILE = '/tmp/kolopoly-retention-' + PORT + '.json';
+try { fs.unlinkSync(RETENTION_FILE); } catch (e) { /* first run */ }
 const BASE = 'ws://127.0.0.1:' + PORT;
 let checks = 0;
 let failures = 0;
@@ -30,7 +33,7 @@ class Client {
       this.ws.on('error', reject);
       this.ws.on('message', (raw) => {
         const msg = JSON.parse(raw.toString());
-        if (msg.type === 'joined') { this.playerId = msg.playerId; this.code = msg.code; }
+        if (msg.type === 'joined') { this.playerId = msg.playerId; this.code = msg.code; if (msg.token) this.token = msg.token; }
         if (msg.type === 'state') this.state = msg.room;
         if (msg.type === 'error') this.errors.push(msg.message);
         if (msg.type === 'test_bot_stats') this.botStats = msg.bots;
@@ -175,13 +178,115 @@ async function scriptBotTurn(g, setup, gate, label, tries) {
 // ---------------------------------------------------------------------------
 const server = spawn(process.execPath, ['server.js'], {
   cwd: new URL('.', import.meta.url).pathname,
-  env: { ...process.env, PORT: String(PORT), KP_TEST: '1' },
+  env: { ...process.env, PORT: String(PORT), KP_TEST: '1', KP_RETENTION_FILE: RETENTION_FILE },
   stdio: ['ignore', 'pipe', 'pipe']
 });
 await new Promise((resolve) => server.stdout.on('data', (d) => { if (String(d).includes('listening')) resolve(); }));
 console.log('server up on ' + PORT);
 
+const HTTP = 'http://127.0.0.1:' + PORT;
+async function api(method, urlPath, body) {
+  const res = await fetch(HTTP + urlPath, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  let json = null;
+  try { json = await res.json(); } catch (e) { json = null; }
+  return { status: res.status, json };
+}
+function voiceOk(payload) {
+  const blob = ((payload.title || '') + ' ' + (payload.body || '')).toLowerCase();
+  if (blob.includes('come play') || blob.includes('monopoly') || blob.includes('hasbro')) return false;
+  return /dey|don|fit|wey/.test(payload.body || '');
+}
+
 try {
+  // ----------------------------------------------------- RETURN RETENTION ---
+  console.log('R1: daily market drop, once per Lagos day, shelf goods only');
+  {
+    const id = 'retention-walker-1';
+    const bad = await api('POST', '/api/retention/claim', { clientId: 'short' });
+    check('a short client id is refused', bad.status === 400);
+    const badDay = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-02-31' });
+    check('an impossible test day is refused', badDay.status === 400);
+    const first = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-10-28' });
+    check('first claim of the day pays the base shelf', first.status === 200 && first.json.ok && first.json.already === false && first.json.first === true
+      && first.json.granted.cowries === 6 && first.json.granted.kola === 2 && first.json.granted.yams === 1 && first.json.granted.cloth === 1,
+      JSON.stringify(first.json && first.json.granted));
+    check('the shelf is goods, not table cash', first.json.cash == null && first.json.inventory.naira == null && first.json.inventory.cowries === 6);
+    const again = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-10-28' });
+    check('the same Lagos day does not pay twice', again.json.already === true && again.json.granted == null && again.json.inventory.cowries === 6);
+    const skip = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-10-30' });
+    const skipText = JSON.stringify(skip.json).toLowerCase();
+    check('a skipped day still pays the base drop', skip.json.warm === false && skip.json.granted.cowries === 6 && skip.json.inventory.cowries === 12);
+    check('there is no streak meter and no scare copy', !('streak' in skip.json) && !skipText.includes('streak') && !skipText.includes('lost') && !skipText.includes('reset'));
+    const warmId = 'retention-warm-0001';
+    await api('POST', '/api/retention/claim', { clientId: warmId, day: '2026-10-27' });
+    const warm = await api('POST', '/api/retention/claim', { clientId: warmId, day: '2026-10-28' });
+    check('a next-day visit carries the soft extra, with no counter', warm.json.warm === true && warm.json.granted.cowries === 9 && warm.json.granted.kola === 3
+      && warm.json.granted.yams === 1 && warm.json.granted.cloth === 1 && !('streak' in warm.json));
+  }
+
+  console.log('R2: reconnect token finds the same shelf; push subscribe is stored');
+  {
+    const host = new Client('Shelf');
+    await host.connect();
+    host.send('create_room', { name: 'Shelf', token: 'danfo', mode: 'online', clientId: 'retention-seat-01', settings: { timed: false, turnTimerSec: 0 } });
+    await host.waitFor((s) => s.status === 'lobby', 'shelf lobby');
+    check('the seat token is the reconnect handle', typeof host.token === 'string' && host.token.length === 24);
+    const byToken = await api('POST', '/api/retention/claim', { token: host.token, day: '2026-04-01' });
+    check('a claim by reconnect token lands on that device shelf', byToken.json.ok && byToken.json.inventory.cowries === 6);
+    const viewed = await api('GET', '/api/retention?clientId=retention-seat-01&day=2026-04-01');
+    check('client id and reconnect token are one shelf', viewed.json.inventory.cowries === 6 && viewed.json.canClaim === false);
+    check('the claim did not move table cash', host.state.players[0].cash === 1500000);
+    const clash = await api('POST', '/api/retention/claim', { clientId: 'retention-other-9', token: host.token, day: '2026-04-02' });
+    check('a token cannot be used as someone else', clash.status === 400 && clash.json.error === 'mismatch');
+    host.ws.close();
+
+    const subId = 'retention-voice-01';
+    const vapid = await api('GET', '/api/push/vapid');
+    check('the server exposes a VAPID public key', vapid.json.enabled === true && typeof vapid.json.publicKey === 'string' && vapid.json.publicKey.length > 80);
+    check('the private key stays off the wire', vapid.json.privateKey == null && !JSON.stringify(vapid.json).includes('BEGIN'));
+    const round = await api('GET', '/api/test/push-roundtrip');
+    check('vapid jwt and aes128gcm roundtrip', round.json && round.json.ok === true, JSON.stringify(round.json));
+    const subscription = {
+      endpoint: 'https://push.example.test/kolopoly/abc',
+      keys: { p256dh: 'B' + 'A'.repeat(80), auth: 'a'.repeat(22) }
+    };
+    const saved = await api('POST', '/api/push/subscribe', { clientId: subId, subscription });
+    check('subscribe stores the push endpoint', saved.json.ok === true && saved.json.subscribed === true);
+    const shelf = await api('GET', '/api/retention?clientId=' + subId);
+    check('the shelf reports subscribed without echoing the endpoint', shelf.json.push.subscribed === true && !JSON.stringify(shelf.json).includes('push.example.test'));
+    const muted = await api('POST', '/api/push/mute', { clientId: subId, muted: true });
+    const held = await api('POST', '/api/test/nudge', { clientId: subId, kind: 'waiting', force: true });
+    check('mute stops a whisper', muted.json.muted === true && held.json.sent === false && held.json.reason === 'muted');
+    await api('POST', '/api/push/mute', { clientId: subId, muted: false });
+    for (const kind of ['drop', 'waiting', 'pot']) {
+      const n = await api('POST', '/api/test/nudge', { clientId: subId, kind, force: true });
+      check(kind + ' whisper is world voice', n.json.sent === true && voiceOk(n.json.payload), JSON.stringify(n.json.payload));
+    }
+    const deniedId = 'retention-denied-1';
+    await api('POST', '/api/push/subscribe', { clientId: deniedId, subscription });
+    await api('POST', '/api/push/denied', { clientId: deniedId });
+    const blocked = await api('POST', '/api/test/nudge', { clientId: deniedId, kind: 'pot', force: true });
+    check('a denied phone is not whispered', blocked.json.sent === false && blocked.json.reason === 'denied');
+
+    const sweepId = 'retention-sweep-01';
+    await api('POST', '/api/push/subscribe', { clientId: sweepId, subscription });
+    await api('POST', '/api/retention/claim', { clientId: sweepId, day: '2026-05-01' });
+    const dawn = await api('POST', '/api/test/sweep', { day: '2026-05-02' });
+    const dawnHits = (dawn.json.nudges || []).filter((n) => n.clientId === sweepId && n.kind === 'drop');
+    check('the next Lagos dawn whispers once that the drop is ready', dawnHits.length === 1, JSON.stringify(dawn.json && dawn.json.nudges));
+    const dawnAgain = await api('POST', '/api/test/sweep', { day: '2026-05-02' });
+    const dawnAgainHits = (dawnAgain.json.nudges || []).filter((n) => n.clientId === sweepId);
+    check('the same dawn does not whisper twice', dawnAgainHits.length === 0);
+    await api('POST', '/api/retention/claim', { clientId: sweepId, day: '2026-05-02' });
+    const collected = await api('POST', '/api/test/sweep', { day: '2026-05-02' });
+    const collectedHits = (collected.json.nudges || []).filter((n) => n.clientId === sweepId);
+    check('a collected shelf is not whispered', collectedHits.length === 0);
+  }
+
   // ------------------------------------------------------------- CLASSIC ---
   console.log('C1: starting cash, Salary Alert on passing START, buy at list price');
   {
