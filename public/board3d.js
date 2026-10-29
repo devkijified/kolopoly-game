@@ -1064,6 +1064,43 @@ function textSprite(text, opts) {
 // 114px per world unit, so the wordmark, pot and labels stay true-sized
 // and undistorted at any box aspect; only the canvas shape and the
 // skyline's baseline (tied to the field's north edge) move.
+let wordmarkProbe = null;
+function measureWordmark(canvas, ts, yLogical, x0, x1, wordZ) {
+  // Backing-store scan of the glyph band. A column counts as letter
+  // ink when it holds the near-black of KOLO or the gold of POLY.
+  // The widest internal hole, in logical pixels, is the gap. One word
+  // means that hole is gone.
+  let maxGap = 999, ink = 0;
+  try {
+    const ctx = canvas.getContext('2d');
+    const y = Math.max(0, Math.round((yLogical - 120) * ts));
+    const h = Math.max(2, Math.round(130 * ts));
+    const x = Math.max(0, Math.round((x0 - 2) * ts));
+    const w = Math.max(2, Math.min(canvas.width - x, Math.round((x1 - x0 + 4) * ts)));
+    const img = ctx.getImageData(x, y, w, Math.min(h, canvas.height - y));
+    let gap = 0, seen = false, worst = 0;
+    for (let col = 0; col < w; col++) {
+      let hit = false;
+      for (let row = 0; row < img.height && !hit; row += 2) {
+        const i = (row * w + col) * 4;
+        const r = img.data[i], gch = img.data[i + 1], b = img.data[i + 2], a = img.data[i + 3];
+        if (a < 40) continue;
+        // Cream floor is the only thing that counts as a hole. Antialiased
+        // edges of the ink and the gold both count as letter.
+        const cream = r > 220 && gch > 190 && b > 150;
+        if (!cream) hit = true;
+      }
+      if (hit) {
+        ink += 1;
+        if (seen && gap > worst) worst = gap;
+        seen = true;
+        gap = 0;
+      } else if (seen) gap += 1;
+    }
+    maxGap = Math.round(worst / ts);
+  } catch (e) { maxGap = 999; ink = 0; }
+  return { gap: maxGap, ink, wordZ, bridgeZ: -2.45, text: 'KOLOPOLY', clearOfBridge: wordZ > -1.2 };
+}
 function centreTexture(innerW, innerD) {
   const K = 114;
   const W = Math.round(innerW * K), H = Math.round(innerD * K);
@@ -1100,15 +1137,33 @@ function centreTexture(innerW, innerD) {
   x.fillStyle = lag; x.beginPath(); x.moveTo(px(-4.4), pz(-2.55)); x.quadraticCurveTo(px(0), pz(-1.55), px(4.4), pz(-2.55)); x.lineTo(px(4.4), pz(-1.85)); x.quadraticCurveTo(px(0), pz(-1.35), px(-4.4), pz(-1.85)); x.closePath(); x.fill();
   x.strokeStyle = 'rgba(180,220,245,0.45)'; x.lineWidth = 2.5;
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.05)); x.quadraticCurveTo(px(0), pz(-1.7), px(4.2), pz(-2.05)); x.stroke();
-  // wordmark: moved south (Lesson 6c) so the bridge arc and its danfo,
-  // which project onto the plate's north rows from the follow camera, can
-  // never split KOLOPOLY again. The whole word sits below the bridge line.
-  x.textAlign = 'center';
-  x.fillStyle = INK; x.font = '900 118px "Aeonik Pro", sans-serif';
-  x.fillText('KOLO', px(-1.05), pz(0.55));
+  // One continuous wordmark. KOLO stays ink and POLY stays gold, but
+  // the two halves share a baseline and overlap by a few pixels so the
+  // join cannot open a gap. The bridge (north, z -2.45) never crosses
+  // this line: the word sits south of centre as a single run of letters.
+  x.textAlign = 'left';
+  x.textBaseline = 'alphabetic';
+  try { x.letterSpacing = '0px'; } catch (e) { /* older canvas */ }
+  x.font = '900 112px "Aeonik Pro", sans-serif';
+  // One fill of the whole word, then a clip repaints POLY in gold on
+  // the same glyphs. Two separate fillText calls were leaving a hole
+  // the bridge sat in. A clip cannot open that hole.
+  const word = 'KOLOPOLY';
+  const fullW = x.measureText(word).width;
+  const kw = x.measureText('KOLO').width;
+  const wordZ = 0.95;
+  const yWord = pz(wordZ);
+  const xWord = px(0) - fullW / 2;
+  x.fillStyle = INK;
+  x.fillText(word, xWord, yWord);
+  x.save();
+  x.beginPath();
+  x.rect(xWord + kw - 2, yWord - 140, fullW, 180);
+  x.clip();
   x.fillStyle = '#b57f10';
-  const wHalf = x.measureText('KOLO').width;
-  x.textAlign = 'left'; x.fillText('POLY', px(-1.05) + wHalf + 1, pz(0.55));
+  x.fillText(word, xWord, yWord);
+  x.restore();
+  wordmarkProbe = measureWordmark(c, TIER.centreScale || 1, yWord, xWord, xWord + fullW, wordZ);
   // The slogan takes the old cities subline's slot, set bold and tracked
   // so it reads at frame size.
   x.fillStyle = 'rgba(30,20,9,0.85)'; x.font = '700 33px "Aeonik Pro", sans-serif'; x.textAlign = 'center';
@@ -1135,6 +1190,7 @@ function bandColorHex(i, sp) {
 // ---------------------------------------------------------------------------
 // GAME SCENE
 // ---------------------------------------------------------------------------
+const _zeroLook = new THREE.Vector3();
 const PHASE_LOOKS = [
   { key: 0xffd9a0, int: 1.55, bg: 0x2a1a0e },
   { key: 0xffc98a, int: 1.50, bg: 0x2e1c0e },
@@ -1162,7 +1218,11 @@ class GameScene {
     // stays the near-plan 87 degree read the game already had.
     this.camera = new THREE.OrthographicCamera(-6.1, 6.1, 6.1, -6.1, 0.1, 120);
     this.camDir = new THREE.Vector3(0, 26.6, 1.4).normalize();
-    this.zoomK = 1; // frustum scale: 1 = fitted to the board; <1 = tighter (countdown pass)
+    this.zoomK = 1; // frustum scale: 1 = fitted to the board; <1 = tighter (countdown or Follow)
+    this.look = new THREE.Vector3();
+    this.lookWant = new THREE.Vector3();
+    this.viewFollow = false;
+    this.viewKick = 0;
     this.hemi = new THREE.HemisphereLight(0xfff2d8, 0x5a4028, 0.8); s.add(this.hemi);
     this.key = new THREE.DirectionalLight(0xffd9a0, 1.55);
     this.key.position.set(7, 13, 8);
@@ -1431,6 +1491,7 @@ class GameScene {
 
   sync(state) {
     this.lastState = state;
+    if (KP3D._pendingView) { const mode = KP3D._pendingView; KP3D._pendingView = null; KP3D.setView(mode); }
     // KP15: a turn boundary is a gated moment: a pending Auto step is
     // applied here, in the same beat as the state-driven redraw that
     // follows a turn change, never in the middle of a hop or a cascade.
@@ -1677,6 +1738,13 @@ class GameScene {
   // degrees) for portrait and squarish stages, a lower 72 degrees for
   // wide landscape stages. trackLayout's elevation factors mirror these
   // two directions exactly.
+  _followToken() {
+    for (const o of this.tokens.values()) if (o.anim) return o;
+    const st = this.lastState;
+    if (st && this.tokens.has(st.turnPlayerId)) return this.tokens.get(st.turnPlayerId);
+    const first = this.tokens.values().next();
+    return first && first.value ? first.value : null;
+  }
   fullDir(aspect) {
     if (aspect < 1.2) return new THREE.Vector3(0, 26.6, 1.4).normalize();
     return new THREE.Vector3(0, 22.1, 7.2).normalize();
@@ -1699,8 +1767,9 @@ class GameScene {
     const halfW = (L.TW / 2) * this.zoomK;
     const halfH = (L.TD * f / 2) * this.zoomK;
     cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
-    cam.position.copy(d).multiplyScalar(30);
-    cam.lookAt(0, 0, 0);
+    const look = this.look || _zeroLook;
+    cam.position.copy(d).multiplyScalar(30).add(look);
+    cam.lookAt(look);
     cam.updateProjectionMatrix();
   }
 
@@ -1857,29 +1926,34 @@ class GameScene {
     if (this.accentT > 0) { this.accentT = Math.max(0, this.accentT - dt * 1.4); this.accent.intensity = this.accentT * 14; }
     // camera
     let wantDir, wantZoom, damp = 2.4;
+    this.lookWant.set(0, 0, 0);
     if (this.countdownZoom > 0) {
       // The 3-2-1 countdown opens on a closer angled pass (a tighter
       // frustum on a lower direction), then the camera glides out to
-      // the one fitted full-board framing and stays.
+      // the fitted framing and stays.
       this.countdownZoom -= dt;
       wantDir = new THREE.Vector3(0, 12.6, 11.4).normalize(); wantZoom = 0.62; damp = 1.1;
+    } else if (this.viewFollow) {
+      // Follow: about 2.2x on the moving token. Full stays the fitted
+      // board (zoom 1, the full-bleed frustum). A toggle applies on the
+      // next frame, including mid hop. The glide is about 300ms.
+      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
+      wantZoom = 1 / 2.2;
+      const tok = this._followToken();
+      if (tok) this.lookWant.set(tok.grp.position.x, 0, tok.grp.position.z);
+      damp = this.viewKick > 0 ? 11 : 7;
     } else {
-      // KP11: THE camera. One view only: the full board under the
-      // fitted orthographic frustum (see _applyCam), centred on the
-      // board, steady. It never follows, zooms to, or chases a token:
-      // token hops, the turn ring, landing flashes and the pot label
-      // all play out on the board in plain sight.
-      // KP19: the direction pairs with the layout construction, not
-      // the raw canvas aspect: in a portrait window the layout is
-      // always the tall construction, so the near-plan direction is
-      // always the match, even on a squat stage whose canvas aspect
-      // alone would have picked the 72 degree direction and skewed
-      // the fit. Landscape windows keep the aspect pairing as before.
+      // Full board: the fitted orthographic frustum (see _applyCam),
+      // centred, edge to edge. Portrait keeps the near-plan direction
+      // even on a squat stage.
       wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1)); wantZoom = 1;
+      if (this.viewKick > 0) damp = 11;
     }
+    if (this.viewKick > 0) this.viewKick = Math.max(0, this.viewKick - dt);
     const kk = 1 - Math.exp(-dt * damp);
     this.camDir.lerp(wantDir, kk).normalize();
     this.zoomK += (wantZoom - this.zoomK) * kk;
+    if (this.look) this.look.lerp(this.lookWant, kk);
     this._applyCam();
     this.camGlide = this.camDir.angleTo(wantDir) > 0.004 || Math.abs(this.zoomK - wantZoom) > 0.004;
     // Owambe pot label: keep the chip fully on stage. The pot sits at the
@@ -2360,6 +2434,24 @@ KP3D.boardProbePx = function () {
     canvasW: w, canvasH: h
   };
 };
+// Follow is ~2.2x on the token. Full is the fitted board. The glide
+// starts the frame the call lands, including while a token is mid hop.
+KP3D.setView = function (mode) {
+  const g = SCENES.game;
+  if (!g) { KP3D._pendingView = mode; return; }
+  g.viewFollow = mode === 'follow';
+  g.viewKick = 0.45;
+  motion(0.6);
+};
+KP3D.getView = function () {
+  const g = SCENES.game;
+  return g && g.viewFollow ? 'follow' : 'full';
+};
+KP3D.camZoom = function () {
+  const g = SCENES.game;
+  return g ? g.zoomK : null;
+};
+KP3D.wordmark = function () { return wordmarkProbe; };
 
 // ---------------------------------------------------------------------------
 // Board patches: feed the 3D sync from the same render the DOM uses, and

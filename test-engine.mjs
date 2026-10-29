@@ -221,6 +221,33 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
+  console.log('C2b: auction clock is fixed at open; bids and passes never add time');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
+    const t = g.turn();
+    const others = g.clients.filter((c) => c !== t);
+    g.hook('test_set_position', { playerId: t.playerId, space: 0 });
+    g.hook('test_dice', { rolls: [[2, 3]] });
+    t.send('roll', {});
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Iddo offered for the clock test');
+    t.send('decline', {});
+    await t.waitFor((s) => !!s.auction, 'auction opened for the clock test');
+    const opened = g.S().auction.endsAt;
+    check('auction opened with a deadline', typeof opened === 'number' && opened > Date.now());
+    others[0].send('bid', { amount: 80000 });
+    await others[0].waitFor((s) => s.auction && s.auction.highBid === 80000, 'first bid registered');
+    check('a bid does not move the auction deadline', g.S().auction.endsAt === opened, 'endsAt ' + g.S().auction.endsAt + ' vs ' + opened);
+    others[1].send('pass_bid', {});
+    await others[1].waitFor((s) => s.auction && s.auction.passed && s.auction.passed.indexOf(others[1].playerId) >= 0, 'pass recorded');
+    check('a pass does not move the auction deadline', g.S().auction && g.S().auction.endsAt === opened, 'endsAt ' + (g.S().auction && g.S().auction.endsAt));
+    t.send('bid', { amount: 90000 });
+    await t.waitFor((s) => s.auction && s.auction.highBid === 90000, 'second bid registered');
+    check('a later bid still does not add time', g.S().auction.endsAt === opened);
+    const left = g.S().auction.endsAt - Date.now();
+    check('the original deadline is the one still counting down', left < 4000 && left > 0, 'left=' + left);
+    for (const c of g.clients) c.ws.close();
+  }
+
   console.log('C3: set doubling, even building enforced, duplex ladder rent');
   {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);

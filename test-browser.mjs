@@ -1,14 +1,21 @@
 // KOLOPOLY browser tests + screenshot proof at 390x844 (mobile rig pattern).
 // Run: node test-browser.mjs   (spawns its own KP_TEST server, kills it after)
 import { createRequire } from 'node:module';
-const require2 = createRequire('/home/hatch/workspace/mobile-rig/package.json');
-const puppeteer = require2('puppeteer-core');
 import { spawn } from 'child_process';
 import fs from 'fs';
 
+const RIG_PKG = '/home/hatch/workspace/mobile-rig/package.json';
+const RIG_CHROME = '/home/hatch/workspace/mobile-rig/browsers/chrome/linux-155.0.8059.84/chrome-linux64/chrome';
+let puppeteer;
+if (fs.existsSync(RIG_PKG)) {
+  const require2 = createRequire(RIG_PKG);
+  puppeteer = require2('puppeteer-core');
+} else {
+  puppeteer = (await import('puppeteer-core')).default;
+}
 const PORT = 4210;
 const BASE = 'http://127.0.0.1:' + PORT;
-const CHROME = '/home/hatch/workspace/mobile-rig/browsers/chrome/linux-155.0.8059.84/chrome-linux64/chrome';
+const CHROME = fs.existsSync(RIG_CHROME) ? RIG_CHROME : (process.env.CHROME_PATH || '/opt/google/chrome/chrome');
 const SHOTS = new URL('./shots/', import.meta.url).pathname;
 fs.mkdirSync(SHOTS, { recursive: true });
 let checks = 0;
@@ -254,11 +261,11 @@ try {
   // fronted (background pages get their timers throttled): the click then
   // lands inside the window.
   await front(other2);
-  const bidReady = other2.waitForFunction(() => !!document.querySelector('#auctionSlot [data-bid]'), { timeout: 12000, polling: 100 });
+  const bidReady = other2.waitForFunction(() => !!document.querySelector('#auctionOverlay [data-bid]'), { timeout: 12000, polling: 100 });
   await clickId(tp2, 'abDecline');
   await bidReady;
   check('auction opened on decline', true);
-  await other2.evaluate(() => { const bs = document.querySelectorAll('#auctionSlot [data-bid]'); bs[bs.length - 1].click(); });
+  await other2.evaluate(() => { const bs = document.querySelectorAll('#auctionOverlay [data-bid]'); bs[bs.length - 1].click(); });
   await waitState(other2, (s) => !!s.auction && s.auction.highBid > 0, 'bid registered', 6000);
   await tp2.evaluate(() => { const p = document.querySelector('#bidPass'); if (p) p.click(); });
   await waitState(C, (s) => !s.auction && !!s.props[5].o, 'auction settled', 12000);
@@ -629,7 +636,7 @@ try {
 
   console.log('B9: KP12 mobile matrix: no horizontal overflow at 360 or 390, lobby Start pinned, one floating glass dock (blur, radius, no borders), cash badged with a banknote glyph, primary pill with a depleting timer ring and no separate timer chip, ghost utility items, compact one-line player pills, no rotate hint, Classic bar or view toggle, match clock in the header chip, tall stage, frame assembly deleted, the tile ring filling its box at 100 percent on both axes');
   const overflowOf = (page) => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
-  for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844]]) {
+  for (const [tag, W, H] of [['M360', 360, 740], ['M390', 390, 844], ['M400', 400, 860]]) {
     const MP = await newPage(tag);
     // Emulate from birth, never resize a loaded page: a mid-session
     // setViewport leaves the layout viewport stale in this Chrome build
@@ -761,7 +768,105 @@ try {
     console.log('    ' + tag + ' board probe (settled): ' + JSON.stringify(probe));
     check(tag + ' game: the tile ring spans at least 99.5 percent of the box width (design target 100)', !!probe && probe.rimWPct >= 99.5, JSON.stringify(probe));
     check(tag + ' game: the tile ring spans at least 99.5 percent of the box height (design target 100)', !!probe && probe.rimHPct >= 99.5, JSON.stringify(probe));
+    const wm = await MP.evaluate(() => window.KP3D && window.KP3D.wordmark ? window.KP3D.wordmark() : null);
+    check(tag + ' game: KOLOPOLY is one continuous wordmark clear of the bridge', !!wm && wm.text === 'KOLOPOLY' && wm.gap <= 16 && wm.ink > 30 && wm.clearOfBridge === true, JSON.stringify(wm));
+    const tray = await MP.evaluate(() => {
+      const t = document.getElementById('hudTray');
+      const b = document.getElementById('hudPlayers');
+      const v = document.getElementById('viewToggle');
+      if (!t || !b || !v) return null;
+      const tr = t.getBoundingClientRect();
+      return { h: Math.round(tr.height), players: Math.round(b.getBoundingClientRect().height), view: Math.round(Math.min(v.getBoundingClientRect().width, v.getBoundingClientRect().height)), label: v.getAttribute('aria-label') || '' };
+    });
+    check(tag + ' game: the icon tray is one compact row and its targets are at least 40px', !!tray && tray.h <= 56 && tray.h >= 40 && tray.players >= 40 && tray.view >= 40, JSON.stringify(tray));
+    await MP.screenshot({ path: SHOTS + 'kp21-hud-' + W + '.png' });
+    if (W === 390) {
+      await MP.evaluate(() => {
+        window.toast({ title: 'You dey quiet', body: 'Tap I dey here so your seat no turn bot.', ms: 8000, actions: [{ label: 'I dey here', primary: true, run: function () {} }] });
+      });
+      const toastUi = await MP.evaluate(() => {
+        const t = document.querySelector('#toast');
+        const btn = t.querySelector('.t-btn.primary');
+        const cs = getComputedStyle(t);
+        return { show: t.classList.contains('show'), blur: cs.backdropFilter || '', r: parseFloat(cs.borderTopLeftRadius) || 0, h: btn ? Math.round(btn.getBoundingClientRect().height) : 0, text: t.textContent || '' };
+      });
+      check('glass toast carries a real action at least 40px tall', toastUi.show && /blur/.test(toastUi.blur) && toastUi.r >= 18 && toastUi.h >= 40 && /I dey here/.test(toastUi.text), JSON.stringify(toastUi));
+      await MP.screenshot({ path: SHOTS + 'kp21-toast-390.png' });
+      await MP.evaluate(() => { const t = document.querySelector('#toast'); t.classList.remove('show'); t.innerHTML = ''; });
+      await MP.evaluate(() => { if (window.KP3D && window.KP3D.setView) window.KP3D.setView('follow'); });
+      await sleep(450);
+      const zoom = await MP.evaluate(() => window.KP3D && window.KP3D.camZoom ? window.KP3D.camZoom() : null);
+      check('390 follow: the camera tightens toward 2.2x on the token', zoom != null && zoom < 0.7, 'zoom=' + zoom);
+      await MP.evaluate(() => { if (window.KP3D && window.KP3D.setView) window.KP3D.setView('full'); });
+    }
     await MP.close();
+  }
+
+  console.log('B9b: auction sheet overlays the stage and Pass or Bid never adds clock time');
+  {
+    const AU = await newPage('AU');
+    await AU.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+    await AU.goto(BASE, { waitUntil: 'networkidle0' });
+    await typeName(AU, 'Ayo');
+    await pickClassic(AU);
+    await AU.click('#createBtn');
+    await waitState(AU, (s) => s.status === 'lobby', 'AU lobby');
+    await clickId(AU, 'botAdd1');
+    await waitState(AU, (s) => s.players.length === 2, 'AU bot seated');
+    await AU.click('#startBtn');
+    await waitState(AU, (s) => s.status === 'playing', 'AU playing', 15000);
+    const endWait = Date.now() + 25000;
+    while (Date.now() < endWait) {
+      const ready = await AU.evaluate(() => !!document.getElementById('abRoll') || !!document.getElementById('abEnd') || !!document.getElementById('abBuy'));
+      if (ready) break;
+      await sleep(400);
+    }
+    const me = (await S(AU)).players.find((p) => p.name === 'Ayo');
+    if ((await S(AU)).phase !== 'roll' || (await S(AU)).turnPlayerId !== me.id) {
+      if ((await S(AU)).phase === 'end' && (await S(AU)).turnPlayerId === me.id) await clickId(AU, 'abEnd');
+      await waitState(AU, (s) => s.turnPlayerId === me.id && s.phase === 'roll', 'Ayo to roll', 20000);
+    }
+    const stageBefore = await AU.evaluate(() => Math.round(document.querySelector('.game-stage').getBoundingClientRect().height));
+    await send(AU, 'test_set_position', { playerId: me.id, space: 0 });
+    await send(AU, 'test_dice', { rolls: [[2, 3]] });
+    await clickId(AU, 'abRoll');
+    await waitState(AU, (s) => s.phase === 'buy' && s.buySpace === 5, 'Iddo offered');
+    await clickId(AU, 'abDecline');
+    await waitState(AU, (s) => !!s.auction, 'auction open');
+    await sleep(300);
+    const auc = await AU.evaluate(() => {
+      const stage = document.querySelector('.game-stage').getBoundingClientRect();
+      const ov = document.getElementById('auctionOverlay');
+      const card = document.querySelector('#auctionOverlay .auction-card');
+      const clock = card ? card.querySelector('[data-auction-clock]') : null;
+      return {
+        h: Math.round(stage.height),
+        pos: ov ? getComputedStyle(ov).position : '',
+        shown: !!(ov && ov.classList.contains('show')),
+        inStage: !!(card && document.querySelector('.game-stage').contains(card)),
+        inWallet: !!(card && document.querySelector('.walletbar').contains(card)),
+        ends: clock ? Number(clock.getAttribute('data-deadline')) : 0,
+        passH: (() => { const p = document.getElementById('bidPass'); return p ? Math.round(p.getBoundingClientRect().height) : 0; })()
+      };
+    });
+    check('auction sheet is a fixed overlay and the stage did not shrink', auc.shown && auc.pos === 'fixed' && !auc.inStage && !auc.inWallet && auc.h + 2 >= stageBefore, JSON.stringify({ before: stageBefore, auc }));
+    check('auction Pass target is at least 40px', auc.passH >= 40, 'h=' + auc.passH);
+    await AU.screenshot({ path: SHOTS + 'kp21-auction-390.png' });
+    const end0 = (await S(AU)).auction.endsAt;
+    await AU.click('#auctionOverlay [data-bid]');
+    await sleep(400);
+    const afterBid = (await S(AU)).auction;
+    check('tapping Bid does not add auction time', !!afterBid && afterBid.endsAt === end0, JSON.stringify({ end0, now: afterBid && afterBid.endsAt }));
+    const shown = await AU.evaluate(() => {
+      const clock = document.querySelector('#auctionOverlay [data-auction-clock]');
+      return clock ? Number(clock.getAttribute('data-deadline')) : 0;
+    });
+    check('the on-screen auction clock stays on the original deadline', shown === end0, 'shown=' + shown + ' end0=' + end0);
+    await AU.click('#bidPass');
+    await sleep(400);
+    const afterPass = (await S(AU)).auction;
+    check('tapping Pass does not add auction time', !afterPass || afterPass.endsAt === end0, JSON.stringify({ end0, now: afterPass && afterPass.endsAt }));
+    await AU.close();
   }
 
   console.log('B10: KP13 WS5: Inflation leads the landing with the MOST PLAYED badge and is the default; a default-created room is an Inflation room; a stored Classic pick still wins');

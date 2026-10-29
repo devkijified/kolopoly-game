@@ -328,6 +328,7 @@
     </div>
   </section>
   <p class="caption center landing-foot">2 to 6 players. Money scale: ₦1,000 in this game na the classic $1. Every amount shows exact, always.</p>
+  <p class="center"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords on this phone</button></p>
 </main>
 
 <!-- ============================ LOBBY ============================ -->
@@ -382,6 +383,13 @@
   <aside class="game-rail">
     <div class="rail-top">
       <div id="infBar" class="hidden"></div>
+      <div class="hud-tray" id="hudTray">
+        <button type="button" class="hud-ico" id="hudPlayers" aria-label="Players at the table"></button>
+        <button type="button" class="hud-cash" id="hudCashBtn" aria-label="Your cash"><span id="hudCashAmt">₦0</span></button>
+        <button type="button" class="hud-ico" id="hudDeals" aria-label="Deals"></button>
+        <button type="button" class="hud-ico" id="hudFeed" aria-label="Game gist"></button>
+        <button type="button" class="hud-ico" id="viewToggle" aria-label="Full board. Tap to follow your token." aria-pressed="false"></button>
+      </div>
       <div class="msgbar"><span class="msg-cue" id="msgCue" style="display:none"></span><span id="msgText">Welcome to Kolopoly.</span></div>
       <div class="players-strip" id="playersStrip"></div>
       <p class="caption center">Tap any space to see its deed.</p>
@@ -408,6 +416,8 @@
 <div id="flicker"></div>
 <div class="toast" id="toast"></div>
 
+<div id="auctionOverlay" aria-live="polite"></div>
+<div class="scrim" id="hudScrim"><div class="sheet" id="hudSheet"></div></div>
 <div class="scrim" id="deedScrim"><div class="sheet" id="deedSheet"></div></div>
 <div class="scrim" id="listScrim"><div class="sheet" id="listSheet"></div></div>
 <div class="scrim modal-scrim" id="cardScrim"><div class="modal-card" id="cardModal"></div></div>
