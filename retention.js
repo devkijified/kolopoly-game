@@ -208,6 +208,12 @@ function createRetention(opts) {
         muted: !!p.pushMuted,
         denied: !!p.pushDenied
       },
+      nextDrop: p.lastClaimDay !== day ? {
+        cowries: BASE_DROP.cowries + (warmReady ? WARM_EXTRA.cowries : 0),
+        kola: BASE_DROP.kola + (warmReady ? WARM_EXTRA.kola : 0),
+        yams: BASE_DROP.yams + (warmReady ? WARM_EXTRA.yams : 0),
+        cloth: BASE_DROP.cloth + (warmReady ? WARM_EXTRA.cloth : 0)
+      } : null,
       uses: {
         cowries: { cost: USES.cowries.cost, kind: USES.cowries.kind, amount: USES.cowries.amount },
         kola: { cost: USES.kola.cost, kind: USES.kola.kind, amount: USES.kola.amount },

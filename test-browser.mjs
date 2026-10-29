@@ -1196,7 +1196,7 @@ try {
   check('structure: the room type cards share their edges too', st14.roomPicks.length === 2 && st14.roomPicks[0].h === st14.roomPicks[1].h && st14.roomPicks[0].h > 0, JSON.stringify(st14.roomPicks));
   check('structure: the rendered section gaps follow the KP20 pattern (4px at the card top padding, 3px between sections, 12px after the preset explainer block)', JSON.stringify(st14.labelGaps) === JSON.stringify([4, 3, 3, 3, 3, 12, 3, 3]), JSON.stringify(st14.labelGaps));
   check('structure: the phase salaries are four stat chips with exact amounts', st14.chips.length === 4 && st14.chips[0].includes('₦200,000') && st14.chips[1].includes('₦100,000') && st14.chips[2].includes('₦50,000') && st14.chips[3].includes('₦25,000'), JSON.stringify(st14.chips));
-  check('structure: the tagline lines each sit on one line', st14.tls.length === 2 && st14.tls.every((h) => h > 0 && h <= 24), JSON.stringify(st14.tls));
+  check('structure: one slogan, the stacked taglines are gone', st14.tls.length === 0, JSON.stringify(st14.tls));
   check('structure: the token pick is one compact strip of six even cells in a single row', st14.cells.length === 6 && st14.cells.every((c) => c.h === st14.cells[0].h && c.top === st14.cells[0].top), JSON.stringify(st14.cells));
   check('structure: the MOST PLAYED badge is out of flow', st14.badgePos === 'absolute', st14.badgePos);
   await LND.close();
@@ -1412,6 +1412,78 @@ try {
   console.log('KP20: 360x740 mode cards bottom ' + fs360s.modeBottom + ' against viewport ' + fs360s.vh);
   check('360x740: the mode cards end inside the first screen (KP20)', fs360s.modeBottom != null && fs360s.modeBottom <= fs360s.vh, JSON.stringify(fs360s));
   await F3.close();
+
+  console.log('B19: landing home: one play path, one slogan, no twin welcome, shelf stock updates on claim');
+  const homeAt = async (tag, w, h) => {
+    const page = await newPage(tag);
+    await page.emulate({ viewport: { width: w, height: h, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' });
+    await page.evaluateOnNewDocument(() => { try { localStorage.setItem('kolopolyName', 'Tife'); } catch (e) { } });
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => {
+      const slot = document.querySelector('#marketShelf [data-good="cowries"]');
+      const b = document.getElementById('claimBtn');
+      return !!(slot && b && !b.disabled && !b.classList.contains('hidden'));
+    }, { timeout: 8000 }).catch(() => {});
+    return page;
+  };
+  const readHome = (page) => page.evaluate(() => {
+    const box = (id) => { const el = document.getElementById(id); if (!el) return null; const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height), w: Math.round(b.width) }; };
+    const text = (document.getElementById('view-landing').innerText || '').replace(/\s+/g, ' ');
+    const welcomes = (text.match(/welcome back/ig) || []).length;
+    const cow = document.querySelector('#marketShelf [data-good="cowries"]');
+    const kola = document.querySelector('#marketShelf [data-good="kola"]');
+    const yam = document.querySelector('#marketShelf [data-good="yams"]');
+    const cloth = document.querySelector('#marketShelf [data-good="cloth"]');
+    const face = (el) => el ? { have: el.dataset.have || '', n: (el.querySelector('.good-n') || {}).textContent || '' } : null;
+    const slogan = document.querySelector('.hero-slogan');
+    const quick = box('welcomeQuick');
+    const join = box('welcomeJoinCode');
+    return {
+      vh: window.innerHeight,
+      welcomes,
+      longCopy: /Your token and settings dey/.test(text),
+      title: (document.getElementById('welcomeTitle') || {}).textContent || '',
+      slogan: slogan ? slogan.textContent.trim() : '',
+      slogans: document.querySelectorAll('.hero-slogan').length,
+      taglines: document.querySelectorAll('.tagline .tl').length,
+      quick, join,
+      today: (document.getElementById('marketTitle') || {}).textContent || '',
+      whisper: (document.getElementById('whisperCap') || {}).textContent || '',
+      cow: face(cow), kola: face(kola), yam: face(yam), cloth: face(cloth),
+      claimHidden: document.getElementById('claimBtn').classList.contains('hidden'),
+      overflow: document.documentElement.scrollWidth <= window.innerWidth
+    };
+  });
+  const H390 = await homeAt('H390', 390, 844);
+  const home390 = await readHome(H390);
+  check('home: the player name is the only greeting', home390.title === 'Tife' && home390.welcomes === 0 && home390.longCopy === false, JSON.stringify({ title: home390.title, welcomes: home390.welcomes, longCopy: home390.longCopy }));
+  check('home: one slogan, no stacked taglines', home390.slogans === 1 && home390.taglines === 0 && home390.slogan === 'Break your kolo, buy the street.', JSON.stringify(home390.slogan));
+  check('home: Quick play is the primary and it sits in the first screen', !!home390.quick && home390.quick.h >= 56 && home390.quick.bottom <= home390.vh && !!home390.join && home390.quick.h > home390.join.h && home390.quick.w >= home390.join.w, JSON.stringify({ quick: home390.quick, join: home390.join, vh: home390.vh }));
+  check('home: the shelf is goods, not a Today brochure', home390.today === 'Shelf' && home390.cow && home390.cow.n.trim() === '+6' && home390.cow.have === '0', JSON.stringify(home390));
+  check('home: whispers are a switch, not a paragraph', home390.whisper.trim() === '' && !/Off until you ask/.test(home390.whisper), home390.whisper);
+  check('home: no horizontal overflow at 390', home390.overflow === true);
+  await H390.screenshot({ path: SHOTS + 'kp23-home-390.png' });
+  await H390.click('#claimBtn');
+  await H390.waitForFunction(() => {
+    const cow = document.querySelector('#marketShelf [data-good="cowries"]');
+    return cow && cow.dataset.have === '6' && (cow.querySelector('.good-n') || {}).textContent.trim() === '6';
+  }, { timeout: 8000 }).catch(() => {});
+  const after = await readHome(H390);
+  check('home: claim replaces the zeroes with shelf stock', after.cow && after.cow.have === '6' && after.cow.n.trim() === '6' && after.kola && after.kola.have === '2' && after.kola.n.trim() === '2' && after.yam && after.yam.have === '1' && after.cloth && after.cloth.have === '1' && after.claimHidden === true, JSON.stringify(after));
+  await H390.evaluate(() => { const b = document.getElementById('retentionLater'); if (b) b.click(); });
+  await sleep(200);
+  await H390.screenshot({ path: SHOTS + 'kp23-home-390-stocked.png' });
+  await H390.close();
+  const H360 = await homeAt('H360', 360, 740);
+  const home360 = await readHome(H360);
+  check('home 360: Quick play is in the first screen and the name is not doubled', home360.title === 'Tife' && home360.welcomes === 0 && !!home360.quick && home360.quick.bottom <= home360.vh && home360.overflow === true, JSON.stringify({ title: home360.title, quick: home360.quick, vh: home360.vh }));
+  await H360.screenshot({ path: SHOTS + 'kp23-home-360.png' });
+  await H360.close();
+  const H400 = await homeAt('H400', 400, 844);
+  const home400 = await readHome(H400);
+  check('home 400: one slogan and Quick play leads', home400.slogan === 'Break your kolo, buy the street.' && home400.welcomes === 0 && !!home400.quick && home400.quick.h > (home400.join ? home400.join.h : 0) && home400.overflow === true, JSON.stringify({ slogan: home400.slogan, quick: home400.quick, join: home400.join }));
+  await H400.screenshot({ path: SHOTS + 'kp23-home-400.png' });
+  await H400.close();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + err.message);

@@ -57,7 +57,7 @@
     return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
   function $(id) { return document.getElementById(id); }
-  function setLine(text) { const el = $('marketLine'); if (el && text) el.textContent = text; }
+  function setLine(text) { const el = $('marketLine'); if (el) el.textContent = text || ''; }
 
   function identityBody() {
     return { clientId: clientId(), token: seatToken(), name: playerName() };
@@ -71,12 +71,12 @@
     return res.json();
   }
 
-  function renderShelf(inv, uses) {
+  function renderShelf(inv, uses, preview) {
     const shelf = $('marketShelf');
     if (!shelf) return;
     const data = inv || { cowries: 0, kola: 0, yams: 0, cloth: 0 };
     if (window.KPGoods) {
-      shelf.innerHTML = window.KPGoods.slots(data, { uses: uses || {} });
+      shelf.innerHTML = window.KPGoods.slots(data, { uses: uses || {}, preview: preview || null });
       shelf.querySelectorAll('[data-good]').forEach((b) => b.addEventListener('click', () => {
         const face = window.KPGoods.face[b.dataset.good];
         if (face) setLine(face.use);
@@ -112,15 +112,17 @@
     if (!btn || !view) return;
     if (view.canClaim) {
       btn.disabled = false;
+      btn.classList.remove('hidden');
+      btn.classList.add('claim-live');
       btn.textContent = 'Claim';
-      if (view.warmReady) setLine('Extra in today drop.');
-      else setLine('Tap Claim. Spend the goods in a match.');
+      setLine('');
     } else {
+      btn.classList.remove('claim-live');
+      btn.classList.add('hidden');
       btn.disabled = true;
-      btn.textContent = 'Stocked';
-      setLine('Dawn restocks the shelf.');
+      setLine('');
     }
-    renderShelf(view.inventory, view.uses);
+    renderShelf(view.inventory, view.uses, view.canClaim ? view.nextDrop : null);
     paintShelfBtn(view);
   }
   function renderSwitch() {
@@ -132,11 +134,11 @@
     box.checked = !denied && !localMuted() && subscribed && !serverMuted;
     box.disabled = !clientId() || !pushEnabled;
     if (cap) {
-      if (!pushEnabled) cap.textContent = 'Whispers need the server keys. The shelf still works.';
-      else if (denied) cap.textContent = 'Whispers stay off. This phone already refused them.';
-      else if (localMuted() || serverMuted) cap.textContent = 'Whispers are muted. This switch turns them back on.';
-      else if (subscribed) cap.textContent = 'On. The table can speak when the pot swells, your seat is held, or the drop is ready.';
-      else cap.textContent = 'Off until you ask. Mute here any time. Sound off mutes them too.';
+      if (!pushEnabled) cap.textContent = 'Off';
+      else if (denied) cap.textContent = 'Blocked';
+      else if (localMuted() || serverMuted) cap.textContent = 'Muted';
+      else if (subscribed) cap.textContent = 'On';
+      else cap.textContent = '';
     }
     syncing = false;
   }
@@ -288,13 +290,14 @@
         setLine('The market no answer. Try the claim again.');
         return;
       }
-      const landed = $('marketLanded');
-      if (landed && out.granted) {
-        const g = out.granted;
-        landed.textContent = '+' + g.cowries + ' cowries  +' + g.kola + ' kola  +' + g.yams + ' yam  +' + g.cloth + ' cloth';
-      }
-      setLine(out.already ? 'Dawn restocks the shelf.' : 'Shelf stocked. Spend am in a match.');
       renderClaim(out);
+      const landed = $('marketLanded');
+      if (landed) {
+        if (out.granted) {
+          const g = out.granted;
+          landed.textContent = '+' + g.cowries + ' cowries  +' + g.kola + ' kola  +' + g.yams + ' yam  +' + g.cloth + ' cloth';
+        } else landed.textContent = '';
+      }
       if (out.first) {
         claimPending = true;
         if (refreshed) maybeAsk('claim');
@@ -311,7 +314,7 @@
     const join = $('joinCard');
     if (!market || !welcome || !join) return;
     if (!welcome.classList.contains('hidden')) {
-      const anchor = $('welcomeCreate');
+      const anchor = $('welcomeQuick') || $('welcomeCreate');
       if (anchor) welcome.insertBefore(market, anchor);
       else welcome.appendChild(market);
     } else {

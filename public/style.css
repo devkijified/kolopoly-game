@@ -1963,3 +1963,58 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 @media (max-width: 699px) {
   .toast { bottom: calc(228px + env(safe-area-inset-bottom)); z-index: 96; }
 }
+
+/* Home: one title, one play path, a shelf of goods.
+   The scene is the stage. The slogan is the only line under it.
+   Quick play is the thumb action. Join and name sit quieter.
+   Claim pulses while a drop is waiting, then the slots show stock. */
+@media (max-width: 699px) {
+  #view-landing .hero-scene { height: 188px; }
+}
+#view-landing .hero-type { padding: 8px 16px 2px; }
+#view-landing .hero-wordmark { font-size: 40px; line-height: 1; }
+#view-landing .hero-slogan { margin-top: 4px; font-size: clamp(18px, 5vw, 22px); }
+#view-landing .play-go,
+#view-landing .play-actions .play-go {
+  height: 64px; min-height: 64px;
+  font-family: 'Aeonik Pro', 'Figtree', sans-serif;
+  font-size: 24px; letter-spacing: 0.2px;
+}
+#view-landing #claimBtn {
+  height: 46px; min-height: 46px; font-size: 16px;
+}
+#view-landing .play-actions .btn + .btn { margin-top: 8px; }
+#view-landing .play-go:active { transform: scale(0.97) translateY(1px); }
+#welcomeCard.join-card {
+  background: transparent; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  margin: 0 8px 12px; padding: 2px 10px 8px;
+}
+.home-who { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.home-who .welcome-title { font-size: 22px; line-height: 1.1; }
+.home-who .invite-token { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.home-secondary { display: flex; gap: 8px; margin-top: 8px; }
+.home-secondary .btn { flex: 1; height: 44px; min-height: 44px; font-size: 14px; }
+.home-link {
+  display: block; width: 100%; margin-top: 4px; min-height: 36px;
+  background: none; border: none; color: var(--ink-soft);
+  font-weight: 700; font-size: 13px; text-decoration: underline; text-underline-offset: 3px;
+}
+#welcomeCard .play-go { margin-top: 8px; }
+#view-landing .market-drop { margin-top: 6px; padding-top: 0; box-shadow: none; }
+#view-landing .whisper-row { margin-top: 6px; min-height: 36px; gap: 8px; }
+#view-landing .whisper-name {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft);
+}
+#view-landing .whisper-row .caption { margin: 0; font-weight: 800; }
+#view-landing .whisper-row .caption:empty { display: none; }
+#view-landing .whisper-row .switch { margin-left: auto; }
+.good-slot .good-n.incoming { background: var(--gold); color: var(--ink); }
+@keyframes claimPulse {
+  0%, 100% { box-shadow: 0 8px 18px rgba(120, 78, 4, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 200, 87, 0.45), 0 10px 22px rgba(232, 169, 12, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+}
+#claimBtn.claim-live { animation: claimPulse 1.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  #claimBtn.claim-live { animation: none; }
+}

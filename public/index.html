@@ -216,7 +216,6 @@
       </div>
       <div class="hero-type">
         <h1 class="display hero-wordmark">KOLO<span class="gold">POLY</span></h1>
-        <p class="tagline lead"><span class="tl">Buy Lagos street by street. Dodge Kirikiri.</span><span class="tl">Catch the Owambe pot before your money finish.</span></p>
         <p class="hero-slogan">Break your kolo, buy the street.</p>
       </div>
   </div>
@@ -234,35 +233,33 @@
     <button class="btn ghost block mt8" id="inviteChangeBtn">Change name or token</button>
   </div>
 
-  <section class="join-card hidden" id="welcomeCard">
-    <p class="overline">WELCOME BACK</p>
-    <h2 class="welcome-title" id="welcomeTitle">Welcome back</h2>
-    <div class="invite-row">
+  <section class="join-card home-return hidden" id="welcomeCard">
+    <div class="home-who">
       <span class="invite-token" id="welcomeToken"></span>
-      <p class="caption grow" id="welcomeSub"></p>
+      <h2 class="welcome-title" id="welcomeTitle"></h2>
     </div>
-    <button class="btn block" id="welcomeCreate">Create room</button>
-    <div class="btnrow mt8">
-      <button class="btn ghost" id="welcomeQuick">Quick play</button>
-      <button class="btn ghost" id="welcomeJoinCode">Join with a code</button>
+    <p class="caption hidden" id="welcomeSub"></p>
+    <button class="btn play-go block" id="welcomeQuick">Quick play</button>
+    <div class="home-secondary">
+      <button class="btn ghost" id="welcomeCreate">Create room</button>
+      <button class="btn ghost" id="welcomeJoinCode">Join</button>
     </div>
-    <button class="btn ghost block mt8" id="welcomeChange">Change name or token</button>
+    <button type="button" class="home-link" id="welcomeChange">Name or token</button>
   </section>
 
   <section class="join-card" id="joinCard">
-    <label for="nameIn">Your display name</label>
+    <label for="nameIn">Name</label>
     <input class="textin" id="nameIn" maxlength="20" placeholder="e.g. Adaeze" autocomplete="name">
 
-    <label for="codeIn">Join with a code</label>
-    <div class="join-row">
-      <input class="textin" id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text" spellcheck="false" enterkeyhint="go">
-      <button class="btn" id="joinBtn">Join</button>
+    <div class="play-actions">
+      <button class="btn play-go block" id="quickBtn">Quick play</button>
+      <button class="btn ghost block" id="createBtn">Create room</button>
     </div>
 
-    <div class="play-actions">
-      <button class="btn dark block" id="quickBtn">Quick play</button>
-      <p class="caption center mt8">Public room, timed. First come, first seated.</p>
-      <button class="btn block mt8" id="createBtn">Create room</button>
+    <label for="codeIn">Join with a code</label>
+    <div class="join-row home-join">
+      <input class="textin" id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text" spellcheck="false" enterkeyhint="go">
+      <button class="btn" id="joinBtn">Join</button>
     </div>
 
     <label>Game mode</label>
@@ -336,8 +333,7 @@
     </div>
     <div class="market-drop" id="marketCard">
       <div class="shelf-head">
-        <span class="shelf-kicker">SHELF</span>
-        <span class="shelf-kicker" id="marketTitle">Today</span>
+        <span class="shelf-kicker" id="marketTitle">Shelf</span>
       </div>
       <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
       <p class="shelf-tip" id="marketLine"></p>
@@ -345,16 +341,13 @@
       <button class="btn block" type="button" id="claimBtn">Claim</button>
       <button class="btn ghost block mt8 hidden" type="button" id="shelfClose">Close</button>
       <div class="whisper-row">
-        <div class="grow">
-          <div class="whisper-name">Whispers</div>
-          <div class="caption" id="whisperCap">Off until you ask. Mute here any time. Sound off mutes them too.</div>
-        </div>
-        <label class="switch"><input type="checkbox" id="optWhisper"><span class="track"></span></label>
+        <span class="whisper-name">Whispers</span>
+        <span class="caption" id="whisperCap"></span>
+        <label class="switch"><input type="checkbox" id="optWhisper" aria-label="Whispers"><span class="track"></span></label>
       </div>
     </div>
   </section>
-  <p class="caption center landing-foot">2 to 6 players. Money scale: ₦1,000 in this game na the classic $1. Every amount shows exact, always.</p>
-  <p class="center"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords on this phone</button></p>
+  <p class="center"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords</button></p>
 </main>
 
 <!-- ============================ LOBBY ============================ -->
