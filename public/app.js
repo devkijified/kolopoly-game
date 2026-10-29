@@ -848,9 +848,7 @@ $('settingsToggle').addEventListener('click', () => {
 $('nameIn').value = localStorage.getItem('kolopolyName') || '';
 $('nameIn').addEventListener('change', () => localStorage.setItem('kolopolyName', $('nameIn').value.trim()));
 paintGameMode();
-// KP14 audit: the welcome card promises "Your token and settings dey
-// as you leave am", but the create options reset on every load. They
-// persist now, as one set beside the name, token, mode and audio keys.
+// Create options persist beside the name, token, mode and audio keys.
 const OPT_IDS = ['optTimed', 'optDoubleStart', 'optNoRentJail', 'optFirstLap', 'optChaos', 'optVoice', 'optTimer', 'presetSel'];
 try {
   const savedOpts = JSON.parse(localStorage.getItem('kolopolyCreateOpts') || 'null');
@@ -932,14 +930,14 @@ function revealForm(focusId) {
   if (window.KPRetention) window.KPRetention.placeMarket();
   if (focusId) { const el = $(focusId); if (el) el.focus(); }
 }
-// Welcome back: a remembered player acts first; editing is one tap away,
-// never a fresh form by default.
+// A remembered player acts first. The name sits once beside the token.
+// Editing is one tap away, never a fresh form by default.
 (function setupWelcome() {
   const name = rememberedName();
   if (!name || inviteCode) return;
-  $('welcomeTitle').textContent = 'Welcome back, ' + name;
+  $('welcomeTitle').textContent = name;
   $('welcomeToken').innerHTML = tokenArtFor(selectedToken);
-  $('welcomeSub').textContent = 'Your token and settings dey as you leave am. Create a room, quick play, or join with a code.';
+  $('welcomeSub').textContent = '';
   $('welcomeCard').classList.remove('hidden');
   $('joinCard').classList.add('hidden');
   $('welcomeCreate').addEventListener('click', () => { $('nameIn').value = name; $('createBtn').click(); });
@@ -2282,10 +2280,13 @@ window.KPGoods = {
       const face = SHELF_FACE[key];
       const cost = uses[key] && uses[key].cost ? uses[key].cost : face.cost;
       const have = data[key] || 0;
+      const plus = opts.preview && opts.preview[key] ? Math.max(0, Math.floor(Number(opts.preview[key]) || 0)) : 0;
+      const incoming = have < 1 && plus > 0;
       const on = armed[key] ? ' armed' : '';
-      const empty = have < 1 ? ' empty' : '';
-      return '<button type="button" class="good-slot' + on + empty + '" data-good="' + key + '" data-cost="' + cost + '" data-have="' + have + '" aria-label="' + face.label + ', ' + have + '">' +
-        '<span class="good-n">' + have + '</span>' +
+      const empty = have < 1 && !incoming ? ' empty' : '';
+      const shown = incoming ? ('+' + plus) : String(have);
+      return '<button type="button" class="good-slot' + on + empty + (incoming ? ' incoming' : '') + '" data-good="' + key + '" data-cost="' + cost + '" data-have="' + have + '" aria-label="' + face.label + ', ' + have + (incoming ? ', claim +' + plus : '') + '">' +
+        '<span class="good-n' + (incoming ? ' incoming' : '') + '">' + shown + '</span>' +
         '<span class="good-ico">' + SHELF_ICON[key] + '</span>' +
         '<span class="good-k">' + face.label + '</span>' +
         '<span class="good-cost">×' + cost + '</span></button>';
