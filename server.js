@@ -14,6 +14,7 @@ const D = require('./public/game-data.js');
 const { BotBrain, BOT_NAMES } = require('./bot.js');
 const { createRetention } = require('./retention');
 const { createOps } = require('./ops');
+const records = require('./server-records.js');
 
 const PORT = process.env.PORT || 4173;
 const TEST = process.env.KP_TEST === '1';
@@ -416,7 +417,7 @@ function newRoom(code, isPublic, mode, settings) {
     bankInterest: 0, interestLine: null, dealOfGame: null, lastBuilderRoll: null,
     diceQueue: [], forcedCards: { wahala: null, family: null },
     feed: [], feedSeq: 0, message: '', messageSeq: 0, banner: null,
-    winner: null, endTable: null, startedAt: null, createdAt: now(),
+    winner: null, endTable: null, recordSaved: false, startedAt: null, createdAt: now(),
     endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null,
     afkTakeovers: 0
   };
@@ -1147,6 +1148,13 @@ function endGame(room, winner, why) {
   pushFeed(room, 'gameEnd', winner.name + ' wins Kolopoly with net worth ' + D.fmtN(netWorth(room, winner)) + '.', { playerId: winner.id, amount: netWorth(room, winner) });
   if (finishing) {
     try { retention.noteDay('tablesFinished'); } catch (e) { /* the ledger never blocks the close */ }
+    // Save the finished game to the records store, exactly once per game.
+    // Fire and forget: the write never delays or breaks the close, and
+    // the guard keeps a re-ended room from writing the same game twice.
+    if (!room.recordSaved) {
+      room.recordSaved = true;
+      try { records.recordMatch(room); } catch (e) { /* records never block the close */ }
+    }
   }
 }
 function checkWinBySolvency(room) {
@@ -1287,7 +1295,7 @@ function startGame(room) {
   room.auction = null; room.debt = null; room.trade = null; room.lastCard = null;
   room.pendingChoices = {};
   room.buildPlace = null; room.afterLanding = null;
-  room.winner = null; room.endTable = null;
+  room.winner = null; room.endTable = null; room.recordSaved = false;
   for (const p of room.players) {
     p.cash = D.START_CASH; p.position = 0; p.inJail = false; p.jailTurns = 0;
     p.bankrupt = false; p.goojf = []; p.doublesCount = 0; p.lap = 0;
@@ -1892,6 +1900,19 @@ const server = http.createServer((req, res) => {
   if (cleanUrl === '/api/version') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ ok: true, build: BUILD }));
+    return;
+  }
+  // Finished-game records: served by this server only, so the store keys
+  // stay server side and never reach the browser. Answers enabled: false
+  // when the store keys are absent, and never crashes either way.
+  if (cleanUrl === '/api/records') {
+    records.getRecords().then((data) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(data));
+    }).catch(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ enabled: records.enabled(), matches: [], landlords: [] }));
+    });
     return;
   }
   // Invite landing support: whose room is this, before you join it.
