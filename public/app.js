@@ -1196,10 +1196,15 @@ function onState(room) {
   if (room.code) {
     mp.classList.remove('hidden');
     mp.classList.add('mode-live');
+    // The pill names the room's mode from its settings, which exist
+    // from the lobby on. room.inf only exists once an Inflation game
+    // has started, so keying the label off it called every Inflation
+    // lobby "Classic" until the first roll.
+    const isInf = !!(room.settings && room.settings.gameMode === 'inflation');
     const face = room.inf ? phaseFace(room.inf.phaseName) : '';
-    mp.textContent = room.inf ? 'Inflation' : 'Classic';
-    const full = room.inf
-      ? ('Inflation, ' + face)
+    mp.textContent = isInf ? 'Inflation' : 'Classic';
+    const full = isInf
+      ? (room.inf ? ('Inflation, ' + face) : 'Inflation')
       : (room.settings.timed ? 'Classic clock' : 'Classic, untimed');
     mp.title = full;
     mp.setAttribute('aria-label', full);
