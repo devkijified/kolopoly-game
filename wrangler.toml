@@ -39,7 +39,12 @@ new_sqlite_classes = ["RoomDO", "LobbyDO", "RetentionDO"]
 # pattern = "www.kolopoly.fun"
 # custom_domain = true
 
+# Wrangler matches module paths like "./ops/desk.css". A glob without a
+# leading "**/" does not match that, and fallthrough = false then blocks
+# the default text rule. These three files must be raw text: desk.css
+# points at site fonts with root-absolute urls, which esbuild would try
+# to bundle if the file were treated as CSS.
 [[rules]]
 type = "Text"
-globs = ["ops/desk.html", "ops/desk.css", "ops/desk.js"]
-fallthrough = false
+globs = ["**/ops/desk.html", "**/ops/desk.css", "**/ops/desk.js"]
+fallthrough = true

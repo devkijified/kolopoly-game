@@ -6,16 +6,19 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-engine.mjs && node test-ops.mjs",
+    "test": "node test-engine.mjs && node test-ops.mjs && node test-retention-gate.mjs",
     "test:worker": "vitest run --config vitest.worker.config.mjs",
     "vapid": "node scripts/generate-vapid.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.10.7",
     "vitest": "^3.2.4",
-    "wrangler": "^4.28.0"
+    "wrangler": "^4.156.0"
   }
 }

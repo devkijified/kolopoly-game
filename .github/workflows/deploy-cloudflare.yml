@@ -3,10 +3,26 @@ name: deploy-cloudflare
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Wrangler 4.156+ refuses to start below Node 22.
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Bundle the Worker (no network deploy)
+        run: npx wrangler deploy --dry-run
+
   deploy:
+    needs: bundle
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

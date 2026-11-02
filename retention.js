@@ -613,15 +613,21 @@ function createRetention(opts) {
     res.end(body);
   }
 
+  const TEST_ROUTES = new Set(['/api/test/nudge', '/api/test/sweep', '/api/test/push-roundtrip']);
+
   function handle(req, res) {
     const clean = (req.url || '').split('?')[0];
     const query = (() => { try { return new URL(req.url, 'http://localhost').searchParams; } catch (e) { return new URLSearchParams(); } })();
     Promise.resolve().then(async () => {
+      if (!test && TEST_ROUTES.has(clean)) {
+        sendJson(res, 404, { ok: false, error: 'no route' });
+        return;
+      }
       if (req.method === 'GET' && clean === '/api/push/vapid') {
         sendJson(res, 200, { ok: true, enabled: vapid.enabled, publicKey: vapid.publicKey });
         return;
       }
-      if (req.method === 'GET' && clean === '/api/test/push-roundtrip') {
+      if (test && req.method === 'GET' && clean === '/api/test/push-roundtrip') {
         roundtripSelfTest();
         sendJson(res, 200, { ok: true });
         return;
@@ -690,10 +696,11 @@ function createRetention(opts) {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }
     });
     try {
+      if (!test && TEST_ROUTES.has(clean)) return json(404, { ok: false, error: 'no route' });
       if (request.method === 'GET' && clean === '/api/push/vapid') {
         return json(200, { ok: true, enabled: vapid.enabled, publicKey: vapid.publicKey });
       }
-      if (request.method === 'GET' && clean === '/api/test/push-roundtrip') {
+      if (test && request.method === 'GET' && clean === '/api/test/push-roundtrip') {
         await roundtripSelfTest();
         return json(200, { ok: true });
       }

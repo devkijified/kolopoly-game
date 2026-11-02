@@ -25,8 +25,9 @@ package) serves `public/`, and the server is authoritative for dice, money,
 deeds, auctions, contracts and timers. Clients send intents only.
 
 The live host is Cloudflare Workers on the free plan (no sleep, no hour cap).
-`npm start` remains the Node fallback. `render.yaml` is the old host and is
-kept only so that service can still be rebuilt. See `deploy/CLOUDFLARE.md`.
+`npm start` remains the Node fallback. Deploying that Worker needs Node 22
+(Wrangler 4.156 and later). `render.yaml` is the old host and is kept only
+so that service can still be rebuilt. See `deploy/CLOUDFLARE.md`.
 
 ## Daily market and whispers
 
