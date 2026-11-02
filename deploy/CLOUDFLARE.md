@@ -74,7 +74,10 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 
 `.github/workflows/deploy-cloudflare.yml` deploys on every push to `main`.
 If either secret is missing, the job prints a line and exits 0. It does not
-fail the build.
+fail the build. The same workflow runs `wrangler deploy --dry-run` on pull
+requests and on main, using Node 22. Wrangler 4.156 and later refuse to
+start on Node 20. The Worker path needs Node 22 (`engines.node` in
+`package.json`). `npm start` is the same server code and does not call Wrangler.
 
 The old keep-warm workflow no longer pings Render. Workers do not sleep.
 
@@ -82,9 +85,12 @@ The old keep-warm workflow no longer pings Render. Workers do not sleep.
 
 On your machine, from this repo:
 
+Wrangler 4.156+ needs Node 22. Check with `node -v` before deploying.
+
 ```sh
 npm install
 npx wrangler login
+npx wrangler deploy --dry-run   # bundles only; catches a broken module rule
 npx wrangler deploy
 ```
 
