@@ -1,3 +1,6 @@
+# Legacy. The live host is Cloudflare Workers on the free plan
+# (Durable Objects, no sleep). See deploy/CLOUDFLARE.md.
+# This file remains so the old Render service can still be rebuilt.
 services:
   - type: web
     name: kolopoly-game

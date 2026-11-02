@@ -758,14 +758,42 @@ function stopHeartbeat() {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
+// On Cloudflare the socket lands on one Durable Object. /lobby only
+// allocates a code (switch_room). /room/CODE is the table. The Node
+// server ignores the path, and this branch stays off unless the page
+// was stamped with KOLOPOLY_EDGE.
+let edgePath = '';
+let pendingEntry = null;
+let lastEntry = null;
+function seatEdgePath() {
+  const seat = loadSeat();
+  const invite = new URLSearchParams(location.search).get('join');
+  const inviteCode = invite ? invite.trim().toUpperCase().slice(0, 4) : '';
+  const inviteWins = inviteCode && seat && inviteCode !== seat.code;
+  const seatStale = seat && seat.name && rememberedName() && seat.name !== rememberedName();
+  if (seat && seat.code && !inviteWins && !seatStale) return '/room/' + seat.code;
+  if (inviteCode.length === 4) return '/room/' + inviteCode;
+  return '/lobby';
+}
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(proto + '//' + location.host);
+  let path = '';
+  if (window.KOLOPOLY_EDGE) {
+    if (!edgePath) edgePath = seatEdgePath();
+    path = edgePath;
+  }
+  ws = new WebSocket(proto + '//' + location.host + path);
   ws.onopen = () => {
     const again = connectedOnce;
     connectedOnce = true;
     hideConnBanner();
     startHeartbeat();
+    if (pendingEntry) {
+      const entry = pendingEntry;
+      pendingEntry = null;
+      try { ws.send(JSON.stringify(entry)); } catch (e) { /* the close path retries */ }
+      return;
+    }
     // A dropped socket is the deploy signal. Ask the version line now,
     // not on the next 60s or 120s poll.
     if (again && window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
@@ -790,6 +818,12 @@ function connect() {
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'switch_room' && msg.code && window.KOLOPOLY_EDGE) {
+      if (lastEntry) pendingEntry = lastEntry;
+      edgePath = '/room/' + String(msg.code).toUpperCase();
+      try { ws.close(); } catch (e) { connect(); }
+      return;
+    }
     if (msg.type === 'joined') {
       myId = msg.playerId;
       myCode = msg.code;
@@ -851,6 +885,7 @@ function connect() {
   ws.onclose = (ev) => {
     sessionLive = false;
     stopHeartbeat();
+    if (pendingEntry) { connect(); return; }
     if (ev && ev.code === 4001) {
       // The seat was taken by a newer tab or window on purpose: sign this
       // one out of the game instead of fighting over the seat.
@@ -892,6 +927,23 @@ function flushQueue() {
 // now queue exactly once while the socket is down and flush on open.
 const ENTRY_TYPES = new Set(['create_room', 'quick_join', 'join_room']);
 function send(type, obj) {
+  if (window.KOLOPOLY_EDGE && ENTRY_TYPES.has(type)) {
+    let want = '/lobby';
+    if (type === 'join_room') {
+      const code = String((obj && obj.code) || '').trim().toUpperCase();
+      if (/^[A-Z]{4}$/.test(code)) want = '/room/' + code;
+    }
+    if (!edgePath) edgePath = seatEdgePath();
+    if (edgePath !== want) {
+      lastEntry = Object.assign({ type }, obj || {});
+      pendingEntry = lastEntry;
+      edgePath = want;
+      if (ws) { try { ws.close(); } catch (e) { connect(); } }
+      else connect();
+      return;
+    }
+    lastEntry = Object.assign({ type }, obj || {});
+  }
   if (!ws || ws.readyState !== 1) {
     if (ENTRY_TYPES.has(type) && !sendQueue.some((m) => ENTRY_TYPES.has(m.type))) sendQueue.push({ type, obj });
     return;
