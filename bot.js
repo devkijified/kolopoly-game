@@ -53,6 +53,11 @@ class BotBrain {
     this.playerId = opts.playerId;
     this.sendIntent = opts.send;
     this.test = !!opts.test;
+    // external: the host drives think times (Durable Object alarms).
+    // The default path keeps setTimeout so the Node server is unchanged.
+    this.external = !!opts.external;
+    this.nowFn = opts.now || null;
+    this.onSchedule = opts.onSchedule || null;
     this.state = null;          // latest public room snapshot
     this.hold = false;          // test lever (KP_TEST hook): freeze decisions
     this.errors = [];           // every error line the server sent this seat
@@ -62,15 +67,30 @@ class BotBrain {
     this.thinkTimer = null;
     this.cooldownUntil = 0;
     this.lastPassAt = 0;
-    const iv = setInterval(() => this.kick(true), this.test ? 80 : 2000);
-    if (iv.unref) iv.unref();
-    this.watchdog = iv;
+    this.nextThinkAt = 0;
+    if (!this.external) {
+      const iv = setInterval(() => this.kick(true), this.test ? 80 : 2000);
+      if (iv.unref) iv.unref();
+      this.watchdog = iv;
+    }
   }
+
+  _now() { return this.nowFn ? this.nowFn() : Date.now(); }
 
   kill() {
     this.dead = true;
+    this.nextThinkAt = 0;
     if (this.watchdog) clearInterval(this.watchdog);
     if (this.thinkTimer) clearTimeout(this.thinkTimer);
+  }
+
+  // Alarm host: run the decision if its think time has arrived.
+  poke(nowMs) {
+    if (!this.external || this.dead || this.hold) return;
+    const t = nowMs || this._now();
+    if (!this.nextThinkAt || t + 15 < this.nextThinkAt) return;
+    this.nextThinkAt = 0;
+    try { this.decide(); } catch (e) { this.errors.push('brain: ' + (e && e.message)); }
   }
 
   // Raw frames from the fake socket (the same JSON a browser would get).
@@ -86,11 +106,17 @@ class BotBrain {
 
   kick(fromWatchdog) {
     if (this.dead) return;
-    if (this.thinkTimer && !fromWatchdog) return;
-    if (this.thinkTimer) clearTimeout(this.thinkTimer);
     const lo = this.test ? 5 : 600;
     const hi = this.test ? 30 : 1800;
     const wait = lo + Math.floor(Math.random() * (hi - lo));
+    if (this.external) {
+      if (this.nextThinkAt && !fromWatchdog) return;
+      this.nextThinkAt = this._now() + wait;
+      if (this.onSchedule) { try { this.onSchedule(this.nextThinkAt); } catch (e) { /* scheduling must not wedge a seat */ } }
+      return;
+    }
+    if (this.thinkTimer && !fromWatchdog) return;
+    if (this.thinkTimer) clearTimeout(this.thinkTimer);
     this.thinkTimer = setTimeout(() => {
       this.thinkTimer = null;
       try { this.decide(); } catch (e) { this.errors.push('brain: ' + (e && e.message)); }
@@ -101,7 +127,7 @@ class BotBrain {
   send(obj) {
     if (this.dead) return;
     this.actions += 1;
-    this.cooldownUntil = Date.now() + (this.test ? 20 : 300);
+    this.cooldownUntil = this._now() + (this.test ? 20 : 300);
     this.sendIntent(obj);
   }
 
@@ -172,7 +198,7 @@ class BotBrain {
   decide() {
     const st = this.state;
     if (this.dead || !st || this.hold) return;
-    if (Date.now() < this.cooldownUntil) { this.kick(true); return; }
+    if (this._now() < this.cooldownUntil) { this.kick(true); return; }
     if (st.status !== 'playing' || st.paused) return;
     const me = this.me(st);
     if (!me || me.bankrupt || me.resigned) return;
@@ -382,7 +408,7 @@ class BotBrain {
   maybeProposePass(st, me) {
     const inf = st.inf;
     if (!inf || inf.phase >= 4 || inf.proposal) return false;
-    if (Date.now() - this.lastPassAt < 45000) return false;
+    if (this._now() - this.lastPassAt < 45000) return false;
     const solvent = st.players.filter((p) => !p.bankrupt);
     if (solvent.length <= 2) return false;
     const reserve = reserveFor(st);
@@ -400,7 +426,7 @@ class BotBrain {
       if (landing < 20000) continue; // only worth covering real rent
       const price = sp.rent[0]; // cheap: one printed landing
       if (me.cash - price < reserve) return false;
-      this.lastPassAt = Date.now();
+      this.lastPassAt = this._now();
       this.send({ type: 'contract_propose', kind: 'pass', street: i, chips: 1, price });
       return true;
     }

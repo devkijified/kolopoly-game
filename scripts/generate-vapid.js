@@ -5,8 +5,8 @@
 const { generateVapidKeys } = require('../push-crypto');
 
 const keys = generateVapidKeys();
-console.log('Set these on the Render web service, then redeploy.');
-console.log('Dashboard: the kolopoly-game service, Environment, Add environment variable.');
+console.log('Set these as Worker secrets (wrangler secret put) or on the legacy Render service.');
+console.log('Cloudflare: see deploy/CLOUDFLARE.md. Do not commit the private key.');
 console.log('Do not commit the private key. Keep the same keys, or phones must subscribe again.');
 console.log('');
 console.log('VAPID_PUBLIC_KEY=' + keys.publicKey);

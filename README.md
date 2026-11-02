@@ -24,6 +24,10 @@ No build step, no framework, no runtime CDN: Node (built-in http + the `ws`
 package) serves `public/`, and the server is authoritative for dice, money,
 deeds, auctions, contracts and timers. Clients send intents only.
 
+The live host is Cloudflare Workers on the free plan (no sleep, no hour cap).
+`npm start` remains the Node fallback. `render.yaml` is the old host and is
+kept only so that service can still be rebuilt. See `deploy/CLOUDFLARE.md`.
+
 ## Daily market and whispers
 
 Once each Lagos calendar day a player can claim a market drop onto a shelf
@@ -32,13 +36,13 @@ not change the board, the modes, or the money rules. A claim on the next
 Lagos day, when yesterday was also claimed, adds a small extra. A missed
 day pays the base drop again. There is no streak meter.
 
-The shelf is stored on the server in `data/retention.json`, keyed by the
-same device `clientId` the table already keeps, and by the seat reconnect
-token once a room has linked the two. `KP_RETENTION_FILE` overrides the
-path. On Render's free web service the disk is ephemeral, so the file
-survives only as long as the instance does. A persistent disk mounted over
-`data/`, or `KP_RETENTION_FILE` pointed at that disk, keeps shelves and
-push subscriptions across deploys.
+The shelf is stored on the server, keyed by the same device `clientId` the
+table already keeps, and by the seat reconnect token once a room has linked
+the two. On Cloudflare it lives in a Durable Object, so a deploy does not
+wipe it. The Node fallback still uses `data/retention.json`.
+`KP_RETENTION_FILE` overrides that file path. On Render's free web service
+the disk is ephemeral, so the file survives only as long as the instance
+does.
 
 Whispers are Web Push. The phone asks only after a win or the first Claim,
 and only after an explicit tap. Sound off, and the Whispers switch on the

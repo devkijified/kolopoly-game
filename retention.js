@@ -4,9 +4,11 @@
 // not deeds, and it does not touch the board, the modes, or the economy.
 // Identity is the same pair the table already uses: clientId, and the
 // seat reconnect token once a room has linked them.
-const fs = require('fs');
 const path = require('path');
-const { loadVapid, sendWebPush, roundtripSelfTest } = require('./push-crypto');
+// Node crypto push stays behind a lazy require so a memory-backed shelf
+// (the Durable Object) can inject a WebCrypto implementation instead.
+function nodePush() { return require('./push-crypto'); }
+function nodeFs() { return require('fs'); }
 
 const GOODS = ['cowries', 'kola', 'yams', 'cloth'];
 const BASE_DROP = { cowries: 6, kola: 2, yams: 1, cloth: 1 };
@@ -79,25 +81,37 @@ function cleanName(v) {
 function createRetention(opts) {
   opts = opts || {};
   const test = !!opts.test;
-  const file = opts.file || path.join(__dirname, 'data', 'retention.json');
-  const vapid = loadVapid(opts.env || process.env, test);
+  const memory = !!opts.memory;
+  const file = memory ? null : (opts.file || path.join(__dirname, 'data', 'retention.json'));
+  const pushLib = opts.push || nodePush();
+  const loadVapid = pushLib.loadVapid;
+  const sendWebPush = pushLib.sendWebPush;
+  const roundtripSelfTest = pushLib.roundtripSelfTest;
+  const env = opts.env || (typeof process !== 'undefined' ? process.env : {});
+  const vapid = opts.vapid || loadVapid(env, test);
   const db = { players: {}, tokens: {}, stats: emptyStats() };
   let saveWarned = false;
   const testLog = [];
 
+  function applyParsed(parsed) {
+    if (!parsed || typeof parsed !== 'object') return;
+    db.players = parsed.players && typeof parsed.players === 'object' ? parsed.players : {};
+    db.tokens = parsed.tokens && typeof parsed.tokens === 'object' ? parsed.tokens : {};
+    db.stats = mergeStats(parsed.stats);
+  }
   function load() {
+    if (memory) { applyParsed(opts.db); return; }
+    const fs = nodeFs();
     try {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (parsed && typeof parsed === 'object') {
-        db.players = parsed.players && typeof parsed.players === 'object' ? parsed.players : {};
-        db.tokens = parsed.tokens && typeof parsed.tokens === 'object' ? parsed.tokens : {};
-        db.stats = mergeStats(parsed.stats);
-      }
+      applyParsed(parsed);
     } catch (e) {
       if (e.code !== 'ENOENT') console.log('Retention shelf started empty.');
     }
   }
   function save() {
+    if (memory) return;
+    const fs = nodeFs();
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const tmp = file + '.tmp';
@@ -109,6 +123,9 @@ function createRetention(opts) {
         console.log('Retention shelf could not be saved.');
       }
     }
+  }
+  function exportDb() {
+    return { players: db.players, tokens: db.tokens, stats: db.stats };
   }
   load();
 
@@ -485,6 +502,11 @@ function createRetention(opts) {
     save();
   }
   function fileStatus() {
+    if (memory) {
+      const bytes = JSON.stringify(db).length;
+      return { present: true, writable: true, bytes, override: false, label: 'durable-object' };
+    }
+    const fs = nodeFs();
     const usingOverride = !!(opts.env && String(opts.env.KP_RETENTION_FILE || '').trim());
     let present = false;
     let bytes = 0;
@@ -641,10 +663,80 @@ function createRetention(opts) {
     });
   }
 
+  // Room objects queue shelf ops and the retention Durable Object applies
+  // them on the authoritative db. Marks for the Owambe pot stay on the
+  // room; this only delivers.
+  function applyOps(ops) {
+    const jobs = [];
+    for (const op of ops || []) {
+      if (!op || !op.op) continue;
+      if (op.op === 'link') link(op.info);
+      else if (op.op === 'take') take(op.clientId, op.good);
+      else if (op.op === 'note') noteDay(op.kind);
+      else if (op.op === 'waiting') onSeatWaiting(op.player);
+      else if (op.op === 'pot') {
+        for (const id of op.players || []) jobs.push(deliver(id, 'pot', {}));
+      }
+    }
+    return Promise.all(jobs.map((j) => Promise.resolve(j).catch(() => {})));
+  }
+
+  async function handleFetch(request) {
+    const url = new URL(request.url);
+    const clean = url.pathname;
+    const query = url.searchParams;
+    const json = (status, obj) => new Response(JSON.stringify(obj), {
+      status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }
+    });
+    try {
+      if (request.method === 'GET' && clean === '/api/push/vapid') {
+        return json(200, { ok: true, enabled: vapid.enabled, publicKey: vapid.publicKey });
+      }
+      if (request.method === 'GET' && clean === '/api/test/push-roundtrip') {
+        await roundtripSelfTest();
+        return json(200, { ok: true });
+      }
+      if (request.method === 'GET' && clean === '/api/retention') {
+        const picked = dayFrom({ day: query.get('day') }, null);
+        if (picked.error) return json(400, { ok: false, error: picked.error });
+        const who = resolve({ clientId: query.get('clientId'), token: query.get('token') });
+        if (who.error) return json(400, { ok: false, error: who.error });
+        return json(200, publicView(who.id, picked.day));
+      }
+      if (request.method !== 'POST') return json(405, { ok: false, error: 'method' });
+      const raw = await request.text();
+      const body = raw ? JSON.parse(raw) : {};
+      if (clean === '/api/retention/claim') { const out = claim(body); return json(out.status, out.body); }
+      if (clean === '/api/push/subscribe') { const out = subscribe(body); return json(out.status, out.body); }
+      if (clean === '/api/push/mute') { const out = mute(body); return json(out.status, out.body); }
+      if (clean === '/api/push/denied') { const out = denied(body); return json(out.status, out.body); }
+      if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); return json(out.status, out.body); }
+      if (test && clean === '/api/test/nudge') {
+        const who = resolve(body);
+        if (who.error) return json(400, { ok: false, error: who.error });
+        const kind = NUDGES[body.kind] ? body.kind : 'drop';
+        const result = await deliver(who.id, kind, { force: !!body.force, day: validDay(body.day) ? body.day : lagosDay(new Date()) });
+        return json(200, result);
+      }
+      if (test && clean === '/api/test/sweep') {
+        const picked = dayFrom(body, null);
+        if (picked.error) return json(400, { ok: false, error: picked.error });
+        const before = testLog.length;
+        const sent = await sweepDrops(picked.day);
+        return json(200, { ok: true, sent, nudges: testLog.slice(before) });
+      }
+      return json(404, { ok: false, error: 'no route' });
+    } catch (e) {
+      return json(400, { ok: false, error: 'bad request' });
+    }
+  }
+
   return {
     vapid,
     accepts,
     handle,
+    handleFetch,
     link,
     take,
     restore,
@@ -653,7 +745,9 @@ function createRetention(opts) {
     sweepDrops,
     noteDay,
     opsSummary,
-    testLog
+    testLog,
+    exportDb,
+    applyOps
   };
 }
 

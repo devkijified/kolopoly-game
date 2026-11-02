@@ -1,0 +1,45 @@
+# Kolopoly on Workers Free + Durable Objects (SQLite).
+# Live DNS cutover is documented in deploy/CLOUDFLARE.md.
+# Custom domains stay commented until the zone is on this account;
+# uncommenting them before that makes `wrangler deploy` fail.
+name = "kolopoly"
+main = "worker.js"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "none"
+html_handling = "none"
+run_worker_first = ["/", "/index.html", "/sw.js"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "RoomDO"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyDO"
+
+[[durable_objects.bindings]]
+name = "RETENTION"
+class_name = "RetentionDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDO", "LobbyDO", "RetentionDO"]
+
+# [[routes]]
+# pattern = "kolopoly.fun"
+# custom_domain = true
+#
+# [[routes]]
+# pattern = "www.kolopoly.fun"
+# custom_domain = true
+
+[[rules]]
+type = "Text"
+globs = ["ops/desk.html", "ops/desk.css", "ops/desk.js"]
+fallthrough = false

@@ -9,15 +9,17 @@
 // records existed. The store is the lakalaka-game Supabase project, but
 // the table is Kolopoly's own (kolopoly_matches), so the two games never
 // mix rows.
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const CACHE_MS = 30000;
 
-let cache = { at: 0, data: null };
+function createRecords(env) {
+  env = env || {};
+  const SUPABASE_URL = String(env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const SERVICE_KEY = String(env.SUPABASE_SERVICE_ROLE_KEY || '');
+  let cache = { at: 0, data: null };
 
-function enabled() {
-  return Boolean(SUPABASE_URL && SERVICE_KEY);
-}
+  function enabled() {
+    return Boolean(SUPABASE_URL && SERVICE_KEY);
+  }
 
 function storeHeaders(extra) {
   return Object.assign({
@@ -109,4 +111,8 @@ async function getRecords() {
   }
 }
 
-module.exports = { enabled, recordMatch, getRecords };
+  return { enabled, recordMatch, getRecords };
+}
+
+const nodeEnv = (typeof process !== 'undefined' && process.env) ? process.env : {};
+module.exports = Object.assign(createRecords(nodeEnv), { createRecords });

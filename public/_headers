@@ -1,0 +1,23 @@
+# Asset CDN cache. The worker stamps /, /index.html and /sw.js itself.
+/app.js
+  Cache-Control: no-cache
+/style.css
+  Cache-Control: no-cache
+/update.js
+  Cache-Control: no-cache
+/retention.js
+  Cache-Control: no-cache
+/board.js
+  Cache-Control: no-cache
+/board3d.js
+  Cache-Control: no-cache
+/game-data.js
+  Cache-Control: no-cache
+/icons.js
+  Cache-Control: no-cache
+/vendor/*
+  Cache-Control: public, max-age=604800
+/fonts/*
+  Cache-Control: public, max-age=604800
+/icons/*
+  Cache-Control: public, max-age=604800
