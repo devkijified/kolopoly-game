@@ -36,16 +36,19 @@ const BOT_NAMES = ['BOT Ade', 'BOT Ngozi', 'BOT Emeka', 'BOT Fatima', 'BOT Chidi
 const BASE_RESERVE = 250000;
 const JAIL_FINE = D.JAIL_FINE;
 
-// Typical rent multiplier per Inflation phase (phase 1 prints, phase 2 uses
-// the smaller die, phases 3 and 4 the bigger die). Mirrors the copy the game
-// itself shows players.
+// Typical rent multiplier per Inflation phase (the seven-phase schedule in
+// docs/INFLATION-7.md): the expected value of each phase's dice formula.
+// Mirrors the copy the game itself shows players.
 function typicalMult(phase) {
-  return [1, 2.53, 4.47, 4.47][Math.max(1, Math.min(4, phase || 1)) - 1];
+  return [1, 2.53, 4.47, 7, 15.9, 26.6, 54.8][Math.max(1, Math.min(7, phase || 1)) - 1];
 }
 
 function reserveFor(st) {
   if (!st || !st.inf) return BASE_RESERVE;
-  return Math.round(BASE_RESERVE * typicalMult(st.inf.phase));
+  // The reserve scales with the phase danger but is capped at 8x: past
+  // Crunch the honest reserve would exceed any cash a seat can hold, and a
+  // bot that never buys again is worse than a bot that keeps a big buffer.
+  return Math.round(BASE_RESERVE * Math.min(typicalMult(st.inf.phase), 8));
 }
 
 class BotBrain {
@@ -215,6 +218,17 @@ class BotBrain {
       const spot = this.bestPlacement(st, me, st.buildPlace.kind);
       if (spot != null) { this.send({ type: 'build_place', space: spot }); return; }
       return; // no legal spot: the server deadline fizzles it, never a stall
+    }
+
+    // 3b. Hustle (Inflation): answer when I am the target, wait when I am
+    // the attacker. The server takes the first defence answer only, so
+    // re-deciding after a revive can never flip a settled answer.
+    if (st.hustle) {
+      if (st.hustle.to === me.id && st.hustle.defended == null) {
+        this.send({ type: 'hustle_defend', hustleId: st.hustle.id, defend: Math.random() < 0.7 });
+        return;
+      }
+      if (st.hustle.from === me.id) return;
     }
 
     // 4. A live auction I am part of.
@@ -487,9 +501,37 @@ class BotBrain {
 
   // ---- my turn ------------------------------------------------------------------------
 
+  // Hustle policy (contract section 3): from phase 2 on, when the richest
+  // legal target holds at least twice my cash (or ₦500,000), I can cover
+  // the catch fine, and a one-in-three chance roll passes. A target the
+  // server refused (already hustled this phase, pair cap) is not retried
+  // this phase, so a refusal can never stall my turn.
+  maybeHustle(st, me) {
+    if (!st.inf || st.inf.phase < 2) return false;
+    if ((me.hustleAttempts || 0) >= 3) return false;
+    if (me.inJail || st.debt || st.auction || st.pendingBill) return false;
+    if (!this.hustleTried) this.hustleTried = new Set();
+    const caps = st.inf.hustleCaps || { cap: 150000, targetMinCash: 50000 };
+    const targets = st.players
+      .filter((p) => p.id !== me.id && !p.bankrupt && !p.inJail && p.cash >= caps.targetMinCash)
+      .filter((p) => !this.hustleTried.has(st.inf.phase + ':' + p.id))
+      .sort((a, b) => b.cash - a.cash);
+    if (!targets.length) return false;
+    const richest = targets[0];
+    if (!(richest.cash >= me.cash * 2 || richest.cash >= 500000)) return false;
+    const amount = Math.min(caps.cap, Math.max(10000, Math.floor(richest.cash * 0.10)));
+    const fine = Math.max(10000, Math.floor(amount / 2));
+    if (me.cash < fine) return false;
+    if (Math.random() >= 1 / 3) return false;
+    this.hustleTried.add(st.inf.phase + ':' + richest.id);
+    this.send({ type: 'hustle_start', targetId: richest.id });
+    return true;
+  }
+
   decideTurn(st, me) {
     const phase = st.phase;
     if (phase === 'roll') {
+      if (this.maybeHustle(st, me)) return;
       if (this.decideManage(st, me)) return;
       this.send({ type: 'roll' });
       return;

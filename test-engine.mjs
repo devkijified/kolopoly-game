@@ -744,13 +744,13 @@ try {
   }
 
   // ----------------------------------------------------------- INFLATION ---
-  console.log('I1: phase transition changes salary, rent formula and build cost (owner rule: printed x die)');
+  console.log('I1: phase transition changes salary and the rent formula; deeds and builds stay at printed price');
   {
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
-    check('Inflation opens at Phase 1 with salary ₦200,000', g.S().inf && g.S().inf.phase === 1 && g.S().inf.salary === 200000);
+    check('Inflation opens at Phase 1 (Standard) with salary ₦200,000', g.S().inf && g.S().inf.phase === 1 && g.S().inf.phaseName === 'Standard' && g.S().inf.salary === 200000);
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'phase 2 begins');
-    check('Phase 2 salary decays to ₦100,000', g.S().inf.salary === 100000);
+    check('Phase 2 is Squeeze: salary ₦140,000 (70 percent of the full salary)', g.S().inf.phaseName === 'Squeeze' && g.S().inf.salary === 140000);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
     g.hook('test_give', { playerId: o.playerId, space: 13 }); // Yaba, site rent ₦10,000
@@ -759,10 +759,14 @@ try {
     g.hook('test_set_position', { playerId: t.playerId, space: 9 });
     g.hook('test_dice', { rolls: [[2, 2], [1, 2]] });
     t.send('roll', {});
+    await t.waitFor((s) => !!s.pendingBill && s.pendingBill.playerId === t.playerId, 'lifeline bill opens on the multiplied rent');
+    check('the bill freezes printed ₦10,000 x lower die 2 = ₦20,000 with the dice on show',
+      g.S().pendingBill.printed === 10000 && g.S().pendingBill.mult === 2 && g.S().pendingBill.amount === 20000,
+      JSON.stringify(g.S().pendingBill));
+    t.send('lifeline_skip', { billId: g.S().pendingBill.id, id: g.S().pendingBill.id });
     await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === oCash + 20000, 'Phase 2 rent landed');
     check('Phase 2 rent = printed ₦10,000 x lowest die 2 = ₦20,000', g.player(t.playerId).cash === tCash - 20000 && g.player(o.playerId).cash === oCash + 20000,
       't=' + g.player(t.playerId).cash + ' o=' + g.player(o.playerId).cash);
-    check('rent alert names the multiplier', g.S().feed.some((e) => e.text.includes('x 2 (your roll)')));
     // finish the turn, then salary at Phase 2 for the other player
     g.hook('test_set_position', { playerId: t.playerId, space: 17 });
     t.send('roll', {});
@@ -774,41 +778,43 @@ try {
     g.hook('test_dice', { rolls: [[1, 2]] });
     o.send('roll', {});
     await o.waitFor((s) => s.phase === 'buy' && s.buySpace === 1, 'wrapped to Makoko');
-    check('Phase 2 salary is ₦100,000 exactly on the START pass', g.player(o.playerId).cash === oCash2 + 100000, 'cash=' + g.player(o.playerId).cash);
+    check('Phase 2 salary is ₦140,000 exactly on the START pass', g.player(o.playerId).cash === oCash2 + 140000, 'cash=' + g.player(o.playerId).cash);
     o.send('decline', {});
     await o.waitFor((s) => !!s.auction, 'auction');
     await passAuction(g);
     await o.waitFor((s) => s.phase === 'end', 'turn done');
     o.send('end_turn', {});
-    // build cost: give the owner the full pink set, wait for their turn, build with a queued Builder's Roll
+    // build cost: give the owner the full pink set, wait for their turn, build in Phase 2
     for (const sp of [11, 14]) g.hook('test_give', { playerId: o.playerId, space: sp });
     await nullTurn(g); // t's turn passes
     const b = g.turn();
     check('builder turn reached', b.playerId === o.playerId);
     const bCash = g.player(b.playerId).cash;
-    g.hook('test_dice', { rolls: [[3, 5]] });
     b.send('build', { space: 11, kind: 'duplex' });
-    await b.waitFor((s) => s.props[11].b === 1, 'duplex built at Phase 2 price');
-    check("Builder's Roll: cost = printed ₦100,000 x lowest die 3 = ₦300,000", g.player(b.playerId).cash === bCash - 300000, 'cash=' + g.player(b.playerId).cash);
-    check('build stamp states the roll maths in public', g.S().feed.some((e) => e.text.includes('x 3 = ₦300,000')));
+    await b.waitFor((s) => s.props[11].b === 1, 'duplex built at the printed Phase 2 price');
+    check('build cost in Phase 2 is the printed ₦100,000: phases never multiply build prices', g.player(b.playerId).cash === bCash - 100000, 'cash=' + g.player(b.playerId).cash);
+    b.send('build', { space: 14, kind: 'duplex' });
+    await b.waitFor((s) => s.props[14].b === 1, 'second duplex built');
+    check('a second Phase 2 build also charges the printed ₦100,000', g.player(b.playerId).cash === bCash - 200000, 'cash=' + g.player(b.playerId).cash);
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('I2: Phase 3 lander buy price = printed x bigger die');
+  console.log('I2: Phase 3 (Heat) lander buy price stays the printed price: phases never reprice deeds');
   {
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     g.hook('test_phase', { phase: 3 });
     await g.host.waitFor((s) => s.inf.phase === 3, 'phase 3');
+    check('Phase 3 is Heat with salary ₦100,000', g.S().inf.phaseName === 'Heat' && g.S().inf.salary === 100000);
     const t = g.turn();
     g.hook('test_set_position', { playerId: t.playerId, space: 24 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 27, 'landed Victoria Island');
-    check('buyPrice = printed ₦260,000 x bigger die 2 = ₦520,000', g.S().buyPrice === 520000, 'buyPrice=' + g.S().buyPrice);
+    check('buyPrice = the printed ₦260,000, no bigger die multiplier on deeds', g.S().buyPrice === 260000, 'buyPrice=' + g.S().buyPrice);
     const cash0 = g.player(t.playerId).cash;
     t.send('buy', {});
     await t.waitFor((s) => s.props[27].o === t.playerId, 'bought');
-    check('lander paid the multiplied price', g.player(t.playerId).cash === cash0 - 520000);
+    check('lander paid the printed price', g.player(t.playerId).cash === cash0 - 260000);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -885,7 +891,7 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('I5: phase timing via the accelerated clock; Phase 4 horn ends on net worth with the Real Table');
+  console.log('I5: phase timing via the accelerated clock; the deadline horn ends Final Reckoning on ranked net worth with the Real Table');
   {
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     g.hook('test_phase_ends_in', { seconds: 1 });
@@ -894,11 +900,12 @@ try {
     check('phase change announced in the feed', g.S().feed.some((e) => e.kind === 'phase'));
     const richer = g.clients.find((c) => c !== g.turn());
     g.hook('test_give', { playerId: richer.playerId, space: 39 });
-    g.hook('test_phase', { phase: 4 });
-    await g.host.waitFor((s) => s.inf.phase === 4, 'phase 4');
+    g.hook('test_phase', { phase: 7 });
+    await g.host.waitFor((s) => s.inf.phase === 7, 'phase 7');
+    check('phase 7 is Final Reckoning', g.S().inf.phaseName === 'Final Reckoning');
     g.hook('test_horn_in', { seconds: 1 });
-    await g.host.waitFor((s) => s.status === 'ended', 'sudden death horn', 9000);
-    check('Phase 4 horn crowned the richest net worth', g.S().winner && g.S().winner.playerId === richer.playerId);
+    await g.host.waitFor((s) => s.status === 'ended', 'deadline horn', 9000);
+    check('the deadline horn crowned the richest net worth', g.S().winner && g.S().winner.playerId === richer.playerId);
     check('end table carries the Real Table (Phase 1 purchasing power)', g.S().endTable.every((r) => typeof r.realNetWorth === 'number'));
     check('end table carries generated lesson lines per player', g.S().endTable.every((r) => Array.isArray(r.lessons)));
     for (const c of g.clients) c.ws.close();
@@ -929,14 +936,22 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('I7: preset phase lengths (Quick 8, Standard 15, Full Night 45 for Phase 1) and a fully claimed board ends Settling at the turn boundary');
+  console.log('I7: the seven phase schedule (Standard runs 20 minutes, the deadline lands 67 minutes out) and a fully claimed board ends Standard at the turn boundary');
   {
-    for (const [preset, p1] of [['quick', 480], ['standard', 900], ['fullnight', 2700]]) {
+    for (const preset of ['quick', 'standard', 'fullnight']) {
       const g = await makeGame({ gameMode: 'inflation', preset, timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
-      const left = Math.round((g.S().inf.phaseEndsAt - Date.now()) / 1000);
-      check(preset + ' Phase 1 runs about ' + p1 + 's', Math.abs(left - p1) < 6, 'left=' + left);
+      check(preset + ' opens at Standard with the full ₦200,000 salary and a deadline set',
+        g.S().inf.phase === 1 && g.S().inf.phaseName === 'Standard' && g.S().inf.salary === 200000
+        && Number.isFinite(g.S().inf.deadlineAt) && g.S().inf.deadlineAt > Date.now(),
+        JSON.stringify(g.S().inf));
       for (const c of g.clients) c.ws.close();
     }
+    const sched = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const p1Left = Math.round((sched.S().inf.phaseEndsAt - Date.now()) / 1000);
+    check('Standard preset Phase 1 (Standard) runs about 1200s', Math.abs(p1Left - 1200) < 6, 'left=' + p1Left);
+    const totalLeft = Math.round((sched.S().inf.deadlineAt - Date.now()) / 1000);
+    check('the Standard match deadline lands about 4020s (67 minutes) after the start', Math.abs(totalLeft - 4020) < 8, 'left=' + totalLeft);
+    for (const c of sched.clients) c.ws.close();
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const ids = g.S().players.map((p) => p.id);
     const OWNABLE = g.S().props.map((p, i) => i).filter((i) => [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39].includes(i));
@@ -945,6 +960,7 @@ try {
     check('every ownable space has an owner', g.S().props.every((p, i) => !OWNABLE.includes(i) || p.o != null));
     await nullTurn(g);
     check('Phase 1 ended early at the turn boundary once the board was fully claimed', g.S().inf.phase === 2);
+    check('the early advance lands in Squeeze at the ₦140,000 salary', g.S().inf.phaseName === 'Squeeze' && g.S().inf.salary === 140000);
     check('the early end still ran the phase ceremony feed', g.S().feed.some((e) => e.kind === 'phase'));
     for (const c of g.clients) c.ws.close();
   }
@@ -1428,6 +1444,11 @@ try {
     for (const id of botIds) g.hold(id, true); // frozen before the game even starts: no first-tick race
     g.host.send('start_game', {});
     await g.host.waitFor((s) => s.status === 'playing', 'inflation bot game started');
+    // Hustle era: keep every seat under the ₦50,000 Hustle target floor so the
+    // reserve decisions below are never disturbed by a bot Hustle. The script
+    // sets the subject cash explicitly for each act.
+    g.hook('test_set_cash', { playerId: g.host.playerId, amount: 40000 });
+    for (const id of botIds) g.hook('test_set_cash', { playerId: id, amount: 40000 });
     g.hook('test_phase', { phase: 2 });
     // The first bot whose turn arrives is the subject; the other is a filler.
     await driveUntil(g, (s) => botIds.includes(s.turnPlayerId) && s.phase === 'roll', 'a bot roll phase arrives', 30000);
