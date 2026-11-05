@@ -118,6 +118,8 @@ let shownLoanDecisionId = 0;
 let prevStatus = null;
 let prevTurnPlayer = null;
 let prevPhaseNum = 0;
+let infBarShownLine = '';
+let infEndSummary = null;
 let countdownDoneFor = null;
 let displayedCash = null;
 let cashAnim = null;
@@ -1273,9 +1275,77 @@ const PHASE_FACE = {
   'Settling': 'Calm market',
   'Inflation': 'Rent don rise',
   'Sapa': 'Sapa dey',
-  'Sudden Death': 'Last round'
+  'Sudden Death': 'Last round',
+  'Standard': 'Calm market',
+  'Squeeze': 'Rent don rise',
+  'Heat': 'Market dey hot',
+  'Crunch': 'Money dey tight',
+  'Crisis': 'Sapa dey',
+  'Meltdown': 'Fire for market',
+  'Final Reckoning': 'Last round'
 };
 function phaseFace(name) { return PHASE_FACE[name] || name || ''; }
+// ---------------------------------------------------------------------------
+// Inflation, seven phases (docs/INFLATION-7.md is the contract). Client
+// mirrors of the phase table for the strip, the horns and the warnings.
+// The server stays the authority: salary and index are read from
+// state.inf, these tables only name phases and word the rent formula.
+// ---------------------------------------------------------------------------
+const INF7_NAMES = ['Standard', 'Squeeze', 'Heat', 'Crunch', 'Crisis', 'Meltdown', 'Final Reckoning'];
+const INF7_WATER = [50, 70, 100, 140, 250, 500, 1000];
+const INF7_SALARIES = [200000, 140000, 100000, 70000, 40000, 20000, 10000];
+const INF7_FORMULA = {
+  1: 'printed rent only, no multiplier',
+  2: 'printed rent x the lower die',
+  3: 'printed rent x the higher die',
+  4: 'printed rent x the two dice added together',
+  5: 'printed rent x the dice sum x the lower die',
+  6: 'printed rent x the dice sum x the higher die',
+  7: 'printed rent x the dice sum x the dice sum again'
+};
+function infFormulaWords(phase) { return INF7_FORMULA[phase] || INF7_FORMULA[1]; }
+function infMultFor(phase, d1, d2) {
+  const lo = Math.min(d1, d2), hi = Math.max(d1, d2), sum = d1 + d2;
+  switch (phase) {
+    case 2: return lo;
+    case 3: return hi;
+    case 4: return sum;
+    case 5: return sum * lo;
+    case 6: return sum * hi;
+    case 7: return sum * sum;
+    default: return 1;
+  }
+}
+// One worked example on the same dice every horn uses (printed rent
+// 10,000, roll 3 + 4), so the table learns the shape once.
+function infExampleLine(phase) {
+  const name = INF7_NAMES[phase - 1] || '';
+  const mult = infMultFor(phase, 3, 4);
+  const verbs = {
+    2: 'take the lower die (3)',
+    3: 'take the higher die (4)',
+    4: 'add the two dice (7)',
+    5: 'add the dice (7), then x the lower die (3)',
+    6: 'add the dice (7), then x the higher die (4)',
+    7: 'add the dice (7), then x the sum again (7)'
+  };
+  return 'Example: rent ' + fmtN(10000) + ', roll 3 + 4: ' + name + ' ' + (verbs[phase] || '') + ', x' + mult + ', so ' + fmtN(10000 * mult) + '.';
+}
+// The strip's full line: phase, time left, next phase, formula. Rides
+// the strip's title and accessible name; the visible line stays slim.
+function infStripLine(room) {
+  const inf = room.inf;
+  if (!inf) return '';
+  const name = inf.phaseName || INF7_NAMES[inf.phase - 1] || '';
+  let left = '';
+  const end = inf.phaseEndsAt || inf.hornAt;
+  if (end) {
+    const s = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    left = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + ' left. ';
+  }
+  const next = inf.phase < 7 ? ('Next: ' + (inf.nextPhaseName || INF7_NAMES[inf.phase]) + '. ') : 'Last phase. ';
+  return name + '. ' + left + next + 'Rent: ' + infFormulaWords(inf.phase) + '. Salary ' + fmtN(inf.salary) + '.';
+}
 function cueBoard(e, focusIds) {
   const mine = e.playerId != null && focusIds.includes(e.playerId);
   const t = e.text || '';
@@ -1363,14 +1433,26 @@ function processFeed(room, prev) {
       }
     }
     if (e.kind === 'phase') {
-      // Phase 2 arrives as the landlord's letter (paper + stamp thud),
-      // Phase 3 breaks like a news sting, Phase 4 tolls low, the rest
-      // keep the rising tones.
-      if (room.inf && room.inf.phase === 2) { logSfx('phaseLetter', null, 'feed'); sfx.phaseLetter(); }
-      else if (room.inf && room.inf.phase === 3) { logSfx('newsSting', null, 'feed'); sfx.newsSting(); }
-      else if (room.inf && room.inf.phase === 4) { logSfx('phaseToll', null, 'feed'); sfx.phaseToll(); }
-      else sfx.phase();
-      showPhaseCeremony(room, e);
+      // A phase entry that lands while the phase number has not moved
+      // is the 60 second warning, not the change itself: name the
+      // incoming phase, its salary and its rent formula in a toast and
+      // leave the horn for the real landing.
+      const phaseNow = room.inf ? room.inf.phase : 0;
+      if (room.inf && phaseNow <= prevPhaseNum && phaseNow < 7) {
+        const next = phaseNow + 1;
+        logSfx('phase', null, 'feed'); sfx.phase();
+        toast('<b>' + esc(INF7_NAMES[next - 1]) + '</b> dey come in 60 seconds. Salary go drop to ' + fmtN(INF7_SALARIES[next - 1]) + '. Rent go be ' + infFormulaWords(next) + '.', 6000);
+      } else {
+        // Phase 2 arrives as the landlord's letter (paper + stamp thud),
+        // Phase 3 breaks like a news sting, Phase 4 tolls low, the rest
+        // keep the rising tones.
+        if (room.inf && room.inf.phase === 2) { logSfx('phaseLetter', null, 'feed'); sfx.phaseLetter(); }
+        else if (room.inf && room.inf.phase === 3) { logSfx('newsSting', null, 'feed'); sfx.newsSting(); }
+        else if (room.inf && room.inf.phase === 4) { logSfx('phaseToll', null, 'feed'); sfx.phaseToll(); }
+        else sfx.phase();
+        showPhaseCeremony(room, e);
+        if (room.inf) prevPhaseNum = room.inf.phase;
+      }
     }
   }
   if (room.lastCard && room.lastCard.seq !== lastCardSeq) {
@@ -1392,7 +1474,11 @@ function showPhaseCeremony(room, entry) {
   const inf = room.inf;
   if (!inf) return;
   const o = $('phaseOverlay');
-  const PW = [50, 100, 200, 500][inf.phase - 1];
+  const PW = INF7_WATER[inf.phase - 1];
+  const salaryLine = 'Salary na <b>' + fmtN(inf.salary) + '</b> now.';
+  const formulaLine = 'Rent na ' + infFormulaWords(inf.phase) + '.';
+  const exampleLine = inf.phase >= 2 ? '<p style="margin-top:10px;">' + infExampleLine(inf.phase) + '</p>' : '';
+  const waterLine = 'Pure water don reach <b>₦' + PW + '</b>.';
   let inner;
   if (inf.phase === 2) {
     // The landlord's rent increase letter (lessons doc, Upgrade 1).
@@ -1400,19 +1486,31 @@ function showPhaseCeremony(room, entry) {
       '<p class="lhead">From the Office of Your Landlord</p>' +
       '<p>Dear Tenant,</p>' +
       '<p style="margin-top:10px;">This is to inform you that your rent has been reviewed upward with immediate effect. Market forces no gree anybody, and cement no dey wait.</p>' +
-      '<p style="margin-top:10px;">Salary don drop to <b>' + fmtN(inf.salary) + '</b>. Rent now na printed rent x your lowest die, and building cost follow the same dice. Pure water don reach <b>₦' + PW + '</b>.</p>' +
+      '<p style="margin-top:10px;">' + salaryLine + ' ' + formulaLine + ' ' + waterLine + '</p>' +
+      exampleLine +
       '<p class="lsign">Signed,<br><b>Your Landlord</b></p>' +
       '<p class="lfoot">Na the year wey fees jump from ₦45,000 to ₦100,000 be this.</p></div>';
   } else if (inf.phase === 3) {
     // Breaking news in the May 2023 mould, with the real figures.
     inner = '<div class="ceremony ceremony-news"><div class="newsbar">BREAKING NEWS</div>' +
       '<div class="newsbody"><p class="newsline">Subsidy don go. Fuel: ₦185 don turn ₦488.</p>' +
-      '<p style="margin-top:10px;">' + esc(entry.text) + '</p>' +
-      '<p style="margin-top:10px;">Salary na <b>' + fmtN(inf.salary) + '</b> now. Rent and land price na printed x your bigger die. Pure water don reach <b>₦' + PW + '</b>. If e no dey for contract board, e no happen.</p></div></div>';
-  } else if (inf.phase === 4) {
-    inner = '<div class="ceremony ceremony-notice"><div class="nhead">FINAL NOTICE</div>' +
-      '<p>' + esc(room.message || entry.text) + '</p>' +
-      '<p style="margin-top:10px;">Pure water don reach <b>₦' + PW + '</b>. No new contracts. The horn go decide am on net worth, and the Real Table go talk the rest for the end screen.</p></div>';
+      '<p style="margin-top:10px;">Heat don land. ' + salaryLine + ' ' + formulaLine + ' ' + waterLine + '</p>' +
+      exampleLine + '</div></div>';
+  } else if (inf.phase >= 4) {
+    // Official notices for the squeeze's hard end: Crunch, Crisis,
+    // Meltdown, and the Final Reckoning's final notice.
+    const heads = { 4: 'MARKET NOTICE', 5: 'CRISIS NOTICE', 6: 'MELTDOWN NOTICE', 7: 'FINAL NOTICE' };
+    const opens = {
+      4: 'Crunch don land. Money don tight for everybody.',
+      5: 'Crisis don land. Every landing dey bite now.',
+      6: 'Meltdown don land. The market no dey reason anybody.',
+      7: 'Final Reckoning. The last five minutes of the match.'
+    };
+    inner = '<div class="ceremony ceremony-notice"><div class="nhead">' + (heads[inf.phase] || 'OFFICIAL NOTICE') + '</div>' +
+      '<p>' + (opens[inf.phase] || '') + ' ' + salaryLine + ' ' + formulaLine + ' ' + waterLine + '</p>' +
+      exampleLine +
+      (inf.phase === 7 ? '<p style="margin-top:10px;">No new contracts. When the horn blow, the richest landlord by net worth carry the game.</p>' : '') +
+      '</div>';
   } else {
     inner = '<div class="phase-ceremony"><div class="big">PHASE ' + inf.phase + '</div><p class="lead">' + esc(entry.text) + '</p></div>';
   }
@@ -1645,7 +1743,7 @@ function renderGame(room) {
     // untouched in the horns, sheets and explainers. The droplet is an
     // inline SVG in the icon wrapper's exact stroke style (icons.js
     // has no drop glyph; KP20's file scope is app.js and style.css).
-    const pwAmt = [50, 100, 200, 500][room.inf.phase - 1];
+    const pwAmt = INF7_WATER[room.inf.phase - 1];
     const priceWord = room.inf.index <= 1 ? 'Printed prices' : ('Prices ' + room.inf.index + 'x');
     // The phase name, index and water price stay in the DOM for the
     // gauge, but the bar itself is out of the layout. The clock the
@@ -1655,8 +1753,17 @@ function renderGame(room) {
       '<span class="idx" title="How dear things don be, against the printed board">' + priceWord + '</span>' +
       '<span class="water-chip" role="img" aria-label="Pure water ₦' + pwAmt + '" title="Pure water ₦' + pwAmt + '"><svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c2.9 3.7 6.3 7.5 6.3 11a6.3 6.3 0 1 1-12.6 0c0-3.5 3.4-7.3 6.3-11z"/><path d="M9.3 14.6a2.8 2.8 0 0 0 1.9 3.2"/></svg>₦' + pwAmt + '</span>' +
       '<span class="clk" id="infClock"></span>';
+    // The full line (phase, time left, next phase, formula) rides the
+    // strip's title and accessible name; the ticker keeps it fresh.
+    const stripLine = infStripLine(room);
+    infBar.title = stripLine;
+    infBar.setAttribute('aria-label', stripLine);
+    infBarShownLine = stripLine;
   } else {
     infBar.classList.add('hidden');
+    infBar.title = '';
+    infBar.removeAttribute('aria-label');
+    infBarShownLine = '';
   }
   // KP13 WS4: addressee-directed lines render per seat from the
   // server's structured banner (key + actor), never from one shared
@@ -1684,7 +1791,11 @@ function renderGame(room) {
   // Players strip
   $('playersStrip').innerHTML = room.players.map((p) => {
     const loanMark = room.inf && room.inf.contracts.some((c) => c.type === 'loan' && c.borrower === p.id) ? ' · loan' : '';
-    return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '">' +
+    // My own chip carries my Lifeline state in its title: available or
+    // spent, no new element on the strip.
+    const mineChip = room.inf && p.id === (room.mode === 'pass' ? room.turnPlayerId : myId);
+    const chipTitle = mineChip ? (' title="' + (p.lifelineUsed ? 'Lifeline: don use am this match' : 'Lifeline: still dey. E fit cut one big rent back to the printed price') + '"') : '';
+    return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '"' + chipTitle + '>' +
       '<span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 15) + '</span>' +
       '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span> ' +
       '<span class="cash">' + fmtN(p.cash) + '</span><span class="meta"> · ' + p.deeds + ' deeds' + loanMark + '</span></span></div>';
@@ -1700,6 +1811,7 @@ function renderGame(room) {
   renderWallet(room);
   renderActionBar(room);
   renderAuction(room);
+  renderTactical(room);
   renderPause(room);
   maybeShowModals(room);
   // Pass and play banner on turn change
@@ -1803,6 +1915,23 @@ function renderActionBar(room) {
       html = '<p class="caption" style="align-self:center;">You carry a mortgaged deed choice. Settle am for the popup first.</p>';
     } else if (room.phase === 'roll') {
       html = '<button class="btn green" id="abRoll">' + window.icon('dice', 20) + ' Roll dice</button>' + clockChip(room.turnDeadline);
+      // Hustle (Inflation only): one extra action beside Roll on my own
+      // roll step, never a permanent HUD piece. The server re-validates
+      // every limit; this only decides whether the door shows.
+      if (room.inf && !room.pendingBill && !room.hustle) {
+        const caps = room.inf.hustleCaps || { maxAttempts: 3, cap: 150000, targetMinCash: 50000 };
+        const attempts = actor.hustleAttempts || 0;
+        const targets = hustleTargets(room, actor);
+        if (attempts >= caps.maxAttempts) {
+          html += '<button class="btn ghost" id="abHustle" disabled title="You don use all your Hustle attempts for this match.">' + window.icon('spark', 18) + ' Hustle ' + attempts + '/' + caps.maxAttempts + '</button>';
+        } else if (actor.cash < 10000) {
+          html += '<button class="btn ghost" id="abHustle" disabled title="You need at least ' + fmtN(10000) + ' cash to cover the fine if dem catch you.">' + window.icon('spark', 18) + ' Hustle</button>';
+        } else if (!targets.length) {
+          html += '<button class="btn ghost" id="abHustle" disabled title="Nobody hold reach ' + fmtN(caps.targetMinCash) + ' cash wey dem no dey Kirikiri.">' + window.icon('spark', 18) + ' Hustle</button>';
+        } else {
+          html += '<button class="btn ghost" id="abHustle">' + window.icon('spark', 18) + ' Hustle</button>';
+        }
+      }
     } else if (room.phase === 'jail') {
       html = '<button class="btn" id="abJailPay">Pay bail ' + fmtN(50000) + '</button>' +
         (actor.goojf > 0 ? '<button class="btn" id="abJailCard">' + window.icon('card', 18) + ' Use Get Out card</button>' : '') +
@@ -1824,6 +1953,7 @@ function renderActionBar(room) {
   bar.innerHTML = html;
   const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
   wire('abRoll', () => sendAs('roll', {}));
+  wire('abHustle', () => openHustleSheet(room));
   wire('abJailPay', () => sendAs('jail_pay', {}));
   wire('abJailCard', () => sendAs('jail_card', {}));
   wire('abJailRoll', () => sendAs('jail_roll', {}));
@@ -1874,6 +2004,51 @@ function renderActionBar(room) {
   });
 }
 // ---------------------------------------------------------------------------
+// Hustle (Inflation only, docs/INFLATION-7.md section 3). The amounts the
+// sheet shows are computed with the contract's own formula from the caps
+// the server publishes in state.inf.hustleCaps; the server recomputes
+// and validates everything when hustle_start lands.
+// ---------------------------------------------------------------------------
+function hustleCaps(room) {
+  return (room.inf && room.inf.hustleCaps) || { maxAttempts: 3, cap: 150000, targetMinCash: 50000 };
+}
+function hustleGrab(target, caps) {
+  return Math.min(caps.cap, Math.max(10000, Math.floor(target.cash * 0.10)));
+}
+function hustleFineFor(amount) {
+  return Math.max(10000, Math.floor(amount / 2));
+}
+function hustleTargets(room, actor) {
+  const caps = hustleCaps(room);
+  return room.players.filter((p) => p.id !== actor.id && !p.bankrupt && !p.resigned && !p.inJail && p.cash >= caps.targetMinCash);
+}
+function openHustleSheet(room) {
+  const actor = room.mode === 'pass' ? byId(room.turnPlayerId) : byId(myId);
+  if (!actor || !room.inf) return;
+  const caps = hustleCaps(room);
+  const attempts = actor.hustleAttempts || 0;
+  const targets = hustleTargets(room, actor);
+  const rows = targets.map((t) => {
+    const amount = hustleGrab(t, caps);
+    const fine = hustleFineFor(amount);
+    return '<div class="contract-row"><div class="grow"><b>' + esc(t.name) + '</b> <span class="caption">hold ' + fmtN(t.cash) + '</span>' +
+      '<p class="caption" style="margin-top:2px;">You fit grab <b>' + fmtN(amount) + '</b>. If dem catch you, fine na <b>' + fmtN(fine) + '</b>.</p></div>' +
+      '<button class="btn small" data-hustle-target="' + t.id + '">Hustle am</button></div>';
+  }).join('');
+  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('spark', 18) + ' Hustle</h3>' +
+    '<p class="caption" style="margin-top:4px;">Pick a player wey hold cash. You fit grab 10% of their cash (max ' + fmtN(caps.cap) + '). If dem guide their money, your chance drop and if dem catch you, half your fine reach dem. If dem catch you, you pay fine enter the Owambe pot.</p>' +
+    '<p class="caption" style="margin-top:6px;">Chance: <b>45%</b> if dem leave am, <b>15%</b> if dem guide, <b>30%</b> if dem no answer. Attempts left: <b>' + Math.max(0, caps.maxAttempts - attempts) + '</b> of ' + caps.maxAttempts + '. Your Lifeline: ' + (actor.lifelineUsed ? 'don use am' : 'still dey') + '.</p>' +
+    '<div class="mt8">' + (rows || '<p class="caption">No target dey: nobody hold reach ' + fmtN(caps.targetMinCash) + ' cash outside Kirikiri.</p>') + '</div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('listScrim').classList.add('show');
+  wireSheetButtons($('listSheet'), myId);
+  $('listSheet').querySelectorAll('[data-hustle-target]').forEach((b) => b.addEventListener('click', () => {
+    sendAs('hustle_start', { targetId: Number(b.dataset.hustleTarget) });
+    closeScrim('listScrim');
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Smart auto-end: when the turn player has nothing left to decide, the turn
 // passes by itself after a short visible countdown on the End turn button.
 // Any touch from that player holds the turn (the management window stays:
@@ -1910,6 +2085,7 @@ function autoEndBlocked(room) {
   if (actingId() !== room.turnPlayerId) return true; // only the turn player's own client arms it
   if (room.phase !== 'end') return true; // doubles and roll-again live in the roll phase
   if (room.auction || room.debt || room.buildPlace || room.trade) return true;
+  if (room.pendingBill || room.hustle) return true;
   if (actor.pendingChoice != null) return true;
   if (room.inf && (room.inf.proposal || room.inf.loanDecision || room.inf.dealBreakEndsAt)) return true;
   if (autoEndSheetOpen()) return true;
@@ -1997,7 +2173,7 @@ function renderAuction(room) {
   const bidder = room.mode === 'pass' ? (bidAs != null ? bidAs : room.turnPlayerId) : myId;
   const canBid = !spectator && a.eligible.includes(bidder) && !a.passed.includes(bidder);
   const phaseLine = room.inf && a.kind === 'deed'
-    ? '<p class="caption">Phase ' + room.inf.phase + ' context: printed rent on this street go multiply by ' + (room.inf.phase === 1 ? 'nothing yet' : room.inf.phase === 2 ? 'the lowest die' : 'the bigger die') + '. Auction price na the bid, always.</p>'
+    ? '<p class="caption">Phase ' + room.inf.phase + ' context: printed rent on this street go multiply by ' + (room.inf.phase === 1 ? 'nothing yet' : infFormulaWords(room.inf.phase).replace('printed rent x ', '')) + '. Auction price na the bid, always.</p>'
     : '';
   const ends = stableAuctionEnds(a);
   const host = overlay || slot;
@@ -2025,6 +2201,73 @@ function renderAuction(room) {
   host.querySelectorAll('[data-bidas]').forEach((b) => b.addEventListener('click', () => { bidAs = Number(b.dataset.bidas); renderAuction(room); }));
   const pass = $('bidPass');
   if (pass) pass.addEventListener('click', () => { const o = {}; if (room.mode === 'pass') o.as = bidder; send('pass_bid', o); });
+}
+
+// ---------------------------------------------------------------------------
+// Tactical sheets: the Lifeline bill and the Hustle defence prompt ride
+// the auction overlay (same fixed sheet, same data-deadline clock text).
+// They never coexist with an auction: the contract keeps only one open
+// at a time, and the auction keeps the overlay while it runs.
+// ---------------------------------------------------------------------------
+function renderTactical(room) {
+  const overlay = $('auctionOverlay');
+  if (!overlay || room.auction) return;
+  const A = actingId();
+  let html = '';
+  const bill = room.pendingBill;
+  const hustle = room.hustle;
+  if (bill && !spectator) {
+    const sp = bill.space != null ? window.KP_DATA.SPACES[bill.space] : null;
+    const spaceName = sp ? sp.name : 'one street';
+    const owner = byId(bill.ownerId);
+    const payer = byId(bill.playerId);
+    const diceTxt = Array.isArray(bill.dice) && bill.dice.length === 2 ? ' Your dice roll ' + bill.dice[0] + ' + ' + bill.dice[1] + ' carry am x' + bill.mult + '.' : '';
+    if (bill.playerId === A) {
+      html = '<div class="auction-card tactical-card">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('bill', 18) + ' Lifeline bill: ' + esc(spaceName) + '</b>' +
+        '<span class="turn-timer" data-deadline="' + bill.endsAt + '">' + Math.max(0, Math.round((bill.endsAt - Date.now()) / 1000)) + 's</span></div>' +
+        '<p style="margin:6px 0 0;">You land for ' + esc(owner ? owner.name : 'the landlord') + ' street. Printed rent na <b>' + fmtN(bill.printed) + '</b>.' + diceTxt + ' The bill na <b>' + fmtN(bill.amount) + '</b>.</p>' +
+        '<p class="caption" style="margin-top:6px;">Your Lifeline still dey. Use am and pay only the printed rent, or pay full and keep the Lifeline for a worse day.</p>' +
+        '<div class="btnrow" style="margin-top:9px;"><button class="btn green" id="billUse">Use Lifeline, pay ' + fmtN(bill.printed) + '</button>' +
+        '<button class="btn ghost" id="billSkip">Pay full ' + fmtN(bill.amount) + '</button></div>' +
+        '<p class="caption" style="margin-top:6px;">If time finish, the full amount go pay by itself and your Lifeline stay safe.</p></div>';
+    } else {
+      html = '<div class="auction-card tactical-card">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('bill', 18) + ' Lifeline bill</b>' +
+        '<span class="turn-timer" data-deadline="' + bill.endsAt + '">' + Math.max(0, Math.round((bill.endsAt - Date.now()) / 1000)) + 's</span></div>' +
+        '<p style="margin:6px 0 0;">' + esc(payer ? payer.name : 'A player') + ' dey decide on one Lifeline bill for ' + esc(spaceName) + ': <b>' + fmtN(bill.amount) + '</b> if e no use am.</p></div>';
+    }
+  } else if (hustle && !spectator) {
+    const targetIsMe = room.mode === 'pass' ? hustle.to === A : hustle.to === myId;
+    if (targetIsMe) {
+      const from = byId(hustle.from);
+      if (hustle.defended == null) {
+        html = '<div class="auction-card tactical-card">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('alert', 18) + ' Hustle alert</b>' +
+          '<span class="turn-timer" data-deadline="' + hustle.endsAt + '">' + Math.max(0, Math.round((hustle.endsAt - Date.now()) / 1000)) + 's</span></div>' +
+          '<p style="margin:6px 0 0;"><b>' + esc(from ? from.name : 'A player') + '</b> dey hustle you for <b>' + fmtN(hustle.amount) + '</b> of your cash.</p>' +
+          '<p class="caption" style="margin-top:6px;">Guide your money: their chance drop to 15%, and if dem catch am, half the fine reach you. Leave am: their chance na 45% and the fine go enter the Owambe pot. No answer: 30% chance.</p>' +
+          '<div class="btnrow" style="margin-top:9px;"><button class="btn green" id="husGuide">Guide my money</button>' +
+          '<button class="btn ghost" id="husLeave">Leave am</button></div></div>';
+      } else {
+        html = '<div class="auction-card tactical-card"><p style="margin:0;">You don answer. Wait for the result.</p></div>';
+      }
+    }
+  }
+  if (!html) {
+    if (overlay.classList.contains('show')) { overlay.classList.remove('show'); overlay.innerHTML = ''; }
+    return;
+  }
+  overlay.innerHTML = html;
+  overlay.classList.add('show');
+  const use = $('billUse');
+  if (use) use.addEventListener('click', () => sendAs('lifeline_use', { billId: bill.id }));
+  const skip = $('billSkip');
+  if (skip) skip.addEventListener('click', () => sendAs('lifeline_skip', { billId: bill.id }));
+  const guide = $('husGuide');
+  if (guide) guide.addEventListener('click', () => send('hustle_defend', { hustleId: hustle.id, defend: true }));
+  const leave = $('husLeave');
+  if (leave) leave.addEventListener('click', () => send('hustle_defend', { hustleId: hustle.id, defend: false }));
 }
 
 // ---------------------------------------------------------------------------
@@ -2667,6 +2910,43 @@ function renderEnd(room) {
   const realRows = hasReal ? room.endTable.slice().sort((a, b) => b.realNetWorth - a.realNetWorth).map((r, idx) =>
     '<li class="end-row"><div class="end-rank">' + (idx + 1) + '</div><div class="end-who"><div class="end-name">' + esc(r.name) + '</div><div class="end-title">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</div></div><div class="end-worth">' + fmtN(r.realNetWorth) + '</div></li>').join('') : '';
   const winName = room.winner ? room.winner.name : (room.endTable[0] && room.endTable[0].name) || 'Nobody';
+  // Inflation record (cosmetic only): a finished Inflation game counts
+  // once toward my local record when I sat it out to the end without
+  // resigning. The block shows the phase I reached, any milestone
+  // badges this game newly earned, and my standing bests. Badges are
+  // honour only: no cash, no goods, no naira attached.
+  let infEndHtml = '';
+  if (room.inf && !spectator && room.mode !== 'pass' && myId != null) {
+    const myRow = room.endTable.find((r) => r.playerId === myId);
+    const mySeat = byId(myId);
+    if (myRow && !myRow.resigned) {
+      const key = (room.code || '') + ':' + (room.startedKey || '') + ':' + myRow.netWorth;
+      if (!infEndSummary || infEndSummary.key !== key) {
+        const phaseReached = (mySeat && mySeat.phaseSurvived) || room.inf.phase || 1;
+        const rec = (window.KPRetention && typeof window.KPRetention.recordInflationGame === 'function')
+          ? window.KPRetention.recordInflationGame({
+            gameKey: key,
+            phaseReached,
+            won: !!(room.winner && room.winner.playerId === myId),
+            netWorth: myRow.netWorth || 0,
+            lifelineUsed: !!(mySeat && mySeat.lifelineUsed),
+            hustledTimes: (mySeat && mySeat.hustledTimes) || 0,
+            topHalf: (room.endTable.indexOf(myRow) + 1) <= Math.ceil(room.endTable.length / 2)
+          })
+          : null;
+        infEndSummary = { key, rec, phase: phaseReached };
+      }
+      const rec = infEndSummary.rec;
+      infEndHtml = '<p class="end-note">You reach ' + esc(INF7_NAMES[infEndSummary.phase - 1] || ('Phase ' + infEndSummary.phase)) + '.</p>' +
+        (rec && rec.newBadges && rec.newBadges.length
+          ? '<div class="end-badges">' + rec.newBadges.map((b) => '<span class="badge-chip">' + window.icon('spark', 13) + ' ' + esc(b) + '</span>').join('') + '</div>' +
+            '<p class="end-note">New badge' + (rec.newBadges.length > 1 ? 's' : '') + ' for your shelf. Na honour, no be money.</p>'
+          : '') +
+        (rec && rec.profile
+          ? '<p class="end-note">Your best: phase ' + esc(INF7_NAMES[rec.profile.bestPhase - 1] || String(rec.profile.bestPhase)) + ' · net worth ' + fmtN(rec.profile.bestNetWorth) + ' · ' + rec.profile.wins + ' Inflation win' + (rec.profile.wins === 1 ? '' : 's') + (rec.profile.chain > 1 ? ' · rematch chain x' + rec.profile.chain : '') + '</p>'
+          : '');
+    }
+  }
   o.innerHTML = '<div class="end-card">' +
     '<p class="end-kicker">FINAL TABLE</p>' +
     '<h2 class="end-headline">' + esc(winName) + ' na the real landlord</h2>' +
@@ -2683,6 +2963,7 @@ function renderEnd(room) {
     (room.dealOfGame ? '<p class="end-deal">Deal of the Game: ' + esc(room.dealOfGame) + '</p>' : '') +
     (room.interestLine ? '<p class="end-note">' + esc(room.interestLine) + '</p>' : '') +
     (room.bankerGhost ? '<p class="end-note">Banker: ' + esc(room.bankerGhost) + ', wey inflation first catch. The ghost run the announcements, no money power.</p>' : '') +
+    infEndHtml +
     '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
     '<button class="btn green" id="endAgain">Play again</button></div>' +
     '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
@@ -2798,6 +3079,8 @@ function clockCandidates() {
   const mine = actingId();
   if (room.turnDeadline && (room.turnPlayerId === mine || (room.debt && room.debt.playerId === mine))) out.push({ key: 'turn', endsAt: room.turnDeadline });
   if (room.auction) out.push({ key: 'auction', endsAt: room.auction.endsAt });
+  if (room.pendingBill && room.pendingBill.playerId === mine) out.push({ key: 'bill', endsAt: room.pendingBill.endsAt });
+  if (room.hustle && room.hustle.defended == null && (room.mode === 'pass' ? room.hustle.to === mine : room.hustle.to === myId)) out.push({ key: 'hustleDef', endsAt: room.hustle.endsAt });
   const pr = room.inf && room.inf.proposal;
   if (pr && (room.mode === 'pass' || pr.to === myId)) out.push({ key: 'proposal', endsAt: pr.endsAt });
   const ld = room.inf && room.inf.loanDecision;
@@ -2844,6 +3127,19 @@ setInterval(() => {
       const s = Math.max(0, Math.floor((state.inf.hornAt - Date.now()) / 1000));
       clk.textContent = 'Horn in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     } else clk.textContent = 'Phase open';
+    // Keep the strip's full line (title + accessible name) honest as
+    // the clock runs, and flag the final 60 seconds of a phase.
+    const bar = $('infBar');
+    if (bar && state.status === 'playing') {
+      const line = infStripLine(state);
+      if (line && line !== infBarShownLine) {
+        infBarShownLine = line;
+        bar.title = line;
+        bar.setAttribute('aria-label', line);
+      }
+      const remain = state.inf.phaseEndsAt ? state.inf.phaseEndsAt - Date.now() : null;
+      bar.classList.toggle('warn', remain != null && remain <= 60000 && remain > 0 && state.inf.phase < 7);
+    }
   }
   // KP9: the match clock ticks inside the header room chip.
   if (state) updateRoomChip(state);

@@ -207,14 +207,51 @@ function eligibleForBuild(room, playerId, kind) {
 // landing dice. Deals exist only as registered contracts. Classic rooms never
 // touch any of this: every helper is gated on room.inf.
 // ---------------------------------------------------------------------------
-const INF_PRESETS = {
-  quick: { durations: [480, 360, 600], horn: 300, p4Two: 600 },
-  standard: { durations: [900, 720, 1200], horn: 600, p4Two: 600 },
-  fullnight: { durations: [2700, 1800, Infinity], horn: 600, p4Two: 900, p4TotalAt: 9000 }
-};
-const INF_SALARIES = [200000, 100000, 50000, 25000];
-const INF_INDEX = [1.0, 5.1, 17.9, 35.8];
-const INF_PHASE_NAMES = ['Settling', 'Inflation', 'Sapa', 'Sudden Death'];
+// Seven global phases (docs/INFLATION-7.md is the contract). A phase changes
+// exactly two things: the rent multiplier and the GO payout percentage.
+// secs: listed length of live play. goPct: percent of the normal salary.
+// multKind keys INF_MULT below and the client formula explainer.
+const INF_PHASES = [
+  { name: 'Standard', secs: 1200, goPct: 100, multKind: 'none' },
+  { name: 'Squeeze', secs: 900, goPct: 70, multKind: 'lower' },
+  { name: 'Heat', secs: 600, goPct: 50, multKind: 'higher' },
+  { name: 'Crunch', secs: 420, goPct: 35, multKind: 'sum' },
+  { name: 'Crisis', secs: 300, goPct: 20, multKind: 'sumLower' },
+  { name: 'Meltdown', secs: 300, goPct: 10, multKind: 'sumHigher' },
+  { name: 'Final Reckoning', secs: 300, goPct: 5, multKind: 'sumSq' }
+];
+const INF_TOTAL_SECS = INF_PHASES.reduce((s, p) => s + p.secs, 0); // 4020 = 67 minutes
+// Salary = floor(START_PAY x pct / 100). Every pct divides 200000 exactly,
+// so salaries are whole naira: 200000, 140000, 100000, 70000, 40000, 20000, 10000.
+const INF_SALARIES = INF_PHASES.map((p) => Math.floor(200000 * p.goPct / 100));
+const INF_INDEX = [1.0, 1.4, 2.0, 2.9, 5.0, 10.0, 20.0];
+const INF_PHASE_NAMES = INF_PHASES.map((p) => p.name);
+// Worst multiplier a phase can roll (Sapa Meter exposure).
+const INF_MAX_MULT = [1, 6, 6, 12, 72, 72, 144];
+// The rent multiplier for a phase and the actual landing dice. Rent is
+// printed rent (whole naira) times this integer, so rent stays whole.
+function infMultFor(phase, d1, d2) {
+  const lo = Math.min(d1, d2), hi = Math.max(d1, d2), sum = d1 + d2;
+  switch (INF_PHASES[(phase || 1) - 1].multKind) {
+    case 'lower': return lo;
+    case 'higher': return hi;
+    case 'sum': return sum;
+    case 'sumLower': return sum * lo;
+    case 'sumHigher': return sum * hi;
+    case 'sumSq': return sum * sum;
+    default: return 1;
+  }
+}
+// Lifeline and Hustle tuning (contract sections 2 and 3).
+const LIFELINE_BOT_SAVE_MIN = 100000;
+const HUSTLE_MAX_ATTEMPTS = 3;
+const HUSTLE_PAIR_CAP = 2;
+const HUSTLE_TARGET_MIN_CASH = 50000;
+const HUSTLE_CAP = 150000;
+const HUSTLE_MIN_AMOUNT = 10000;
+const HUSTLE_ODDS_OPEN = 0.45;
+const HUSTLE_ODDS_DEFENDED = 0.15;
+const HUSTLE_ODDS_TIMEOUT = 0.30;
 function isInf(room) { return room.settings && room.settings.gameMode === 'inflation'; }
 function infPhase(room) { return room.inf ? room.inf.phase : 1; }
 function stamp(room, kind, text, value, playerId) {
@@ -257,6 +294,7 @@ function contractWindowOpen(room, player) {
   // pause, and no mortgaged deed choice waiting on the proposer. The server
   // revalidates the terms against live state when the other side accepts.
   if (!isInf(room) || room.status !== 'playing' || player.bankrupt) return false;
+  if (room.inf && room.inf.phase >= 7) return false; // contracts freeze in Final Reckoning
   if (room.mode !== 'pass' && room.paused) return false;
   if (room.auction) return false; // G8: no deals while a payment is unresolved
   if (room.debt) {
@@ -281,7 +319,7 @@ function sapaFor(room, player) {
     const printed = rentFor(room, i, 0, 1);
     if (printed <= 0) continue;
     const covered = !!activePassFor(room, player.id, i, p.owner);
-    const mult = covered ? 1 : (room.inf.phase === 1 ? 1 : 6);
+    const mult = covered ? 1 : INF_MAX_MULT[(room.inf.phase || 1) - 1];
     exposure = Math.max(exposure, printed * mult);
   }
   return { exposure, warn: player.cash < exposure };
@@ -332,6 +370,8 @@ function newPlayer(name, token, colorIdx) {
     chaosRole: null, firstRentForgiven: false, local: false,
     bot: false, botBrain: null,
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
+    lifelineUsed: false, hustleAttempts: 0, lastHustleTurn: -1,
+    lastHustledPhase: 0, hustledTimes: 0, eliminatedPhase: null,
     peakCash: D.START_CASH, purchases: [], salaryNote2: false,
     resigned: false,
     lastActive: 0, afkWarn: 0, afkTaken: false, humanName: null
@@ -388,7 +428,12 @@ function newRoom(code, isPublic, mode, settings) {
     phase: 'roll', dice: null, buySpace: null, buyPrice: null,
     auction: null, bankAuctionQueue: [], debt: null,
     // Inflation Mode state (null in Classic): phase engine, contracts, stamps.
-    inf: null, activePhase: 1, lastDice: null,
+    inf: null, activePhase: 1, lastDice: null, hornDebt: null,
+    // Seven-phase tactical state (Inflation only): the frozen Lifeline bill
+    // awaiting its owner's choice, the open Hustle awaiting defence, the
+    // pair-target counters, and the per-match turn counter Hustle uses.
+    pendingBill: null, hustle: null, hustlePairs: {}, hustleCounter: 0,
+    hustleRollQueue: [], billCounter: 0, turnCount: 0, hornRanking: null,
     contracts: [], contractProposal: null, dealBreak: null,
     loanDecision: null, loanDecisionQueue: [], stamps: [],
     contractCounter: 0, firstBankruptId: null,
@@ -450,11 +495,27 @@ function publicRoom(room) {
     interestLine: room.interestLine || null,
     lastBuilderRoll: room.lastBuilderRoll || null,
     bankerGhost: room.firstBankruptId ? (room.players.find((p) => p.id === room.firstBankruptId) || {}).name || null : null,
+    pendingBill: room.pendingBill ? {
+      id: room.pendingBill.id, playerId: room.pendingBill.playerId,
+      ownerId: room.pendingBill.ownerId, space: room.pendingBill.space,
+      printed: room.pendingBill.printed, mult: room.pendingBill.mult,
+      amount: room.pendingBill.amount, dice: room.pendingBill.dice,
+      endsAt: room.pendingBill.endsAt
+    } : null,
+    hustle: room.hustle ? {
+      id: room.hustle.id, from: room.hustle.from, to: room.hustle.to,
+      amount: room.hustle.amount, fine: room.hustle.fine,
+      endsAt: room.hustle.endsAt, defended: room.hustle.defended
+    } : null,
     inf: room.inf ? {
       phase: room.inf.phase, phaseName: INF_PHASE_NAMES[room.inf.phase - 1],
-      phaseEndsAt: room.inf.phaseEndsAt, hornAt: room.inf.hornAt,
+      nextPhaseName: room.inf.phase < 7 ? INF_PHASE_NAMES[room.inf.phase] : null,
+      multKind: INF_PHASES[room.inf.phase - 1].multKind,
+      phaseEndsAt: room.inf.phaseEndsAt, deadlineAt: room.inf.deadlineAt,
+      announcedPhase: room.inf.announcedPhase || 0,
       salary: INF_SALARIES[room.inf.phase - 1], index: INF_INDEX[room.inf.phase - 1],
       preset: room.inf.preset,
+      hustleCaps: { maxAttempts: HUSTLE_MAX_ATTEMPTS, cap: HUSTLE_CAP, targetMinCash: HUSTLE_TARGET_MIN_CASH },
       dealBreakEndsAt: room.dealBreak ? room.dealBreak.endsAt : null,
       proposal: room.contractProposal ? {
         id: room.contractProposal.id, kind: room.contractProposal.kind,
@@ -472,6 +533,9 @@ function publicRoom(room) {
       isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
       inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
+      lifelineUsed: !!p.lifelineUsed, hustleAttempts: p.hustleAttempts || 0,
+      hustledTimes: p.hustledTimes || 0,
+      phaseSurvived: room.inf ? (p.eliminatedPhase || room.inf.phase) : null,
       shelfRent: !!p.shelfRent, shelfFee: !!p.shelfFee,
       sapa: room.inf ? sapaFor(room, p) : null,
       pendingChoice: (room.pendingChoices[p.id] || [])[0] !== undefined ? room.pendingChoices[p.id][0] : null,
@@ -576,8 +640,8 @@ function charge(room, player, amount, to, reason, resume, opts) {
     room.debt.rescueEndsAt = now() + (TEST ? 8000 : 45000);
     setBanner(room, 'rescue', player, {}, player.name + ' win the auction but the money never complete. Rescue Window: sell buildings, mortgage deeds, or broadcast a loan request. 45 seconds.');
   } else {
-    if (isInf(room) && room.activePhase === 3 && opts.stat === 'rent' && !player.sapaWindowUsed) {
-      // One automatic 60 second Sapa Window for the first big Phase 3 rent (spec 4.5).
+    if (isInf(room) && room.activePhase >= 3 && opts.stat === 'rent' && !player.sapaWindowUsed) {
+      // One automatic 60 second Sapa Window for the first big multiplied rent (spec 4.5).
       player.sapaWindowUsed = true;
       room.turnDeadline = now() + 60000;
       pushFeed(room, 'info', 'Sapa Window: ' + player.name + ' get 60 seconds to raise ' + D.fmtN(amount) + ' for rent wey pass their cash.', { playerId: player.id, amount });
@@ -641,6 +705,58 @@ function checkAutoBankrupt(room) {
   }
 }
 
+// The kola cover and the charge itself, shared by the direct rent path and
+// the Lifeline bill settlement so both freeze and settle identically.
+function finishRent(room, player, owner, i, rent, printedRent, phaseMult, resume) {
+  const sp = D.SPACES[i];
+  // One kola covers the next rent, up to ₦100,000. The market pays
+  // the landlord, so the tenant feels the save and the owner still collects.
+  const fullRent = rent;
+  if (player.shelfRent && rent > 0) {
+    player.shelfRent = false;
+    const cover = Math.min(100000, rent);
+    moveMoney(room, null, owner, cover,
+      'Kola cover: market pay ' + owner.name + ' ' + D.fmtN(cover) + ' rent for ' + sp.name + '. ' + player.name + ' no pay that part.',
+      { stat: 'rent', spaceName: sp.name });
+    if (cover >= rent) {
+      setMessage(room, 'Kola cover don pay the rent for ' + sp.name + '. ' + player.name + ' pay ₦0.');
+      afterCharge(room, resume, player);
+      return;
+    }
+    rent -= cover;
+  }
+  const rentReason = phaseMult > 1
+    ? 'Rent for ' + sp.name + ': ' + D.fmtN(printedRent) + ' x ' + phaseMult + ' (your roll) = ' + D.fmtN(fullRent) + (rent < fullRent ? '. You pay ' + D.fmtN(rent) + ' after kola' : '')
+    : ('Rent for ' + sp.name + (rent < fullRent ? ' after kola cover' : ''));
+  if (phaseMult > 1) stamp(room, 'rent', rentReason + ', paid by ' + player.name + ' to ' + owner.name + '.', rent, player.id);
+  charge(room, player, rent, owner, rentReason, resume,
+    { stat: 'rent', spaceName: sp.name });
+}
+// Settle a frozen Lifeline bill exactly once. The bill is cleared before any
+// money moves, so retries, double clicks and reconnects can never settle it
+// twice. useLifeline charges the printed rent; anything else (the player's
+// own skip, the window expiring, the deadline horn) charges the frozen full
+// amount and leaves the Lifeline unspent.
+function settleBill(room, useLifeline, via) {
+  const bill = room.pendingBill;
+  if (!bill) return false;
+  room.pendingBill = null;
+  const player = room.players.find((p) => p.id === bill.playerId);
+  const owner = room.players.find((p) => p.id === bill.ownerId);
+  if (!player || player.bankrupt || !owner || room.status !== 'playing') return true;
+  let rent = bill.amount;
+  if (useLifeline && !player.lifelineUsed) {
+    player.lifelineUsed = true;
+    rent = Math.min(rent, bill.printed);
+    pushFeed(room, 'info', player.name + ' use Lifeline for ' + D.SPACES[bill.space].name + ': pay printed ' + D.fmtN(rent) + ' instead of ' + D.fmtN(bill.amount) + '.', { playerId: player.id, amount: rent, space: bill.space });
+    stamp(room, 'lifeline', player.name + ' use Lifeline for ' + D.SPACES[bill.space].name + ' and save ' + D.fmtN(bill.amount - rent) + '.', bill.amount - rent, player.id);
+  } else if (via === 'timeout') {
+    pushFeed(room, 'timeout', player.name + ' no answer the Lifeline bill in time: full rent stand, Lifeline still dey.', { playerId: player.id, auto: true, reason: 'lifeline timeout' });
+  }
+  finishRent(room, player, owner, bill.space, rent, bill.printed, bill.mult, bill.resume);
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Landing resolution. diceSum feeds utility rent; rentMult feeds card moves.
 // ---------------------------------------------------------------------------
@@ -662,11 +778,9 @@ function resolveLanding(room, player, opts) {
         return;
       }
       room.buySpace = i;
+      // Deeds cost the printed price in every phase (INFLATION-7 section 1:
+      // phases reprice rent and GO only, never deeds or buildings).
       room.buyPrice = sp.price;
-      if (isInf(room) && room.activePhase >= 3 && room.lastDice) {
-        // Phase 3 lander price: bigger die x printed price (Ruling 2).
-        room.buyPrice = Math.max(room.lastDice[0], room.lastDice[1]) * sp.price;
-      }
       room.phase = 'buy';
       setDeadline(room);
       setMessage(room, player.name + ' landed on ' + sp.name + '. Buy am for ' + D.fmtN(room.buyPrice) + ', or send am to auction?');
@@ -677,12 +791,12 @@ function resolveLanding(room, player, opts) {
       const jailShelter = room.settings.noRentInJail && owner && owner.inJail;
       if (owner && !owner.bankrupt && !jailShelter) {
         let rent = rentFor(room, i, opts.diceSum, opts.rentMult);
-        // Inflation multiplier: streets and stations only, dice arrivals only.
-        // Card arrivals stay x1 (spec 2.2); utilities are never multiplied.
+        // Inflation multiplier (INFLATION-7 section 1): streets and stations
+        // only, dice arrivals only, from the actual movement dice. Card
+        // arrivals stay x1; utilities are already dice priced, never doubled.
         let phaseMult = 1;
         if (isInf(room) && (sp.type === 'street' || sp.type === 'station') && !opts.cardMove && room.lastDice) {
-          if (room.activePhase === 2) phaseMult = Math.min(room.lastDice[0], room.lastDice[1]);
-          else if (room.activePhase >= 3) phaseMult = Math.max(room.lastDice[0], room.lastDice[1]);
+          phaseMult = infMultFor(room.activePhase || 1, room.lastDice[0], room.lastDice[1]);
         }
         const printedRent = rent;
         rent = rent * phaseMult;
@@ -709,28 +823,36 @@ function resolveLanding(room, player, opts) {
             afterCharge(room, opts.after || 'endPhase', player);
             return;
           }
-          // One kola covers the next rent, up to ₦100,000. The market pays
-          // the landlord, so the tenant feels the save and the owner still collects.
-          const fullRent = rent;
-          if (player.shelfRent && rent > 0) {
-            player.shelfRent = false;
-            const cover = Math.min(100000, rent);
-            moveMoney(room, null, owner, cover,
-              'Kola cover: market pay ' + owner.name + ' ' + D.fmtN(cover) + ' rent for ' + sp.name + '. ' + player.name + ' no pay that part.',
-              { stat: 'rent', spaceName: sp.name });
-            if (cover >= rent) {
-              setMessage(room, 'Kola cover don pay the rent for ' + sp.name + '. ' + player.name + ' pay ₦0.');
-              afterCharge(room, opts.after || 'endPhase', player);
+          // Lifeline (INFLATION-7 section 2): a multiplied bill above the
+          // printed rent pauses here, before any money moves, when the
+          // tenant still holds their one Lifeline. The bill freezes with
+          // its dice and multiplier, so a later phase change can never
+          // reprice it. Silence pays full and keeps the Lifeline.
+          if (isInf(room) && phaseMult > 1 && rent > printedRent && !player.lifelineUsed) {
+            if (player.bot) {
+              // Bot seats never wait: the house policy decides on the spot.
+              if (rent - printedRent >= LIFELINE_BOT_SAVE_MIN || rent > player.cash) {
+                const full = rent;
+                player.lifelineUsed = true;
+                rent = printedRent;
+                pushFeed(room, 'info', player.name + ' use Lifeline for ' + sp.name + ': pay printed ' + D.fmtN(rent) + ' instead of ' + D.fmtN(full) + '.', { playerId: player.id, amount: rent, space: i });
+                stamp(room, 'lifeline', player.name + ' use Lifeline for ' + sp.name + ' and save ' + D.fmtN(full - rent) + '.', full - rent, player.id);
+              }
+            } else {
+              room.pendingBill = {
+                id: ++room.billCounter, playerId: player.id, ownerId: owner.id, space: i,
+                printed: printedRent, mult: phaseMult, amount: rent,
+                dice: room.lastDice ? room.lastDice.slice() : null,
+                endsAt: now() + (TEST ? 4000 : 15000),
+                resume: opts.after || 'endPhase'
+              };
+              room.phase = 'lifeline';
+              room.turnDeadline = room.pendingBill.endsAt;
+              setMessage(room, player.name + ' land for ' + sp.name + ': rent na ' + D.fmtN(printedRent) + ' x ' + phaseMult + ' = ' + D.fmtN(rent) + '. Use your Lifeline to pay the printed ' + D.fmtN(printedRent) + ', or pay full.');
               return;
             }
-            rent -= cover;
           }
-          const rentReason = phaseMult > 1
-            ? 'Rent for ' + sp.name + ': ' + D.fmtN(printedRent) + ' x ' + phaseMult + ' (your roll) = ' + D.fmtN(fullRent) + (rent < fullRent ? '. You pay ' + D.fmtN(rent) + ' after kola' : '')
-            : ('Rent for ' + sp.name + (rent < fullRent ? ' after kola cover' : ''));
-          if (phaseMult > 1) stamp(room, 'rent', rentReason + ', paid by ' + player.name + ' to ' + owner.name + '.', rent, player.id);
-          charge(room, player, rent, owner, rentReason, opts.after || 'endPhase',
-            { stat: 'rent', spaceName: sp.name });
+          finishRent(room, player, owner, i, rent, printedRent, phaseMult, opts.after || 'endPhase');
           return;
         }
       }
@@ -981,6 +1103,7 @@ function endTurn(room) {
   room.dice = null;
   room.lastCard = null;
   if (room.status !== 'playing') return;
+  room.turnCount = (room.turnCount || 0) + 1;
   // Inflation: a fully claimed board ends Settling at this turn boundary,
   // with the normal phase ceremony (the owner's parlour rule).
   if (room.inf && room.inf.phase === 1 && D.OWNABLE.every((i) => room.props[i] && room.props[i].owner != null)) {
@@ -1023,7 +1146,19 @@ function updatePause(room) {
   } else if (!room.paused && was) {
     // The turn clock was frozen for the whole pause: shift the deadline by
     // the paused stretch so nobody returns to an already fired timeout.
-    if (room.turnDeadline && room.pauseSince) room.turnDeadline += now() - room.pauseSince;
+    // The match clock and the tactical windows follow the same rule
+    // (INFLATION-7 section 1): a phase always delivers its full listed
+    // length of live play.
+    if (room.pauseSince) {
+      const shift = now() - room.pauseSince;
+      if (room.turnDeadline) room.turnDeadline += shift;
+      if (room.inf) {
+        if (room.inf.phaseEndsAt) room.inf.phaseEndsAt += shift;
+        if (room.inf.deadlineAt) room.inf.deadlineAt += shift;
+      }
+      if (room.pendingBill) room.pendingBill.endsAt += shift;
+      if (room.hustle) room.hustle.endsAt += shift;
+    }
     room.pauseSince = null;
     room.pauseClockMs = null;
   }
@@ -1106,11 +1241,19 @@ function endGame(room, winner, why) {
   const finishing = room.status === 'playing';
   room.status = 'ended';
   room.winner = { playerId: winner.id, name: winner.name };
+  room.pendingBill = null;
+  if (room.hustle) room.hustle = null;
   room.endTable = room.players.map((p) => ({
     playerId: p.id, name: p.name, token: p.token, color: p.color, bot: !!p.bot,
     netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt, resigned: !!p.resigned,
+    phaseSurvived: room.inf ? (p.eliminatedPhase || room.inf.phase) : null,
+    lifelineUsed: !!p.lifelineUsed, hustledTimes: p.hustledTimes || 0,
     title: titlesFor(room, p, winner)
-  })).sort((a, b) => b.netWorth - a.netWorth);
+  })).sort((a, b) => {
+    // A horn ending publishes the table in the documented ranking order.
+    if (room.hornRanking) return room.hornRanking.indexOf(a.playerId) - room.hornRanking.indexOf(b.playerId);
+    return b.netWorth - a.netWorth;
+  });
   room.phase = 'end';
   room.turnDeadline = null;
   room.gameEndsAt = null;
@@ -1154,6 +1297,12 @@ function checkWinBySolvency(room) {
 function declareBankruptcy(room, player, opts) {
   opts = opts || {};
   if (player.bankrupt) return;
+  if (room.inf && player.eliminatedPhase == null) player.eliminatedPhase = room.inf.phase;
+  // An open tactical window involving the falling player closes clean:
+  // their Lifeline bill dies with their tenancy (the debt handover below
+  // governs what they owe), and a Hustle either way is cancelled.
+  if (room.pendingBill && room.pendingBill.playerId === player.id) room.pendingBill = null;
+  if (room.hustle && (room.hustle.from === player.id || room.hustle.to === player.id)) cancelHustle(room, player.name + ' don fall');
   const debt = room.debt && room.debt.playerId === player.id ? room.debt : null;
   const creditor = debt && debt.to != null ? room.players.find((p) => p.id === debt.to) : null;
   room.debt = null;
@@ -1248,6 +1397,8 @@ function doResign(room, player) {
     room.contractProposal = null;
     pushFeed(room, 'info', player.name + ' don resign: the open contract proposal don cancel.', { playerId: player.id });
   }
+  if (room.pendingBill && room.pendingBill.playerId === player.id) room.pendingBill = null;
+  if (room.hustle && (room.hustle.from === player.id || room.hustle.to === player.id)) cancelHustle(room, player.name + ' don resign');
   const others = solventPlayers(room).filter((p) => p.id !== player.id);
   if (others.length <= 1) {
     const winner = others[0] || null;
@@ -1289,20 +1440,29 @@ function startGame(room) {
     p.lastRentReceived = 0; p.rentsReceived = 0; p.rentsPaid = 0; p.finesPaid = [];
     p.shield = false; p.shelfRent = false; p.shelfFee = false; p.chaosRole = null; p.firstRentForgiven = false; p.resigned = false;
     p.lastStartPassAt = 0; p.dealBreakLap = -1; p.sapaWindowUsed = false;
+    p.lifelineUsed = false; p.hustleAttempts = 0; p.lastHustleTurn = -1;
+    p.lastHustledPhase = 0; p.hustledTimes = 0; p.eliminatedPhase = null;
     p.peakCash = D.START_CASH; p.purchases = []; p.salaryNote2 = false;
   }
   room.bankInterest = 0; room.interestLine = null;
   room.contracts = []; room.contractProposal = null; room.dealBreak = null;
   room.loanDecision = null; room.loanDecisionQueue = []; room.stamps = [];
   room.firstBankruptId = null; room.activePhase = 1; room.lastDice = null;
+  room.pendingBill = null; room.hustle = null; room.hustlePairs = {};
+  room.hustleCounter = 0; room.hustleRollQueue = []; room.billCounter = 0;
+  room.turnCount = 0; room.hornRanking = null; room.hornDebt = null;
   room.inf = null;
   if (room.settings.gameMode === 'inflation') {
-    const preset = INF_PRESETS[room.settings.preset] || INF_PRESETS.standard;
+    // Seven global phases on one authoritative match clock (INFLATION-7
+    // section 1). The preset survives as a lobby label only; it no longer
+    // changes any timing. Phase ends chain from the previous phase end and
+    // the deadline is the end of phase 7.
+    const t0 = now();
     room.inf = {
-      preset: room.settings.preset, phase: 1,
-      startedAt: now(), phaseEndsAt: now() + preset.durations[0] * 1000,
-      hornAt: null, announced60: false, announced10: false,
-      twoSolventSince: null
+      v: 2, preset: room.settings.preset, phase: 1,
+      startedAt: t0, phaseEndsAt: t0 + INF_PHASES[0].secs * 1000,
+      deadlineAt: t0 + INF_TOTAL_SECS * 1000,
+      announced60: false, announced10: false, announcedPhase: 0
     };
   }
   // Chaos seats: one Nepo, one Lapo, clearly labelled in the lobby already.
@@ -1394,20 +1554,32 @@ function resolveLoanDefault(room, contractId, choice, auto) {
   }
   seizeLoan(room, c, choice === 'extend' ? 'Extension don already use.' : '', auto);
 }
+// The phase formula in words, with one worked example on a ₦10,000 rent
+// and a 3 + 4 roll. Shared by the phase horn, the warnings and the client.
+function phaseFormulaText(phase) {
+  const kind = INF_PHASES[(phase || 1) - 1].multKind;
+  const words = {
+    none: 'rent na the printed amount, no multiplier',
+    lower: 'rent na printed x your lower die',
+    higher: 'rent na printed x your higher die',
+    sum: 'rent na printed x your two dice joined',
+    sumLower: 'rent na printed x your two dice joined x your lower die',
+    sumHigher: 'rent na printed x your two dice joined x your higher die',
+    sumSq: 'rent na printed x your two dice joined x the same joined number again'
+  }[kind];
+  if (kind === 'none') return words + '.';
+  const m = infMultFor(phase, 3, 4);
+  return words + '. Example: rent ' + D.fmtN(10000) + ' with roll 3 + 4 na x' + m + ' = ' + D.fmtN(10000 * m) + '.';
+}
 function advancePhase(room) {
   const inf = room.inf;
-  if (!inf || inf.phase >= 4) return;
+  if (!inf || inf.phase >= 7) return;
   inf.phase += 1;
+  room.activePhase = inf.phase;
   inf.announced60 = false;
   inf.announced10 = false;
-  const preset = INF_PRESETS[inf.preset] || INF_PRESETS.standard;
-  if (inf.phase < 4) {
-    inf.phaseEndsAt = now() + preset.durations[inf.phase - 1] * 1000;
-    inf.hornAt = null;
-  } else {
-    inf.phaseEndsAt = null;
-    inf.hornAt = now() + preset.horn * 1000;
-  }
+  inf.announcedPhase = inf.phase;
+  inf.phaseEndsAt = inf.phase >= 7 ? inf.deadlineAt : now() + INF_PHASES[inf.phase - 1].secs * 1000;
   // Chips die at the end of the phase they were bought in (spec 4.3).
   for (const c of room.contracts) {
     if (c.type === 'pass' && c.status === 'active' && c.phaseCreated < inf.phase) {
@@ -1418,14 +1590,103 @@ function advancePhase(room) {
     if (c.type === 'loan' && c.status === 'active' && c.phaseCreated < inf.phase) queueLoanDecision(room, c);
   }
   const salaryNow = INF_SALARIES[inf.phase - 1];
-  pushFeed(room, 'phase', 'Phase ' + inf.phase + ': ' + INF_PHASE_NAMES[inf.phase - 1] + ' don land. Salary na ' + D.fmtN(salaryNow) + ' now. Inflation Index: ' + INF_INDEX[inf.phase - 1] + 'x.', {});
-  if (inf.phase === 4) {
+  const name = INF_PHASE_NAMES[inf.phase - 1];
+  pushFeed(room, 'phase', 'Phase ' + inf.phase + ': ' + name + ' don land. Salary na ' + D.fmtN(salaryNow) + ' now. ' + phaseFormulaText(inf.phase) + ' Inflation Index: ' + INF_INDEX[inf.phase - 1] + 'x.', {});
+  if (inf.phase === 7) {
     const alive = solventPlayers(room);
     const leader = alive.slice().sort((a, b) => netWorth(room, b) - netWorth(room, a))[0];
-    setMessage(room, 'Sudden Death don start. No new contracts. Salary na ' + D.fmtN(salaryNow) + '. Horn go blow in ' + Math.round(preset.horn / 60) + ' minutes. Current leader: ' + (leader ? leader.name : '') + ' with net worth ' + (leader ? D.fmtN(netWorth(room, leader)) : '') + '.');
+    setMessage(room, 'Final Reckoning don start. No new contracts. Salary na ' + D.fmtN(salaryNow) + '. When the horn blow, richest landlord by net worth carry the game. Current leader: ' + (leader ? leader.name : '') + ' with net worth ' + (leader ? D.fmtN(netWorth(room, leader)) : '') + '.');
   } else {
-    setMessage(room, 'Inflation don land: Phase ' + inf.phase + ' (' + INF_PHASE_NAMES[inf.phase - 1] + '). Salary na ' + D.fmtN(salaryNow) + ' now. Rent don carry dice.');
+    setMessage(room, 'Phase ' + inf.phase + ' (' + name + ') don land. Salary na ' + D.fmtN(salaryNow) + ' now. ' + phaseFormulaText(inf.phase));
   }
+}
+// Ranking worth at the horn: net worth minus any frozen debt still owed.
+// The creditor is never credited at the horn; that money never moved.
+function hornRankWorth(room, p) {
+  let w = netWorth(room, p);
+  if (room.debt && room.debt.playerId === p.id) w -= room.debt.amount;
+  if (room.hornDebt && room.hornDebt.playerId === p.id) w -= room.hornDebt.amount;
+  return w;
+}
+// The documented deterministic order (INFLATION-7 section 1): ranking
+// worth, then cash, then fewest mortgaged deeds, then earliest last START
+// pass, then lowest player id. No randomness anywhere in the horn.
+function hornCompare(room) {
+  const mort = (p) => D.OWNABLE.filter((i) => room.props[i].owner === p.id && room.props[i].mortgaged).length;
+  return (a, b) => hornRankWorth(room, b) - hornRankWorth(room, a) || b.cash - a.cash ||
+    mort(a) - mort(b) || (a.lastStartPassAt || 0) - (b.lastStartPassAt || 0) || a.id - b.id;
+}
+// The Final Reckoning horn: pending obligations resolve first, in the
+// contract's order, then the ranking is taken from live state.
+function deadlineHorn(room) {
+  if (room.status !== 'playing') return;
+  if (room.hustle) cancelHustle(room, 'the horn don blow');
+  if (room.pendingBill) {
+    const bill = room.pendingBill;
+    const p = room.players.find((x) => x.id === bill.playerId);
+    const owner = room.players.find((x) => x.id === bill.ownerId);
+    room.pendingBill = null;
+    if (p && owner && !p.bankrupt && p.cash >= bill.amount) {
+      payNow(room, p, bill.amount, owner, 'Rent for ' + D.SPACES[bill.space].name + ' (frozen bill at the horn)', { stat: 'rent', spaceName: D.SPACES[bill.space].name });
+    } else if (p && !p.bankrupt) {
+      room.hornDebt = { playerId: p.id, amount: bill.amount };
+    }
+  }
+  if (room.auction) {
+    // Bids never escrow money in this engine, so voiding moves nothing.
+    room.auction = null;
+    pushFeed(room, 'info', 'The horn don cancel the running auction. No money move.', {});
+  }
+  const alive = solventPlayers(room);
+  if (!alive.length) return;
+  const cmp = hornCompare(room);
+  const ranked = alive.slice().sort(cmp);
+  const rest = room.players.filter((p) => p.bankrupt).sort((a, b) => netWorth(room, b) - netWorth(room, a) || a.id - b.id);
+  room.hornRanking = ranked.concat(rest).map((p) => p.id);
+  endGame(room, ranked[0], 'Final Reckoning horn don blow. Richest landlord by net worth carry the game.');
+}
+// Cancel an open Hustle with no transfer and the turn clock restored.
+// Money only ever moves inside resolveHustle, so cancelling is always clean.
+function cancelHustle(room, why) {
+  const h = room.hustle;
+  if (!h) return;
+  room.hustle = null;
+  if (h.savedDeadline != null) room.turnDeadline = now() + Math.max(0, h.savedDeadline - h.startedAt);
+  pushFeed(room, 'hustle', 'Hustle cancel: ' + (why || 'e no happen again') + '. No money move.', { playerId: h.from });
+}
+// Resolve an open Hustle exactly once. The record is closed and cleared
+// before any money moves, so a defence answer, the window expiring, a
+// retry and a reconnect can never settle it twice. The roll is the
+// server's, taken at resolution time (or the test queue in test builds).
+function resolveHustle(room, via) {
+  const h = room.hustle;
+  if (!h || h.state !== 'open') return false;
+  h.state = 'resolved';
+  room.hustle = null;
+  if (h.savedDeadline != null) room.turnDeadline = now() + Math.max(0, h.savedDeadline - h.startedAt);
+  const attacker = room.players.find((p) => p.id === h.from);
+  const target = room.players.find((p) => p.id === h.to);
+  if (!attacker || !target || attacker.bankrupt || target.bankrupt || room.status !== 'playing') return true;
+  target.hustledTimes = (target.hustledTimes || 0) + 1;
+  const odds = h.defended === true ? HUSTLE_ODDS_DEFENDED : h.defended === false ? HUSTLE_ODDS_OPEN : HUSTLE_ODDS_TIMEOUT;
+  const roll = room.hustleRollQueue && room.hustleRollQueue.length ? room.hustleRollQueue.shift() : Math.random();
+  if (roll < odds) {
+    const amt = Math.max(0, Math.min(h.amount, target.cash));
+    if (amt > 0) moveMoney(room, target, attacker, amt, 'Hustle! ' + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.', {});
+    const how = h.defended === true ? ' even as dem guide their money' : (h.defended == null ? ' while dem no answer' : '');
+    pushFeed(room, 'hustle', 'Hustle land: ' + attacker.name + ' grab ' + D.fmtN(amt) + ' from ' + target.name + how + '.', { playerId: attacker.id, otherId: target.id, amount: amt });
+    stamp(room, 'hustle', attacker.name + ' hustle ' + target.name + ' and grab ' + D.fmtN(amt) + '.', amt, attacker.id);
+    setMessage(room, 'Hustle land! ' + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.');
+  } else {
+    const fine = Math.max(0, Math.min(h.fine, attacker.cash));
+    const toTarget = h.defended === true ? Math.floor(fine / 2) : 0;
+    if (toTarget > 0) moveMoney(room, attacker, target, toTarget, 'Hustle compensation: part of ' + attacker.name + ' fine reach ' + target.name + '.', { stat: 'fine' });
+    if (fine - toTarget > 0) moveMoney(room, attacker, null, fine - toTarget, 'Hustle fine: ' + attacker.name + ' pay enter the Owambe pot.', { toPot: true, stat: 'fine' });
+    pushFeed(room, 'hustle', 'Dem catch ' + attacker.name + '! The hustle on ' + target.name + ' fail. Fine na ' + D.fmtN(fine) + (toTarget > 0 ? ': ' + D.fmtN(toTarget) + ' reach ' + target.name + ', the rest enter the pot.' : ', all enter the Owambe pot.'), { playerId: attacker.id, otherId: target.id, amount: fine });
+    stamp(room, 'hustle', 'Dem catch ' + attacker.name + ' hustling ' + target.name + '. Fine ' + D.fmtN(fine) + '.', fine, attacker.id);
+    setMessage(room, 'Dem catch ' + attacker.name + '! Hustle fail, fine na ' + D.fmtN(fine) + '.');
+  }
+  return true;
 }
 function infTick(room) {
   const inf = room.inf;
@@ -1477,45 +1738,30 @@ function infTick(room) {
     }
     changed = true;
   }
-  if (inf.phase < 4 && inf.phaseEndsAt) {
+  // Tactical windows expire inside the same tick that drives the phases:
+  // an unanswered Hustle resolves at the timeout odds, an unanswered
+  // Lifeline bill settles at its frozen full amount.
+  if (room.hustle && t >= room.hustle.endsAt) { if (resolveHustle(room, 'timeout')) changed = true; }
+  if (room.pendingBill && t >= room.pendingBill.endsAt) { if (settleBill(room, false, 'timeout')) changed = true; }
+  if (inf.phase < 7 && inf.phaseEndsAt) {
     const remain = inf.phaseEndsAt - t;
     if (remain <= 60000 && remain > 10000 && !inf.announced60) {
       inf.announced60 = true;
-      pushFeed(room, 'phase', 'Inflation dey come: 60 seconds to Phase ' + (inf.phase + 1) + '. Salary go drop to ' + D.fmtN(INF_SALARIES[inf.phase]) + ', rent go carry dice.', {});
-      setMessage(room, 'Inflation dey come: 60 seconds to Phase ' + (inf.phase + 1) + '.');
+      const next = inf.phase + 1;
+      pushFeed(room, 'phase', 'Inflation dey come: 60 seconds to Phase ' + next + ' (' + INF_PHASE_NAMES[next - 1] + '). Salary go drop to ' + D.fmtN(INF_SALARIES[next - 1]) + ', ' + phaseFormulaText(next), {});
+      setMessage(room, 'Inflation dey come: 60 seconds to Phase ' + next + ' (' + INF_PHASE_NAMES[next - 1] + ').');
       changed = true;
     }
     if (remain <= 10000 && remain > 0 && !inf.announced10) {
       inf.announced10 = true;
-      setMessage(room, '10 seconds to Phase ' + (inf.phase + 1) + '. Hold your cash well.');
+      setMessage(room, '10 seconds to Phase ' + (inf.phase + 1) + ' (' + INF_PHASE_NAMES[inf.phase] + '). Hold your cash well.');
       changed = true;
     }
-    if (remain <= 0) {
-      // Phase 3 can end early: two survivors solvent together for a stretch move to Sudden Death (spec 2.3).
-      advancePhase(room);
-      changed = true;
-    } else if (inf.phase === 3) {
-      const alive = solventPlayers(room);
-      if (alive.length === 2) {
-        if (!inf.twoSolventSince) inf.twoSolventSince = t;
-        const preset = INF_PRESETS[inf.preset] || INF_PRESETS.standard;
-        if (t - inf.twoSolventSince >= preset.p4Two * 1000) { advancePhase(room); changed = true; }
-        else if (preset.p4TotalAt && t - inf.startedAt >= preset.p4TotalAt * 1000) { advancePhase(room); changed = true; }
-      } else {
-        inf.twoSolventSince = null;
-      }
-    }
+    if (remain <= 0) { advancePhase(room); changed = true; }
   }
-  if (inf.phase === 4 && inf.hornAt && t >= inf.hornAt && room.status === 'playing') {
-    const alive = solventPlayers(room);
-    if (alive.length >= 2) {
-      const mortgagesOf = (p) => D.OWNABLE.filter((i) => room.props[i].owner === p.id && room.props[i].mortgaged).length;
-      const winner = alive.slice().sort((a, b) =>
-        netWorth(room, b) - netWorth(room, a) || b.cash - a.cash ||
-        mortgagesOf(a) - mortgagesOf(b) || (a.lastStartPassAt || 0) - (b.lastStartPassAt || 0))[0];
-      endGame(room, winner, 'Phase 4 horn don blow. Richest landlord by net worth carry the game.');
-      changed = true;
-    }
+  if (inf.deadlineAt && t >= inf.deadlineAt && room.status === 'playing') {
+    deadlineHorn(room);
+    changed = true;
   }
   return changed;
 }
@@ -1614,20 +1860,10 @@ function doBuild(room, player, i, kind, fail) {
       }
     }
   }
-  let cost = cost0;
-  if (isInf(room) && room.inf && room.inf.phase >= 2) {
-    // Build pricing (owner correction, overrides original Ruling 1): printed
-    // build cost x the die, lowest die in Phase 2, bigger die from Phase 3,
-    // exactly like rent. Builds are priced by a fresh public Builder's Roll
-    // because building is a separate action from the move; the roll and the
-    // maths are announced to the whole table.
-    const [b1, b2] = rollDice(room);
-    const die = room.inf.phase === 2 ? Math.min(b1, b2) : Math.max(b1, b2);
-    cost = cost0 * die;
-    room.lastBuilderRoll = { dice: [b1, b2], die, cost, printed: cost0, space: i, kind, playerId: player.id };
-    pushFeed(room, 'info', 'Builder\'s Roll: ' + b1 + ' and ' + b2 + '. ' + (kind === 'mansion' ? 'Mansion fee' : 'Duplex') + ' for ' + sp.name + ' na printed ' + D.fmtN(cost0) + ' x ' + die + ' = ' + D.fmtN(cost) + '.', { playerId: player.id, amount: cost });
-    stamp(room, 'build', player.name + ' build for ' + sp.name + ': printed ' + D.fmtN(cost0) + ' x ' + die + ' = ' + D.fmtN(cost) + '.', cost, player.id);
-  }
+  // Builds cost the printed price in every phase (INFLATION-7 section 1:
+  // phases reprice rent and GO only). The old Builder's Roll is retired.
+  const cost = cost0;
+  room.lastBuilderRoll = null;
   if (player.cash < cost) { fail('You need ' + D.fmtN(cost) + ' to build here.'); return false; }
   placeBuilding(room, player, i, kind);
   payNow(room, player, cost, null, (kind === 'duplex' ? 'Duplex' : 'Mansion') + ' for ' + sp.name, { stat: 'purchase', spaceName: sp.name });
@@ -1746,7 +1982,7 @@ function tick() {
     let changed = false;
     if (room.inf) { if (infTick(room)) changed = true; if (room.status !== 'playing') { broadcast(room); continue; } }
     if (room.auction && now() >= room.auction.endsAt) { finishAuction(room); changed = true; }
-    if (!room.auction && room.bankAuctionQueue.length && ['roll', 'end', 'jail'].includes(room.phase) && !room.debt) {
+    if (!room.auction && room.bankAuctionQueue.length && ['roll', 'end', 'jail'].includes(room.phase) && !room.debt && !room.hustle && !room.pendingBill) {
       // Deeds from a bank bankruptcy auction between decisions.
       const space = room.bankAuctionQueue.shift();
       startAuction(room, { kind: 'deed', space, resume: room.phase === 'roll' ? 'backToRoll' : room.phase === 'jail' ? 'backToJail' : 'endPhase' });
@@ -2027,15 +2263,30 @@ function handleConnection(ws) {
       if (msg.type === 'test_set_pot') { room.pot = Number(msg.amount); }
       if (msg.type === 'test_phase') {
         if (room.inf) {
-          const ph = Math.min(4, Math.max(1, Number(msg.phase) || 1));
+          const ph = Math.min(7, Math.max(1, Number(msg.phase) || 1));
           room.inf.phase = ph; room.activePhase = ph;
-          const preset = INF_PRESETS[room.inf.preset] || INF_PRESETS.standard;
-          room.inf.phaseEndsAt = ph < 4 ? now() + preset.durations[ph - 1] * 1000 : null;
-          room.inf.hornAt = ph === 4 ? now() + preset.horn * 1000 : null;
+          room.inf.phaseEndsAt = now() + INF_PHASES[ph - 1].secs * 1000;
+          let rest = 0;
+          for (let k = ph; k < 7; k++) rest += INF_PHASES[k].secs;
+          room.inf.deadlineAt = room.inf.phaseEndsAt + rest * 1000;
+          if (ph === 7) room.inf.phaseEndsAt = room.inf.deadlineAt;
+          room.inf.announced60 = false; room.inf.announced10 = false;
         }
       }
-      if (msg.type === 'test_phase_ends_in') { if (room.inf && room.inf.phase < 4) room.inf.phaseEndsAt = now() + Number(msg.seconds) * 1000; }
-      if (msg.type === 'test_horn_in') { if (room.inf) room.inf.hornAt = now() + Number(msg.seconds) * 1000; }
+      if (msg.type === 'test_phase_ends_in') {
+        if (room.inf && room.inf.phase < 7) {
+          const delta = now() + Number(msg.seconds) * 1000 - room.inf.phaseEndsAt;
+          room.inf.phaseEndsAt += delta;
+          room.inf.deadlineAt += delta;
+        }
+      }
+      if (msg.type === 'test_horn_in') {
+        if (room.inf) {
+          room.inf.deadlineAt = now() + Number(msg.seconds) * 1000;
+          if (room.inf.phase === 7) room.inf.phaseEndsAt = room.inf.deadlineAt;
+        }
+      }
+      if (msg.type === 'test_hustle_rolls') { room.hustleRollQueue = (msg.rolls || []).map((r) => Number(r)); }
       if (msg.type === 'test_deadline_in') { room.turnDeadline = now() + Number(msg.seconds) * 1000; }
       if (msg.type === 'test_set_supply') { if (msg.duplex != null) room.duplexSupply = Number(msg.duplex); if (msg.mansion != null) room.mansionSupply = Number(msg.mansion); }
       if (msg.type === 'test_bot_stats') {
@@ -2279,6 +2530,7 @@ function handleConnection(ws) {
       // transient set; startGame re-deals the rest.
       room.feed = [];
       room.inf = null;
+      room.pendingBill = null; room.hustle = null; room.hornRanking = null; room.hornDebt = null;
       room.contracts = []; room.contractProposal = null; room.dealBreak = null;
       room.loanDecision = null; room.loanDecisionQueue = [];
       room.turnDeadline = null; room.gameEndsAt = null;
@@ -2565,6 +2817,77 @@ function handleConnection(ws) {
       broadcast(room);
       return;
     }
+    // ---- Lifeline bill (INFLATION-7 section 2) ------------------------------
+    // The bill belongs to one player and settles exactly once: the record is
+    // cleared inside settleBill before money moves, so a second answer, a
+    // retry or a reconnect finds nothing to settle.
+    if (msg.type === 'lifeline_use' || msg.type === 'lifeline_skip') {
+      const bill = room.pendingBill;
+      if (!bill) return fail('No Lifeline bill dey wait.');
+      if (!me || bill.playerId !== me.id) return fail('Na the tenant dey answer their own bill.');
+      if (Number(msg.billId) !== bill.id) return fail('That bill don close. This one na the current one.');
+      if (msg.type === 'lifeline_use' && me.lifelineUsed) return fail('Your Lifeline don finish for this match.');
+      settleBill(room, msg.type === 'lifeline_use', 'choice');
+      broadcast(room);
+      return;
+    }
+
+    // ---- Hustle (INFLATION-7 section 3) --------------------------------------
+    if (msg.type === 'hustle_start') {
+      if (!isInf(room)) return fail('Hustle na Inflation Mode move.');
+      if (room.status !== 'playing') return fail('The game is not in play right now.');
+      if (room.paused) return fail('The game is paused, waiting for players.');
+      if (!me || me.bankrupt) return fail('You no fit hustle from outside the game.');
+      if (room.turnPlayerId !== me.id || room.phase !== 'roll') return fail('Hustle na before you roll, for your own turn.');
+      if (room.hustle) return fail('One hustle still dey open.');
+      if (room.pendingBill) return fail('Settle the Lifeline bill first.');
+      if (room.auction) return fail('Auction dey run. Hustle go wait.');
+      if (room.debt) return fail('Debt dey hang for table. Hustle go wait.');
+      if (me.inJail) return fail('You dey Kirikiri. No hustle from inside.');
+      if ((me.hustleAttempts || 0) >= HUSTLE_MAX_ATTEMPTS) return fail('Your hustle attempts don finish for this match (max ' + HUSTLE_MAX_ATTEMPTS + ').');
+      if (me.lastHustleTurn === room.turnCount) return fail('You don hustle this turn. Roll your dice.');
+      const target = room.players.find((p) => p.id === Number(msg.targetId));
+      if (!target || target.id === me.id) return fail('Pick another player to hustle.');
+      if (target.bankrupt) return fail(target.name + ' don bankrupt. Nothing to grab.');
+      if (target.inJail) return fail(target.name + ' dey Kirikiri. Their money no dey reachable.');
+      if (target.cash < HUSTLE_TARGET_MIN_CASH) return fail(target.name + ' cash too small to hustle (under ' + D.fmtN(HUSTLE_TARGET_MIN_CASH) + ').');
+      if (target.lastHustledPhase === room.inf.phase) return fail(target.name + ' don collect hustle this phase. Pick another person.');
+      const pairKey = me.id + '>' + target.id;
+      if ((room.hustlePairs[pairKey] || 0) >= HUSTLE_PAIR_CAP) return fail('You don hustle ' + target.name + ' enough for one match.');
+      const amount = Math.min(HUSTLE_CAP, Math.max(HUSTLE_MIN_AMOUNT, Math.floor(target.cash * 0.10)));
+      const fine = Math.max(HUSTLE_MIN_AMOUNT, Math.floor(amount / 2));
+      if (me.cash < fine) return fail('You need at least the catch fine (' + D.fmtN(fine) + ') for hand before you hustle.');
+      me.hustleAttempts = (me.hustleAttempts || 0) + 1;
+      me.lastHustleTurn = room.turnCount;
+      room.hustlePairs[pairKey] = (room.hustlePairs[pairKey] || 0) + 1;
+      target.lastHustledPhase = room.inf.phase;
+      room.hustle = {
+        id: ++room.hustleCounter, from: me.id, to: target.id,
+        amount, fine, endsAt: now() + (TEST ? 5000 : 20000),
+        defended: null, state: 'open', startedAt: now(),
+        savedDeadline: room.turnDeadline
+      };
+      room.turnDeadline = null;
+      pushFeed(room, 'hustle', me.name + ' dey try hustle ' + target.name + ' for ' + D.fmtN(amount) + '! ' + target.name + ', guide your money or leave am. Catch fine na ' + D.fmtN(fine) + '.', { playerId: me.id, otherId: target.id, amount });
+      setMessage(room, me.name + ' dey try hustle ' + target.name + ' for ' + D.fmtN(amount) + '. ' + target.name + ' get small time to guide their money.');
+      broadcast(room);
+      return;
+    }
+    if (msg.type === 'hustle_defend') {
+      const h = room.hustle;
+      if (!h) return fail('No hustle dey wait for answer.');
+      if (!me || h.to !== me.id) return fail('Na the person wey dem dey hustle dey answer.');
+      if (Number(msg.hustleId) !== h.id) return fail('That hustle don close.');
+      if (h.defended !== null) return fail('You don answer already. First answer na im count.');
+      h.defended = msg.defend === true;
+      pushFeed(room, 'hustle', me.name + (h.defended ? ' don guide their money well.' : ' say leave am, no guide.'), { playerId: me.id, otherId: h.from });
+      // An answered hustle resolves at once; only an unanswered one waits
+      // out its window. Exactly-once lives in resolveHustle's state guard.
+      resolveHustle(room, 'answered');
+      broadcast(room);
+      return;
+    }
+
     if (msg.type === 'loan_decide') {
       const ld = room.loanDecision;
       if (!ld || ld.contractId !== Number(msg.contractId)) return fail('No loan decision dey wait on that contract.');
@@ -2695,6 +3018,8 @@ function handleConnection(ws) {
     if (msg.type === 'roll') {
       const a = needTurn(msg);
       if (!a) return;
+      if (room.hustle) return fail('Hustle still dey open. Wait for the answer or the window to close.');
+      if (room.pendingBill) return fail('Lifeline bill still dey wait. Answer am first.');
       if ((room.pendingChoices[a.id] || []).length) return fail('You carry a mortgaged deed choice. Settle am first.');
       if (room.phase !== 'roll') return fail('Dice no be next. Finish the current step first.');
       if (room.debt) return fail('Settle the debt first.');
@@ -2939,8 +3264,47 @@ function handleConnection(ws) {
         p.ws = null;
         p.botBrain = null;
         if (meta) pendingBots.push({ p, meta });
+        // Backward-compatible defaults for snapshots written before the
+        // seven-phase upgrade (INFLATION-7 section 6): missing tactical
+        // fields read as unused, unattempted, never targeted.
+        p.lifelineUsed = !!p.lifelineUsed;
+        p.hustleAttempts = p.hustleAttempts || 0;
+        p.lastHustleTurn = p.lastHustleTurn == null ? -1 : p.lastHustleTurn;
+        p.lastHustledPhase = p.lastHustledPhase || 0;
+        p.hustledTimes = p.hustledTimes || 0;
+        if (p.eliminatedPhase === undefined) p.eliminatedPhase = null;
         return p;
       });
+      // An open Hustle never survives a host move: its money has not moved
+      // yet, so expiring it on import is exactly-once safe. A pending
+      // Lifeline bill, whose amounts are frozen, does survive.
+      room.pendingBill = room.pendingBill || null;
+      room.hustle = null;
+      room.hustlePairs = room.hustlePairs || {};
+      room.hustleCounter = room.hustleCounter || 0;
+      room.hustleRollQueue = [];
+      room.billCounter = room.billCounter || 0;
+      room.turnCount = room.turnCount || 0;
+      if (room.hornRanking === undefined) room.hornRanking = null;
+      if (room.hornDebt === undefined) room.hornDebt = null;
+      if (room.inf && room.inf.v !== 2) {
+        // Old four-phase snapshot: keep the table and the current phase,
+        // restart the current phase with its new listed length, and run
+        // the new schedule from there (documented in INFLATION-7).
+        const inf = room.inf;
+        inf.phase = Math.min(7, Math.max(1, inf.phase || 1));
+        inf.startedAt = inf.startedAt || now();
+        inf.phaseEndsAt = now() + INF_PHASES[inf.phase - 1].secs * 1000;
+        let rest = 0;
+        for (let k = inf.phase; k < 7; k++) rest += INF_PHASES[k].secs;
+        inf.deadlineAt = inf.phaseEndsAt + rest * 1000;
+        if (inf.phase === 7) inf.phaseEndsAt = inf.deadlineAt;
+        inf.announced60 = false; inf.announced10 = false; inf.announcedPhase = 0;
+        delete inf.hornAt;
+        delete inf.twoSolventSince;
+        inf.v = 2;
+        room.activePhase = inf.phase;
+      }
       rooms.set(code, room);
       if (deps.externalBots) {
         for (const item of pendingBots) reviveBot(room, item.p, item.meta);
@@ -2974,17 +3338,14 @@ function handleConnection(ws) {
           if (room.loanDecision) consider(room.loanDecision.endsAt);
           if (room.debt && room.debt.rescue && room.debt.rescueEndsAt) consider(room.debt.rescueEndsAt);
           const inf = room.inf;
-          if (inf.phase < 4 && Number.isFinite(inf.phaseEndsAt)) {
+          if (room.pendingBill) consider(room.pendingBill.endsAt);
+          if (room.hustle) consider(room.hustle.endsAt);
+          if (inf.phase < 7 && Number.isFinite(inf.phaseEndsAt)) {
             consider(inf.phaseEndsAt);
             if (!inf.announced60) consider(inf.phaseEndsAt - 60000);
             if (!inf.announced10) consider(inf.phaseEndsAt - 10000);
           }
-          if (inf.phase === 3) {
-            const preset = INF_PRESETS[inf.preset] || INF_PRESETS.standard;
-            if (inf.twoSolventSince && preset.p4Two) consider(inf.twoSolventSince + preset.p4Two * 1000);
-            if (preset.p4TotalAt) consider(inf.startedAt + preset.p4TotalAt * 1000);
-          }
-          if (inf.phase === 4 && inf.hornAt) consider(inf.hornAt);
+          if (Number.isFinite(inf.deadlineAt)) consider(inf.deadlineAt);
         }
         for (const p of room.players) {
           if (p.botBrain && p.botBrain.external && !p.botBrain.dead && p.botBrain.nextThinkAt) consider(p.botBrain.nextThinkAt);

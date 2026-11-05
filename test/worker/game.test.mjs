@@ -1,4 +1,4 @@
-import { env, SELF } from 'cloudflare:test';
+import { env, runInDurableObject, SELF } from 'cloudflare:test';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const openSockets = [];
@@ -301,5 +301,127 @@ describe('worker table', () => {
     expect(body.rooms.some((r) => r.code === ada.room.code)).toBe(true);
     expect(JSON.stringify(body)).not.toContain('test-house-key');
     expect(JSON.stringify(body)).not.toContain('worker-ada-ops');
+  });
+});
+
+describe('worker inflation: seven phases, lifeline and snapshots', () => {
+  it('opens an Inflation room on Standard with a deadline, and test hooks move the phase', async () => {
+    const ada = await enter('create_room', {
+      name: 'Ada', token: 'danfo', mode: 'online', clientId: 'worker-ada-inf7', settings: inflation
+    });
+    const bola = await seat('/room/' + ada.code);
+    bola.send({ type: 'join_room', code: ada.code, name: 'Bola', token: 'keke', clientId: 'worker-bola-inf7' });
+    await bola.until((m) => m.type === 'joined', 'bola joined');
+    await ada.until((m) => m.type === 'state' && m.room.players.length === 2, 'both seated');
+    ada.send({ type: 'start_game' });
+    const playing = await ada.until((m) => m.type === 'state' && m.room.status === 'playing' && m.room.inf, 'inflation started');
+    expect(playing.room.inf.phase).toBe(1);
+    expect(playing.room.inf.phaseName).toBe('Standard');
+    expect(playing.room.inf.salary).toBe(200000);
+    expect(playing.room.inf.nextPhaseName).toBe('Squeeze');
+    expect(typeof playing.room.inf.deadlineAt).toBe('number');
+    expect(playing.room.inf.deadlineAt).toBeGreaterThan(playing.room.inf.phaseEndsAt);
+    // The vitest bindings set KP_TEST=1, so the scripted hooks are live in
+    // this harness. The production build gates the same hooks on isTest(env)
+    // in worker.js, so they stay shut outside test mode.
+    ada.send({ type: 'test_phase', phase: 2 });
+    const squeezed = await ada.until((m) => m.type === 'state' && m.room.inf && m.room.inf.phase === 2, 'squeeze by hook');
+    expect(squeezed.room.inf.phaseName).toBe('Squeeze');
+    expect(squeezed.room.inf.salary).toBe(140000);
+  });
+
+  it('charges Squeeze rent at printed times the lower die through the Lifeline bill', async () => {
+    const ada = await enter('create_room', {
+      name: 'Ada', token: 'danfo', mode: 'online', clientId: 'worker-ada-inf7r', settings: inflation
+    });
+    const bola = await seat('/room/' + ada.code);
+    bola.send({ type: 'join_room', code: ada.code, name: 'Bola', token: 'keke', clientId: 'worker-bola-inf7r' });
+    await bola.until((m) => m.type === 'joined', 'bola joined');
+    await ada.until((m) => m.type === 'state' && m.room.players.length === 2, 'both seated');
+    ada.send({ type: 'start_game' });
+    const playing = await ada.until((m) => m.type === 'state' && m.room.status === 'playing' && m.room.inf, 'inflation started');
+    const turn = playing.room.turnPlayerId;
+    const buyer = turn === ada.playerId ? ada : bola;
+    const tenant = turn === ada.playerId ? bola : ada;
+    const tenantId = playing.room.players.find((p) => p.id !== turn).id;
+    buyer.send({ type: 'test_set_position', playerId: turn, space: 10 });
+    buyer.send({ type: 'test_dice', rolls: [[1, 2]] });
+    buyer.send({ type: 'roll' });
+    await ada.until((m) => m.type === 'state' && m.room.phase === 'buy' && m.room.buySpace === 13, 'yaba offered');
+    buyer.send({ type: 'buy' });
+    await ada.until((m) => m.type === 'state' && m.room.props[13].o === turn, 'yaba bought');
+    buyer.send({ type: 'end_turn' });
+    await ada.until((m) => m.type === 'state' && m.room.turnPlayerId === tenantId && m.room.phase === 'roll', 'tenant to roll');
+    ada.send({ type: 'test_phase', phase: 2 });
+    await ada.until((m) => m.type === 'state' && m.room.inf.phase === 2, 'squeeze');
+    tenant.send({ type: 'test_set_position', playerId: tenantId, space: 6 });
+    tenant.send({ type: 'test_dice', rolls: [[2, 5]] });
+    tenant.send({ type: 'roll' });
+    const billed = await ada.until((m) => m.type === 'state' && m.room.pendingBill && m.room.pendingBill.playerId === tenantId, 'lifeline bill');
+    expect(billed.room.pendingBill.printed).toBe(10000);
+    expect(billed.room.pendingBill.mult).toBe(2);
+    expect(billed.room.pendingBill.amount).toBe(20000);
+    const ownerBefore = billed.room.players.find((p) => p.id === turn).cash;
+    const tenantBefore = billed.room.players.find((p) => p.id === tenantId).cash;
+    tenant.send({ type: 'lifeline_skip', billId: billed.room.pendingBill.id, id: billed.room.pendingBill.id });
+    const settled = await ada.until((m) => m.type === 'state' && !m.room.pendingBill
+      && m.room.players.find((p) => p.id === turn).cash === ownerBefore + 20000, 'rent settled');
+    expect(settled.room.players.find((p) => p.id === tenantId).cash).toBe(tenantBefore - 20000);
+  });
+
+  it('imports an old shape snapshot with defaults and the game continues', async () => {
+    const ada = await enter('create_room', {
+      name: 'Ada', token: 'danfo', mode: 'online', clientId: 'worker-ada-inf7s', settings: inflation
+    });
+    const bola = await seat('/room/' + ada.code);
+    bola.send({ type: 'join_room', code: ada.code, name: 'Bola', token: 'keke', clientId: 'worker-bola-inf7s' });
+    await bola.until((m) => m.type === 'joined', 'bola joined');
+    await ada.until((m) => m.type === 'state' && m.room.players.length === 2, 'both seated');
+    ada.send({ type: 'start_game' });
+    await ada.until((m) => m.type === 'state' && m.room.status === 'playing' && m.room.inf, 'inflation started');
+    ada.send({ type: 'test_set_cash', playerId: ada.playerId, amount: 1234567 });
+    await ada.until((m) => m.type === 'state' && m.room.players.find((p) => p.id === ada.playerId).cash === 1234567, 'state persisted');
+    // Rewrite the live table into the pre upgrade shape: the phase sits in
+    // inf with a horn timestamp and no version marker, there is no
+    // deadlineAt, and the player rows carry no Lifeline or Hustle fields.
+    // Eviction then exports exactly this shape to storage, and the next
+    // wake imports it, which is the path an old snapshot would travel.
+    const stub = env.ROOM.get(env.ROOM.idFromName(ada.code));
+    await runInDurableObject(stub, async (instance) => {
+      expect(instance.host).toBeTruthy();
+      const rooms = [...instance.host.rooms.values()];
+      expect(rooms.length).toBe(1);
+      const room = rooms[0];
+      room.inf.phase = 2;
+      room.inf.hornAt = Date.now() + 600000;
+      delete room.inf.v;
+      delete room.inf.deadlineAt;
+      for (const p of room.players) {
+        delete p.lifelineUsed;
+        delete p.hustleAttempts;
+        delete p.lastHustledPhase;
+      }
+    });
+    await stub.fetch('http://room.internal/evict?code=' + ada.code);
+    ada.send({ type: 'test_set_cash', playerId: ada.playerId, amount: 7654321 });
+    const restored = await ada.until((m) => m.type === 'state'
+      && m.room.players.find((p) => p.id === ada.playerId).cash === 7654321, 'restored after eviction');
+    expect(restored.room.inf.phase).toBe(2);
+    expect(typeof restored.room.inf.deadlineAt).toBe('number');
+    // The imported game continues: a multiplied Squeeze landing still bills
+    // at printed times the lower die and settles.
+    const turn = restored.room.turnPlayerId;
+    const tenant = turn === ada.playerId ? ada : bola;
+    const ownerId = restored.room.players.find((p) => p.id !== turn).id;
+    ada.send({ type: 'test_give', playerId: ownerId, space: 13 });
+    tenant.send({ type: 'test_set_position', playerId: turn, space: 6 });
+    tenant.send({ type: 'test_dice', rolls: [[2, 5]] });
+    tenant.send({ type: 'roll' });
+    const billed = await ada.until((m) => m.type === 'state' && m.room.pendingBill && m.room.pendingBill.playerId === turn, 'bill after import');
+    expect(billed.room.pendingBill.amount).toBe(20000);
+    const ownerBefore = billed.room.players.find((p) => p.id === ownerId).cash;
+    tenant.send({ type: 'lifeline_skip', billId: billed.room.pendingBill.id, id: billed.room.pendingBill.id });
+    await ada.until((m) => m.type === 'state' && !m.room.pendingBill
+      && m.room.players.find((p) => p.id === ownerId).cash === ownerBefore + 20000, 'rent settled after import');
   });
 });

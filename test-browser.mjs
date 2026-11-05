@@ -284,7 +284,7 @@ try {
   await C.close(); await Dp.close();
 
   // ---------------------------------------------------------- scenario 3
-  console.log('B3: Inflation Mode, Phase 2: multiplied rent alert with the Pure Water Index on show');
+  console.log('B3: Inflation Mode, Squeeze (phase 2): multiplied rent alert with the Pure Water Index on show');
   const E = await newPage('E');
   await E.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(E, 'Efe');
@@ -325,17 +325,21 @@ try {
   });
   check('Phase 2 rent alert shows the multiplied ₦20,000 (printed x lowest die)', /₦20,000/.test(rentAlert), rentAlert.slice(0, 90));
   // KP20: the strip's water chip is a droplet plus the price now; the
-  // full "Pure water ₦100" wording is the chip's accessible name, so
+  // full "Pure water ₦70" wording is the chip's accessible name, so
   // the check reads the aria-label, not the bar's textContent.
+  // INFLATION-7: Squeeze carries Index 1.4x and Pure Water ₦70, and the
+  // strip title carries the full line (phase, next phase, formula, salary).
   const infBarInfo = await payerPage.evaluate(() => {
     const chip = document.querySelector('#infBar .water-chip');
+    const bar = document.querySelector('#infBar');
     return {
-      text: document.querySelector('#infBar').textContent,
+      text: bar.textContent,
+      title: bar.getAttribute('title') || bar.getAttribute('aria-label') || '',
       chipText: chip ? chip.textContent : '',
       chipLabel: chip ? (chip.getAttribute('aria-label') || '') : ''
     };
   });
-  check('infobar shows Index 5.1x; water chip reads ₦100 under the accessible name Pure water ₦100', /5\.1x/.test(infBarInfo.text) && /₦100(?![0-9])/.test(infBarInfo.chipText) && /Pure water ₦100(?![0-9])/.test(infBarInfo.chipLabel), JSON.stringify(infBarInfo).slice(0, 140));
+  check('infobar shows Index 1.4x; water chip reads ₦70 under the accessible name Pure water ₦70; title names Squeeze, next Heat and the lower die formula', /1\.4x/.test(infBarInfo.text) && /₦70(?![0-9])/.test(infBarInfo.chipText) && /Pure water ₦70(?![0-9])/.test(infBarInfo.chipLabel) && /Squeeze/.test(infBarInfo.title) && /Next: Heat/.test(infBarInfo.title) && /lower die/.test(infBarInfo.title) && /₦140,000/.test(infBarInfo.title), JSON.stringify(infBarInfo).slice(0, 200));
   const phaseChrome = await payerPage.evaluate(() => {
     const bar = document.getElementById('infBar').getBoundingClientRect();
     return { h: Math.round(bar.height), w: Math.round(bar.width), chip: document.getElementById('roomChip').textContent.replace(/\s+/g, ' ').trim(), mode: document.getElementById('modePill').textContent.trim() };

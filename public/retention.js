@@ -464,7 +464,93 @@
   placeMarket();
   refresh();
 
+  // -------------------------------------------------------------------
+  // Inflation record (cosmetic only, docs/INFLATION-7.md section 5).
+  // A finished Inflation game leaves a small local record: games, wins,
+  // best phase reached, best final net worth, clean wins, a rematch
+  // chain, and the milestone badges earned. No cash, no goods, nothing
+  // promised as money. The app only calls this for a seated player
+  // whose game reached the end without them resigning, so quitting
+  // early and farming Hustle earn nothing here.
+  // -------------------------------------------------------------------
+  const INF_RECORD_KEY = 'kolopolyInfRecord';
+  const INF_CHAIN_MS = 20 * 60 * 1000;
+  const INF_BADGES = [
+    ['first', 'First Reckoning'],
+    ['heat', 'Heat Survivor'],
+    ['crisis', 'Crisis Survivor'],
+    ['final', 'Final Reckoning'],
+    ['landlord', 'Landlord of the Reckoning'],
+    ['clean', 'Clean Hands'],
+    ['iron', 'Iron Tenant']
+  ];
+  function infDefault() {
+    return { games: 0, wins: 0, cleanWins: 0, bestPhase: 0, bestNetWorth: 0, chain: 0, lastEndAt: 0, lastGameKey: '', badges: [], iron: false };
+  }
+  function infLoad() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(INF_RECORD_KEY) || 'null');
+      if (!raw || typeof raw !== 'object') return infDefault();
+      return Object.assign(infDefault(), raw);
+    } catch (e) { return infDefault(); }
+  }
+  function infSave(p) {
+    try { localStorage.setItem(INF_RECORD_KEY, JSON.stringify(p)); } catch (e) { /* storage can be closed */ }
+  }
+  function infBadgeEarned(p, id) {
+    switch (id) {
+      case 'first': return p.games >= 1;
+      case 'heat': return p.bestPhase >= 3;
+      case 'crisis': return p.bestPhase >= 5;
+      case 'final': return p.bestPhase >= 7;
+      case 'landlord': return p.wins >= 1;
+      case 'clean': return p.cleanWins >= 1;
+      case 'iron': return !!p.iron;
+      default: return false;
+    }
+  }
+  function infBadgeLabels(p, onlyIds) {
+    return INF_BADGES.filter(([id]) => (!onlyIds || onlyIds.includes(id)) && (onlyIds ? true : p.badges.includes(id))).map(([, label]) => label);
+  }
+  // summary: { gameKey, phaseReached, won, netWorth, lifelineUsed,
+  // hustledTimes, topHalf }. Returns the standing profile plus the
+  // badges this game newly earned, or null for a bad summary.
+  function recordInflationGame(summary) {
+    if (!summary || !summary.gameKey) return null;
+    const p = infLoad();
+    if (p.lastGameKey === summary.gameKey) {
+      // The same finished game seen again (a refresh on the end
+      // screen): report the standing record, count nothing twice.
+      return { profile: p, newBadges: [], badges: infBadgeLabels(p) };
+    }
+    const before = INF_BADGES.filter(([id]) => infBadgeEarned(p, id)).map(([id]) => id);
+    p.games += 1;
+    if (summary.won) {
+      p.wins += 1;
+      if (!summary.lifelineUsed) p.cleanWins += 1;
+    }
+    if (summary.phaseReached > p.bestPhase) p.bestPhase = summary.phaseReached;
+    if (summary.netWorth > p.bestNetWorth) p.bestNetWorth = summary.netWorth;
+    if (summary.topHalf && (summary.hustledTimes || 0) >= 1) p.iron = true;
+    const nowMs = Date.now();
+    // A rematch chain is games finished back to back at one sitting:
+    // the next finish lands within 20 minutes of the last one.
+    p.chain = (p.lastEndAt && nowMs - p.lastEndAt <= INF_CHAIN_MS) ? (p.chain || 1) + 1 : 1;
+    p.lastEndAt = nowMs;
+    p.lastGameKey = summary.gameKey;
+    const earned = INF_BADGES.filter(([id]) => infBadgeEarned(p, id)).map(([id]) => id);
+    p.badges = earned;
+    infSave(p);
+    return {
+      profile: p,
+      newBadges: infBadgeLabels(p, earned.filter((id) => !before.includes(id))),
+      badges: infBadgeLabels(p, earned)
+    };
+  }
+
   window.KPRetention = {
+    recordInflationGame,
+    infProfile() { return infLoad(); },
     onWin(won) {
       if (!won) return;
       winPending = true;
