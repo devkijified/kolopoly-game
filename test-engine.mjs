@@ -84,7 +84,7 @@ async function nullTurn(g) {
   const before = g.S().turnPlayerId;
   if (g.player(before).inJail) throw new Error('nullTurn called for a jailed player');
   const t = g.turn();
-  g.hook('test_set_position', { playerId: before, space: 17 });
+  g.hook('test_set_position', { playerId: before, space: 4 });
   g.hook('test_dice', { rolls: [[1, 2]] });
   t.send('roll', {});
   await t.waitFor((s) => s.phase === 'end' && s.turnPlayerId === before, 'null turn resolves');
@@ -131,7 +131,7 @@ async function driveUntil(g, pred, label, ms) {
         const me = s.players.find((p) => p.id === host.playerId);
         if (me && me.inJail) host.send('jail_roll', {});
         else if (s.phase === 'roll') {
-          host.send('test_set_position', { playerId: host.playerId, space: 17 });
+          host.send('test_set_position', { playerId: host.playerId, space: 4 });
           host.send('test_dice', { rolls: [[1, 2]] });
           host.send('roll', {});
         }
@@ -355,7 +355,7 @@ try {
       for (let n = 0; n < 8 && host.state.turnPlayerId !== host.playerId; n++) {
         const tid = host.state.turnPlayerId;
         if (host.state.phase === 'roll') {
-          host.send('test_set_position', { playerId: tid, space: 17 });
+          host.send('test_set_position', { playerId: tid, space: 4 });
           host.send('test_dice', { rolls: [[1, 2]] });
           guest.send('roll', {});
           await host.waitFor((s) => s.phase === 'end' && s.turnPlayerId === tid, 'guest idle end');
@@ -387,7 +387,7 @@ try {
       host.send('end_turn', {});
       await host.waitFor((s) => s.turnPlayerId !== host.playerId, 'buy turn passed');
     }
-    // Kola covers the next rent. Makoko site rent is ₦2,000.
+    // Kola covers the next rent. Makoko site rent is ₦3,000 (board28).
     await waitTurn();
     await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'back to roll for kola');
     host.send('use_shelf', { good: 'kola' });
@@ -395,15 +395,15 @@ try {
     host.send('test_give', { playerId: other().id, space: 1 });
     const cashBeforeRent = me().cash;
     const ownerBefore = other().cash;
-    host.send('test_set_position', { playerId: host.playerId, space: 38 });
+    host.send('test_set_position', { playerId: host.playerId, space: 26 });
     host.send('test_dice', { rolls: [[1, 2]] });
     host.send('roll', {});
     await host.waitFor((s) => {
       const p = s.players.find((x) => x.id === host.playerId);
       return p && p.shelfRent === false && p.position === 1;
     }, 'kola rent resolved');
-    check('kola cover paid the landlord and the tenant kept the rent', me().cash === cashBeforeRent + 200000 && other().cash === ownerBefore + 2000, JSON.stringify({ me: me().cash, owner: other().cash, before: cashBeforeRent }));
-    // Yam covers Lagos consumption tax, ₦100,000, into the pot.
+    check('kola cover paid the landlord and the tenant kept the rent', me().cash === cashBeforeRent + 200000 && other().cash === ownerBefore + 3000, JSON.stringify({ me: me().cash, owner: other().cash, before: cashBeforeRent }));
+    // Yam covers up to ₦200,000 of the next fee. Board28 has no Lagos tax, so FIRS flat ₦200,000 is used: the hand does not drop, the pot gets ₦200,000.
     if (host.state.phase === 'end' && host.state.turnPlayerId === host.playerId) {
       host.send('end_turn', {});
       await host.waitFor((s) => s.turnPlayerId !== host.playerId, 'rent turn passed');
@@ -414,14 +414,16 @@ try {
     await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).shelfFee === true, 'yam cover armed');
     const cashBeforeTax = me().cash;
     const potBefore = host.state.pot;
-    host.send('test_set_position', { playerId: host.playerId, space: 35 });
+    host.send('test_set_position', { playerId: host.playerId, space: 1 });
     host.send('test_dice', { rolls: [[1, 2]] });
     host.send('roll', {});
+    await host.waitFor((s) => s.phase === 'tax', 'FIRS tax choice for the yam');
+    host.send('tax_choice', { choice: 'flat' });
     await host.waitFor((s) => {
       const p = s.players.find((x) => x.id === host.playerId);
-      return p && p.shelfFee === false && p.position === 38;
+      return p && p.shelfFee === false && p.position === 4;
     }, 'yam fee resolved');
-    check('yam cover paid the fee into the pot and the hand did not drop', me().cash === cashBeforeTax && host.state.pot === potBefore + 100000, JSON.stringify({ cash: me().cash, pot: host.state.pot, potBefore }));
+    check('yam cover paid the fee into the pot and the hand did not drop', me().cash === cashBeforeTax && host.state.pot === potBefore + 200000, JSON.stringify({ cash: me().cash, pot: host.state.pot, potBefore }));
     host.ws.close();
     guest.ws.close();
   }
@@ -433,7 +435,7 @@ try {
     check('both players start with ₦1,500,000', g.S().players.every((p) => p.cash === 1500000));
     const t = g.turn();
     const tid = t.playerId;
-    g.hook('test_set_position', { playerId: tid, space: 38 });
+    g.hook('test_set_position', { playerId: tid, space: 26 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 1, 'landed Makoko with buy offer');
@@ -441,7 +443,7 @@ try {
     check('feed carries a Salary Alert credit of ₦200,000', g.S().feed.some((e) => e.kind === 'credit' && e.amount === 200000 && e.text.includes('Salary alert')));
     t.send('buy', {});
     await t.waitFor((s) => s.props[1].o === tid, 'Makoko bought');
-    check('buy at list price ₦60,000: cash ₦1,640,000', g.player(tid).cash === 1640000, 'cash=' + g.player(tid).cash);
+    check('buy at list price ₦90,000: cash ₦1,610,000', g.player(tid).cash === 1610000, 'cash=' + g.player(tid).cash);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -453,7 +455,7 @@ try {
     g.hook('test_set_position', { playerId: t.playerId, space: 0 });
     g.hook('test_dice', { rolls: [[2, 3]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Iddo offered');
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Oshodi offered');
     t.send('decline', {});
     await t.waitFor((s) => !!s.auction, 'auction opened');
     o.send('bid', { amount: 80000 });
@@ -461,7 +463,7 @@ try {
     t.send('pass_bid', {});
     await g.host.waitFor((s) => !s.auction && s.props[5].o === o.playerId, 'auction won by bidder');
     check('deed went to the highest bidder, not the lander', g.S().props[5].o === o.playerId);
-    check('winner paid the bid ₦80,000, not the ₦200,000 list price', g.player(o.playerId).cash === 1420000, 'cash=' + g.player(o.playerId).cash);
+    check('winner paid the bid ₦80,000, not the ₦300,000 list price', g.player(o.playerId).cash === 1420000, 'cash=' + g.player(o.playerId).cash);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -473,7 +475,7 @@ try {
     g.hook('test_set_position', { playerId: t.playerId, space: 0 });
     g.hook('test_dice', { rolls: [[2, 3]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Iddo offered for the clock test');
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Oshodi offered for the clock test');
     t.send('decline', {});
     await t.waitFor((s) => !!s.auction, 'auction opened for the clock test');
     const opened = g.S().auction.endsAt;
@@ -497,24 +499,22 @@ try {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const first = g.turn();
     const other = g.clients.find((c) => c !== first);
-    for (const sp of [11, 13, 14]) g.hook('test_give', { playerId: other.playerId, space: sp });
+    for (const sp of [10, 11]) g.hook('test_give', { playerId: other.playerId, space: sp });
     await nullTurn(g); // first player passes the turn
     const b = g.turn();
     check('builder is the pink set owner', b.playerId === other.playerId);
     const cash0 = g.player(b.playerId).cash;
-    b.send('build', { space: 11, kind: 'duplex' });
-    await b.waitFor((s) => s.props[11].b === 1, 'first duplex built');
-    check('duplex cost the printed ₦100,000', g.player(b.playerId).cash === cash0 - 100000);
+    b.send('build', { space: 10, kind: 'duplex' });
+    await b.waitFor((s) => s.props[10].b === 1, 'first duplex built');
+    check('duplex cost the printed ₦150,000', g.player(b.playerId).cash === cash0 - 150000);
     const errBefore = b.errors.length;
-    b.send('build', { space: 11, kind: 'duplex' });
+    b.send('build', { space: 10, kind: 'duplex' });
     await sleep(350);
-    check('even building enforced: second duplex on the same street refused', g.S().props[11].b === 1 && b.errors.length > errBefore, 'errors=' + b.errors.slice(-1));
-    b.send('build', { space: 13, kind: 'duplex' });
-    await b.waitFor((s) => s.props[13].b === 1, 'Yaba duplex');
-    b.send('build', { space: 14, kind: 'duplex' });
-    await b.waitFor((s) => s.props[14].b === 1, 'Surulere duplex');
+    check('even building enforced: second duplex on the same street refused', g.S().props[10].b === 1 && b.errors.length > errBefore, 'errors=' + b.errors.slice(-1));
+    b.send('build', { space: 11, kind: 'duplex' });
+    await b.waitFor((s) => s.props[11].b === 1, 'Surulere duplex');
     // builder rolls a null turn away
-    g.hook('test_set_position', { playerId: b.playerId, space: 17 });
+    g.hook('test_set_position', { playerId: b.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     b.send('roll', {});
     await b.waitFor((s) => s.phase === 'end', 'builder turn ends');
@@ -522,11 +522,11 @@ try {
     await g.host.waitFor((s) => s.turnPlayerId === first.playerId, 'turn back to first');
     const aCash = g.player(first.playerId).cash;
     const bCash = g.player(b.playerId).cash;
-    g.hook('test_set_position', { playerId: first.playerId, space: 9 });
+    g.hook('test_set_position', { playerId: first.playerId, space: 8 });
     g.hook('test_dice', { rolls: [[1, 1], [1, 2]] });
     first.send('roll', {});
-    await first.waitFor((s) => s.players.find((p) => p.id === b.playerId).cash === bCash + 50000, 'duplex rent landed');
-    check('1 duplex ladder rent ₦50,000 moved exactly', g.player(first.playerId).cash === aCash - 50000 && g.player(b.playerId).cash === bCash + 50000,
+    await first.waitFor((s) => s.players.find((p) => p.id === b.playerId).cash === bCash + 75000, 'duplex rent landed');
+    check('1 duplex ladder rent ₦75,000 moved exactly', g.player(first.playerId).cash === aCash - 75000 && g.player(b.playerId).cash === bCash + 75000,
       'a=' + g.player(first.playerId).cash + ' b=' + g.player(b.playerId).cash);
     for (const c of g.clients) c.ws.close();
   }
@@ -536,32 +536,32 @@ try {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const first = g.turn();
     const other = g.clients.find((c) => c !== first);
-    g.hook('test_give', { playerId: other.playerId, space: 13 }); // Yaba ₦140,000
+    g.hook('test_give', { playerId: other.playerId, space: 10 }); // Ebute Metta ₦220,000
     if (g.S().turnPlayerId !== other.playerId) await nullTurn(g);
     const b = g.turn();
     const cash0 = g.player(b.playerId).cash;
-    b.send('mortgage', { space: 13 });
-    await b.waitFor((s) => s.props[13].m === 1, 'Yaba mortgaged');
-    check('mortgage paid half the price: +₦70,000', g.player(b.playerId).cash === cash0 + 70000);
+    b.send('mortgage', { space: 10 });
+    await b.waitFor((s) => s.props[10].m === 1, 'Ebute Metta mortgaged');
+    check('mortgage paid half the price: +₦110,000', g.player(b.playerId).cash === cash0 + 110000);
     // renter lands on the mortgaged deed
-    g.hook('test_set_position', { playerId: b.playerId, space: 17 });
+    g.hook('test_set_position', { playerId: b.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     b.send('roll', {});
     await b.waitFor((s) => s.phase === 'end', 'owner turn ends');
     b.send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId === first.playerId, 'renter turn');
     const rCash = g.player(first.playerId).cash;
-    g.hook('test_set_position', { playerId: first.playerId, space: 10 });
+    g.hook('test_set_position', { playerId: first.playerId, space: 7 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     first.send('roll', {});
-    await first.waitFor((s) => s.phase === 'end', 'landed mortgaged Yaba');
+    await first.waitFor((s) => s.phase === 'end', 'landed mortgaged Ebute Metta');
     check('no rent on a mortgaged deed', g.player(first.playerId).cash === rCash);
     first.send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId === b.playerId, 'owner turn again');
     const cash1 = g.player(b.playerId).cash;
-    b.send('unmortgage', { space: 13 });
-    await b.waitFor((s) => s.props[13].m === 0, 'mortgage lifted');
-    check('unmortgage cost exactly ₦77,000 (70,000 + 10 percent)', g.player(b.playerId).cash === cash1 - 77000, 'cash=' + g.player(b.playerId).cash);
+    b.send('unmortgage', { space: 10 });
+    await b.waitFor((s) => s.props[10].m === 0, 'mortgage lifted');
+    check('unmortgage cost exactly ₦121,000 (110,000 + 10 percent)', g.player(b.playerId).cash === cash1 - 121000, 'cash=' + g.player(b.playerId).cash);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -570,11 +570,11 @@ try {
     // (a) bail
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
-    g.hook('test_set_position', { playerId: t.playerId, space: 28 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 19 });
     g.hook('test_dice', { rolls: [[1, 1]] });
     t.send('roll', {});
     await t.waitFor((s) => s.players.find((p) => p.id === t.playerId).inJail, 'sent to Kirikiri');
-    check('go to Kirikiri lands the player inside at space 10', g.player(t.playerId).position === 10);
+    check('go to Kirikiri lands the player inside at space 7', g.player(t.playerId).position === 7);
     t.send('end_turn', {});
     await nullTurn(g);
     const cash0 = g.player(t.playerId).cash;
@@ -587,7 +587,7 @@ try {
     // (b) doubles out
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
-    g.hook('test_set_position', { playerId: t.playerId, space: 28 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 19 });
     g.hook('test_dice', { rolls: [[1, 1]] });
     t.send('roll', {});
     await t.waitFor((s) => s.players.find((p) => p.id === t.playerId).inJail, 'in Kirikiri');
@@ -596,14 +596,14 @@ try {
     g.hook('test_dice', { rolls: [[3, 3]] });
     t.send('jail_roll', {});
     await t.waitFor((s) => !s.players.find((p) => p.id === t.playerId).inJail, 'doubles freed the player');
-    check('doubles out of Kirikiri, moved 6 to Maryland', g.player(t.playerId).position === 16);
+    check('doubles out of Kirikiri, moved 6 to Allen Avenue', g.player(t.playerId).position === 13);
     for (const c of g.clients) c.ws.close();
   }
   {
     // (c) third failed roll pays and moves
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
-    g.hook('test_set_position', { playerId: t.playerId, space: 28 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 19 });
     g.hook('test_dice', { rolls: [[1, 1]] });
     t.send('roll', {});
     await t.waitFor((s) => s.players.find((p) => p.id === t.playerId).inJail, 'in Kirikiri');
@@ -620,7 +620,7 @@ try {
     g.hook('test_dice', { rolls: [[1, 3]] });
     t.send('jail_roll', {});
     await t.waitFor((s) => !s.players.find((p) => p.id === t.playerId).inJail, 'third fail forces bail and move');
-    check('third fail paid ₦50,000 and moved the rolled 4 to Surulere', g.player(t.playerId).cash === cash0 - 50000 && g.player(t.playerId).position === 14,
+    check('third fail paid ₦50,000 and moved the rolled 4 to Surulere', g.player(t.playerId).cash === cash0 - 50000 && g.player(t.playerId).position === 11,
       'cash=' + g.player(t.playerId).cash + ' pos=' + g.player(t.playerId).position);
     for (const c of g.clients) c.ws.close();
   }
@@ -632,34 +632,34 @@ try {
     g.hook('test_set_position', { playerId: t.playerId, space: 0 });
     g.hook('test_dice', { rolls: [[6, 6]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 12, 'NEPA offered');
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 12, 'Lekki Tollgate offered');
     t.send('buy', {});
     await t.waitFor((s) => s.phase === 'roll', 'double: roll again');
     g.hook('test_dice', { rolls: [[6, 6]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 24, 'GRA offered');
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 24, 'Ikoyi offered');
     t.send('decline', {});
-    await t.waitFor((s) => !!s.auction, 'auction for GRA');
+    await t.waitFor((s) => !!s.auction, 'auction for Ikoyi');
     await passAuction(g);
     await t.waitFor((s) => s.phase === 'roll' && s.turnPlayerId === t.playerId, 'second double: roll again');
     g.hook('test_dice', { rolls: [[1, 1]] });
     t.send('roll', {});
     await t.waitFor((s) => s.players.find((p) => p.id === t.playerId).inJail, 'three doubles: Kirikiri');
-    check('three doubles in a row sends the player to Kirikiri', g.player(t.playerId).position === 10);
+    check('three doubles in a row sends the player to Kirikiri', g.player(t.playerId).position === 7);
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('C6: Owambe jackpot grows only from taxes, fines and fees; pays in full on landing');
+  console.log('C6: Owambe pot grows only from taxes, fines and fees; landing rings an Owambe Rush that the first grab wins');
   {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
     g.hook('test_give', { playerId: o.playerId, space: 1 }); // Makoko to the other
-    g.hook('test_set_position', { playerId: t.playerId, space: 39 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 27 });
     g.hook('test_dice', { rolls: [[1, 1], [1, 2]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === 1502000, 'rent paid on Makoko, doubles continue');
-    check('rent does NOT feed the pot', g.S().pot === 0 && g.player(o.playerId).cash === 1502000, 'pot=' + g.S().pot);
+    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === 1503000, 'rent paid on Makoko, doubles continue');
+    check('rent does NOT feed the pot', g.S().pot === 0 && g.player(o.playerId).cash === 1503000, 'pot=' + g.S().pot);
     g.hook('test_set_position', { playerId: t.playerId, space: 1 });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'tax', 'FIRS tax choice');
@@ -669,11 +669,28 @@ try {
     t.send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId === o.playerId, 'collector turn');
     const cash0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: o.playerId, space: 17 });
+    g.hook('test_set_position', { playerId: o.playerId, space: 11 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     o.send('roll', {});
-    await o.waitFor((s) => s.pot === 0, 'pot collected');
-    check('landing on Owambe Grounds paid the full pot', g.player(o.playerId).cash === cash0 + 200000);
+    await o.waitFor((s) => s.owambe && s.owambe.state === 'coming', 'landing rings the Owambe Rush');
+    check('landing on Owambe with ₦200,000 inside opens a coming rush, no money moved yet', g.S().pot === 200000 && g.player(o.playerId).cash === cash0,
+      JSON.stringify(g.S().owambe));
+    const rush = g.S().owambe;
+    const tErr = t.errors.length;
+    t.send('owambe_grab', { rushId: rush.id }); // early tap before GRAB
+    await sleep(200);
+    check('a grab during the coming countdown is refused and moves nothing', t.errors.length > tErr && g.S().pot === 200000);
+    await o.waitFor((s) => s.owambe && s.owambe.state === 'open', 'rush opens', 6000);
+    const tCash0 = g.player(t.playerId).cash;
+    o.send('owambe_grab', { rushId: rush.id });
+    t.send('owambe_grab', { rushId: rush.id });
+    await o.waitFor((s) => s.pot === 0 && s.owambeResult, 'pot claimed');
+    await sleep(250);
+    const winnerId = g.S().owambeResult.winnerId;
+    const oGain = g.player(o.playerId).cash - cash0, tGain = g.player(t.playerId).cash - tCash0;
+    check('simultaneous taps: exactly one player won the whole ₦200,000, paid once',
+      g.S().owambeResult.amount === 200000 && oGain + tGain === 200000 && (winnerId === o.playerId ? oGain === 200000 : tGain === 200000),
+      JSON.stringify({ r: g.S().owambeResult, oGain, tGain }));
     check('jackpot feed entry carries the ₦200,000', g.S().feed.some((e) => e.kind === 'jackpot' && e.amount === 200000));
     for (const c of g.clients) c.ws.close();
   }
@@ -683,7 +700,7 @@ try {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    for (const sp of [5, 15, 25, 35]) g.hook('test_give', { playerId: o.playerId, space: sp });
+    for (const sp of [5, 12, 19]) g.hook('test_give', { playerId: o.playerId, space: sp });
     g.hook('test_give', { playerId: t.playerId, space: 3 });
     g.hook('test_set_cash', { playerId: t.playerId, amount: 10000 });
     await sleep(200);
@@ -704,26 +721,26 @@ try {
     const g = await makeGame({ timed: true, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 39 });
+    g.hook('test_give', { playerId: o.playerId, space: 27 });
     g.hook('test_clock', { secondsLeft: 1 });
     await g.host.waitFor((s) => s.status === 'ended', 'horn ended the game', 9000);
     check('richest by net worth won at the horn (deed owner)', g.S().winner && g.S().winner.playerId === o.playerId);
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('C9: utility rent is dice total x ₦1,000 x 4');
+  console.log('C9: utility rent is dice total x ₦6,000 with one utility (board28)');
   {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 12 });
+    g.hook('test_give', { playerId: o.playerId, space: 9 });
     const tCash = g.player(t.playerId).cash;
     const oCash = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 9 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 6 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'end', 'utility rent resolved');
-    check('NEPA rent 3 x ₦1,000 x 4 = ₦12,000', g.player(t.playerId).cash === tCash - 12000 && g.player(o.playerId).cash === oCash + 12000);
+    check('NEPA rent 3 x ₦6,000 = ₦18,000', g.player(t.playerId).cash === tCash - 18000 && g.player(o.playerId).cash === oCash + 18000);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -735,11 +752,11 @@ try {
     g.hook('test_give', { playerId: o.playerId, space: 1 });
     g.hook('test_give', { playerId: o.playerId, space: 3 }); // full brown set
     const oCash = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 38 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 26 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === oCash + 4000, 'set rent landed');
-    check('Makoko site rent ₦2,000 doubled to ₦4,000 with the full set', g.player(o.playerId).cash === oCash + 4000);
+    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === oCash + 6000, 'set rent landed');
+    check('Makoko site rent ₦3,000 doubled to ₦6,000 with the full set', g.player(o.playerId).cash === oCash + 6000);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -753,28 +770,28 @@ try {
     check('Phase 2 is Squeeze: salary ₦140,000 (70 percent of the full salary)', g.S().inf.phaseName === 'Squeeze' && g.S().inf.salary === 140000);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 13 }); // Yaba, site rent ₦10,000
+    g.hook('test_give', { playerId: o.playerId, space: 10 }); // Ebute Metta, site rent ₦15,000
     const tCash = g.player(t.playerId).cash;
     const oCash = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 9 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 6 });
     g.hook('test_dice', { rolls: [[2, 2], [1, 2]] });
     t.send('roll', {});
     await t.waitFor((s) => !!s.pendingBill && s.pendingBill.playerId === t.playerId, 'lifeline bill opens on the multiplied rent');
-    check('the bill freezes printed ₦10,000 x lower die 2 = ₦20,000 with the dice on show',
-      g.S().pendingBill.printed === 10000 && g.S().pendingBill.mult === 2 && g.S().pendingBill.amount === 20000,
+    check('the bill freezes printed ₦15,000 x lower die 2 = ₦30,000 with the dice on show',
+      g.S().pendingBill.printed === 15000 && g.S().pendingBill.mult === 2 && g.S().pendingBill.amount === 30000,
       JSON.stringify(g.S().pendingBill));
     t.send('lifeline_skip', { billId: g.S().pendingBill.id, id: g.S().pendingBill.id });
-    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === oCash + 20000, 'Phase 2 rent landed');
-    check('Phase 2 rent = printed ₦10,000 x lowest die 2 = ₦20,000', g.player(t.playerId).cash === tCash - 20000 && g.player(o.playerId).cash === oCash + 20000,
+    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === oCash + 30000, 'Phase 2 rent landed');
+    check('Phase 2 rent = printed ₦15,000 x lowest die 2 = ₦30,000', g.player(t.playerId).cash === tCash - 30000 && g.player(o.playerId).cash === oCash + 30000,
       't=' + g.player(t.playerId).cash + ' o=' + g.player(o.playerId).cash);
     // finish the turn, then salary at Phase 2 for the other player
-    g.hook('test_set_position', { playerId: t.playerId, space: 17 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'end', 'turn ends');
     t.send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId === o.playerId, 'other turn');
     const oCash2 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: o.playerId, space: 38 });
+    g.hook('test_set_position', { playerId: o.playerId, space: 26 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     o.send('roll', {});
     await o.waitFor((s) => s.phase === 'buy' && s.buySpace === 1, 'wrapped to Makoko');
@@ -785,17 +802,17 @@ try {
     await o.waitFor((s) => s.phase === 'end', 'turn done');
     o.send('end_turn', {});
     // build cost: give the owner the full pink set, wait for their turn, build in Phase 2
-    for (const sp of [11, 14]) g.hook('test_give', { playerId: o.playerId, space: sp });
+    for (const sp of [11]) g.hook('test_give', { playerId: o.playerId, space: sp });
     await nullTurn(g); // t's turn passes
     const b = g.turn();
     check('builder turn reached', b.playerId === o.playerId);
     const bCash = g.player(b.playerId).cash;
+    b.send('build', { space: 10, kind: 'duplex' });
+    await b.waitFor((s) => s.props[10].b === 1, 'duplex built at the printed Phase 2 price');
+    check('build cost in Phase 2 is the printed ₦150,000: phases never multiply build prices', g.player(b.playerId).cash === bCash - 150000, 'cash=' + g.player(b.playerId).cash);
     b.send('build', { space: 11, kind: 'duplex' });
-    await b.waitFor((s) => s.props[11].b === 1, 'duplex built at the printed Phase 2 price');
-    check('build cost in Phase 2 is the printed ₦100,000: phases never multiply build prices', g.player(b.playerId).cash === bCash - 100000, 'cash=' + g.player(b.playerId).cash);
-    b.send('build', { space: 14, kind: 'duplex' });
-    await b.waitFor((s) => s.props[14].b === 1, 'second duplex built');
-    check('a second Phase 2 build also charges the printed ₦100,000', g.player(b.playerId).cash === bCash - 200000, 'cash=' + g.player(b.playerId).cash);
+    await b.waitFor((s) => s.props[11].b === 1, 'second duplex built');
+    check('a second Phase 2 build also charges the printed ₦150,000', g.player(b.playerId).cash === bCash - 300000, 'cash=' + g.player(b.playerId).cash);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -806,15 +823,15 @@ try {
     await g.host.waitFor((s) => s.inf.phase === 3, 'phase 3');
     check('Phase 3 is Heat with salary ₦100,000', g.S().inf.phaseName === 'Heat' && g.S().inf.salary === 100000);
     const t = g.turn();
-    g.hook('test_set_position', { playerId: t.playerId, space: 24 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 17 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 27, 'landed Victoria Island');
-    check('buyPrice = the printed ₦260,000, no bigger die multiplier on deeds', g.S().buyPrice === 260000, 'buyPrice=' + g.S().buyPrice);
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 20, 'landed Victoria Island');
+    check('buyPrice = the printed ₦400,000, no bigger die multiplier on deeds', g.S().buyPrice === 400000, 'buyPrice=' + g.S().buyPrice);
     const cash0 = g.player(t.playerId).cash;
     t.send('buy', {});
-    await t.waitFor((s) => s.props[27].o === t.playerId, 'bought');
-    check('lander paid the printed price', g.player(t.playerId).cash === cash0 - 260000);
+    await t.waitFor((s) => s.props[20].o === t.playerId, 'bought');
+    check('lander paid the printed price', g.player(t.playerId).cash === cash0 - 400000);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -822,14 +839,14 @@ try {
   {
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
     const [pa, pb] = g.S().players;
-    g.hook('test_give', { playerId: pa.id, space: 13 }); // Yaba to the first player
+    g.hook('test_give', { playerId: pa.id, space: 10 }); // Ebute Metta to the first player
     const bCli = g.byId(pb.id);
     const aCli = g.byId(pa.id);
     const aCash = g.player(pa.id).cash;
     const bCash = g.player(pb.id).cash;
     bCli.send('call_deal_break', {});
     await bCli.waitFor((s) => !!s.inf.dealBreakEndsAt, 'deal break open');
-    bCli.send('contract_propose', { kind: 'pass', street: 13, chips: 1, price: 10000 });
+    bCli.send('contract_propose', { kind: 'pass', street: 10, chips: 1, price: 10000 });
     await aCli.waitFor((s) => !!s.inf.proposal && s.inf.proposal.kind === 'pass', 'pass offered');
     aCli.send('contract_respond', { accept: true });
     await g.host.waitFor((s) => s.inf.contracts.length === 1 && s.inf.contracts[0].chipsLeft === 1, 'pass registered');
@@ -839,7 +856,7 @@ try {
     while (g.S().turnPlayerId !== pb.id && guard++ < 5) await nullTurn(g);
     const bCash2 = g.player(pb.id).cash;
     const aCash2 = g.player(pa.id).cash;
-    g.hook('test_set_position', { playerId: pb.id, space: 10 });
+    g.hook('test_set_position', { playerId: pb.id, space: 7 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     bCli.send('roll', {});
     await bCli.waitFor((s) => s.phase === 'end', 'pass landing resolved');
@@ -857,36 +874,36 @@ try {
     const [pa, pb] = g.S().players;
     const aCli = g.byId(pa.id);
     const bCli = g.byId(pb.id);
-    g.hook('test_give', { playerId: pb.id, space: 14 }); // Surulere pledged
+    g.hook('test_give', { playerId: pb.id, space: 11 }); // Surulere pledged
     const bCash = g.player(pb.id).cash;
     bCli.send('call_deal_break', {});
     await bCli.waitFor((s) => !!s.inf.dealBreakEndsAt, 'deal break open');
-    bCli.send('contract_propose', { kind: 'loan', to: pa.id, pledgedSpace: 14, amount: 90000, interestPct: 10, termLaps: 1 });
+    bCli.send('contract_propose', { kind: 'loan', to: pa.id, pledgedSpace: 11, amount: 90000, interestPct: 10, termLaps: 1 });
     await aCli.waitFor((s) => !!s.inf.proposal && s.inf.proposal.kind === 'loan', 'loan offered');
     aCli.send('contract_respond', { accept: true });
     try {
-      await g.host.waitFor((s) => s.inf.contracts.some((c) => c.type === 'loan') && s.props[14].pl === 1, 'loan live, deed pledged');
+      await g.host.waitFor((s) => s.inf.contracts.some((c) => c.type === 'loan') && s.props[11].pl === 1, 'loan live, deed pledged');
     } catch (e) {
       console.log('I4 DIAG:', JSON.stringify({
-        contracts: g.S().inf.contracts, proposal: g.S().inf.proposal, props14: g.S().props[14],
+        contracts: g.S().inf.contracts, proposal: g.S().inf.proposal, props11: g.S().props[11],
         aErr: aCli.errors, bErr: bCli.errors, phase: g.S().inf.phase, dealBreak: !!g.S().inf.dealBreakEndsAt,
         pbCash: g.player(pb.id).cash, paCash: g.player(pa.id).cash
       }));
       throw e;
     }
-    check('loan paid out ₦90,000 (inside the 80 percent cap on the ₦160,000 deed) and flagged the deed pledged', g.player(pb.id).cash === bCash + 90000 && g.S().props[14].pl === 1);
+    check('loan paid out ₦90,000 (inside the 80 percent cap on the ₦240,000 deed) and flagged the deed pledged', g.player(pb.id).cash === bCash + 90000 && g.S().props[11].pl === 1);
     const contractId = g.S().inf.contracts.find((c) => c.type === 'loan').id;
     // borrower passes START once: the term falls due
     let guard = 0;
     while (g.S().turnPlayerId !== pb.id && guard++ < 5) await nullTurn(g);
-    g.hook('test_set_position', { playerId: pb.id, space: 39 });
+    g.hook('test_set_position', { playerId: pb.id, space: 27 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     bCli.send('roll', {});
     await aCli.waitFor((s) => !!s.inf.loanDecision, 'lender decision opened at due');
     const bCashDue = g.player(pb.id).cash;
     aCli.send('loan_decide', { contractId, choice: 'seize' });
-    await g.host.waitFor((s) => s.props[14].o === pa.id, 'deed seized by lender');
-    check('seizure transferred the pledged deed to the lender', g.S().props[14].o === pa.id && g.S().props[14].pl === 0);
+    await g.host.waitFor((s) => s.props[11].o === pa.id, 'deed seized by lender');
+    check('seizure transferred the pledged deed to the lender', g.S().props[11].o === pa.id && g.S().props[11].pl === 0);
     check('seizure is non recourse: borrower cash untouched by the seize', g.player(pb.id).cash === bCashDue);
     for (const c of g.clients) c.ws.close();
   }
@@ -899,7 +916,7 @@ try {
     check('phase advanced on the accelerated clock', g.S().inf.phase === 2);
     check('phase change announced in the feed', g.S().feed.some((e) => e.kind === 'phase'));
     const richer = g.clients.find((c) => c !== g.turn());
-    g.hook('test_give', { playerId: richer.playerId, space: 39 });
+    g.hook('test_give', { playerId: richer.playerId, space: 27 });
     g.hook('test_phase', { phase: 7 });
     await g.host.waitFor((s) => s.inf.phase === 7, 'phase 7');
     check('phase 7 is Final Reckoning', g.S().inf.phaseName === 'Final Reckoning');
@@ -919,7 +936,7 @@ try {
     g.hook('test_set_position', { playerId: t.playerId, space: 0 });
     g.hook('test_dice', { rolls: [[2, 3]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Iddo offered');
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 5, 'Oshodi offered');
     g.hook('test_set_cash', { playerId: o.playerId, amount: 50000 });
     await sleep(200);
     t.send('decline', {});
@@ -954,7 +971,7 @@ try {
     for (const c of sched.clients) c.ws.close();
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const ids = g.S().players.map((p) => p.id);
-    const OWNABLE = g.S().props.map((p, i) => i).filter((i) => [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39].includes(i));
+    const OWNABLE = g.S().props.map((p, i) => i).filter((i) => [1, 3, 5, 6, 8, 9, 10, 11, 12, 13, 15, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27].includes(i));
     OWNABLE.forEach((sp, i) => g.hook('test_give', { playerId: ids[i % 2], space: sp }));
     await sleep(300);
     check('every ownable space has an owner', g.S().props.every((p, i) => !OWNABLE.includes(i) || p.o != null));
@@ -997,21 +1014,21 @@ try {
     const [pa, pb, pc] = g.S().players;
     const aCli = g.byId(pa.id);
     const bCli = g.byId(pb.id);
-    for (const sp of [11, 13, 14]) g.hook('test_give', { playerId: pb.id, space: sp }); // Bola: pink set
-    g.hook('test_give', { playerId: pb.id, space: 5 });   // Bola: Iddo
-    g.hook('test_give', { playerId: pb.id, space: 25 });  // Bola: Apapa Port
+    for (const sp of [10, 11]) g.hook('test_give', { playerId: pb.id, space: sp }); // Bola: pink set
+    g.hook('test_give', { playerId: pb.id, space: 5 });   // Bola: Oshodi
+    g.hook('test_give', { playerId: pb.id, space: 19 });  // Bola: MMIA Airport
     g.hook('test_give', { playerId: pc.id, space: 3 });   // Chidi: Ajegunle
     let guard = 0;
     while (g.S().turnPlayerId === pb.id && guard++ < 4) await nullTurn(g);
     check('setup: Bola is not the turn player', g.S().turnPlayerId !== pb.id);
     const bCash0 = g.player(pb.id).cash;
-    bCli.send('build', { space: 11, kind: 'duplex' });
-    await bCli.waitFor((s) => s.props[11].b === 1, 'non-turn build lands');
-    check('non-turn player built a duplex during another turn at the printed ₦100,000', g.player(pb.id).cash === bCash0 - 100000, 'cash=' + g.player(pb.id).cash);
+    bCli.send('build', { space: 10, kind: 'duplex' });
+    await bCli.waitFor((s) => s.props[10].b === 1, 'non-turn build lands');
+    check('non-turn player built a duplex during another turn at the printed ₦150,000', g.player(pb.id).cash === bCash0 - 150000, 'cash=' + g.player(pb.id).cash);
     bCli.send('mortgage', { space: 5 });
     await bCli.waitFor((s) => s.props[5].m === 1, 'non-turn mortgage lands');
-    check('non-turn player mortgaged Iddo for ₦100,000', g.player(pb.id).cash === bCash0, 'cash=' + g.player(pb.id).cash);
-    // Debt collision: Ada (turn player) lands on Chidi's Ajegunle owing ₦4,000 with ₦3,000 cash.
+    check('non-turn player mortgaged Oshodi for ₦150,000', g.player(pb.id).cash === bCash0, 'cash=' + g.player(pb.id).cash);
+    // Debt collision: Ada (turn player) lands on Chidi's Ajegunle owing ₦6,000 with ₦3,000 cash.
     guard = 0;
     while (g.S().turnPlayerId !== pa.id && guard++ < 4) await nullTurn(g);
     check('setup: the debtor to be holds the turn', g.S().turnPlayerId === pa.id);
@@ -1023,16 +1040,16 @@ try {
     aCli.send('roll', {});
     await aCli.waitFor((s) => !!s.debt && s.debt.playerId === pa.id, 'rent debt opens for the turn player');
     const bErr = bCli.errors.length;
-    bCli.send('mortgage', { space: 25 });
+    bCli.send('mortgage', { space: 19 });
     await sleep(400);
-    check('a non-debtor cannot manage while another player debt hangs', g.S().props[25].m === 0 && bCli.errors.length > bErr, 'err=' + bCli.errors.slice(-1));
+    check('a non-debtor cannot manage while another player debt hangs', g.S().props[19].m === 0 && bCli.errors.length > bErr, 'err=' + bCli.errors.slice(-1));
     const cCash0 = g.player(pc.id).cash;
     aCli.send('mortgage', { space: 6 });
     await aCli.waitFor((s) => !s.debt, 'debtor mortgage settles the debt');
-    check('the debtor mortgaged Mushin (+₦50,000) and the ₦4,000 rent settled to Chidi', g.player(pc.id).cash === cCash0 + 4000, 'c=' + g.player(pc.id).cash);
-    bCli.send('mortgage', { space: 25 });
-    await bCli.waitFor((s) => s.props[25].m === 1, 'management reopens after the debt settles');
-    check('parallel management reopens once the debt settles', g.S().props[25].m === 1);
+    check('the debtor mortgaged Mushin (+₦80,000) and the ₦6,000 rent settled to Chidi', g.player(pc.id).cash === cCash0 + 6000, 'c=' + g.player(pc.id).cash);
+    bCli.send('mortgage', { space: 19 });
+    await bCli.waitFor((s) => s.props[19].m === 1, 'management reopens after the debt settles');
+    check('parallel management reopens once the debt settles', g.S().props[19].m === 1);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -1042,15 +1059,15 @@ try {
     const [pa, pb, pc] = g.S().players;
     const aCli = g.byId(pa.id);
     const bCli = g.byId(pb.id);
-    for (const sp of [11, 13, 14]) g.hook('test_give', { playerId: pb.id, space: sp }); // Bola pink
-    for (const sp of [16, 18, 19]) g.hook('test_give', { playerId: pc.id, space: sp }); // Chidi orange (a rival)
+    for (const sp of [10, 11]) g.hook('test_give', { playerId: pb.id, space: sp }); // Bola pink
+    for (const sp of [13, 15]) g.hook('test_give', { playerId: pc.id, space: sp }); // Chidi orange (a rival)
     for (const sp of [1, 3]) g.hook('test_give', { playerId: pa.id, space: sp });       // Ada brown
     g.hook('test_set_supply', { duplex: 1 });
     await sleep(200);
     let guard = 0;
     while (g.S().turnPlayerId !== pa.id && guard++ < 4) await nullTurn(g);
     const bErr = bCli.errors.length;
-    bCli.send('build', { space: 11, kind: 'duplex' });
+    bCli.send('build', { space: 10, kind: 'duplex' });
     await sleep(400);
     check('parallel builder refused the contested last duplex with the reason stated', bCli.errors.length > bErr && /last duplex/.test(bCli.errors[bCli.errors.length - 1]) && !g.S().auction, 'err=' + bCli.errors.slice(-1));
     aCli.send('build', { space: 1, kind: 'duplex' });
@@ -1090,12 +1107,12 @@ try {
     const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi', 'Dara']);
     const quitter = g.S().players[1];
     g.hook('test_give', { playerId: quitter.id, space: 5 });
-    g.hook('test_give', { playerId: quitter.id, space: 13 });
+    g.hook('test_give', { playerId: quitter.id, space: 10 });
     await sleep(200);
     g.byId(quitter.id).send('resign', {});
     await g.host.waitFor((s) => s.players.find((p) => p.id === quitter.id).bankrupt === true, 'resignation settles');
     check('the resigner is out, flagged resigned not just bankrupt', g.player(quitter.id).bankrupt === true && g.player(quitter.id).resigned === true);
-    check('their deeds returned to the bank unowned', g.S().props[5].o === null && g.S().props[13].o === null);
+    check('their deeds returned to the bank unowned', g.S().props[5].o === null && g.S().props[10].o === null);
     check('the game continues with three solvent players', g.S().status === 'playing' && g.S().players.filter((p) => !p.bankrupt).length === 3);
     check('the turn does not sit on the resigned seat', g.S().turnPlayerId !== quitter.id);
     for (const c of g.clients) c.ws.close();
@@ -1163,11 +1180,11 @@ try {
     check('the turn advanced off the leaver at once', g.S().turnPlayerId !== turnId);
     check('the game was never paused during the leave', seen.every((r) => r.paused !== true) && g.S().paused === false, 'states=' + seen.length);
     const nid = g.S().turnPlayerId;
-    g.hook('test_set_position', { playerId: nid, space: 17 });
+    g.hook('test_set_position', { playerId: nid, space: 4 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     g.byId(nid).send('roll', {});
-    await g.host.waitFor((s) => s.players.find((p) => p.id === nid).position === 20, 'next player rolled and moved');
-    check('the next player rolled right away and moved', g.player(nid).position === 20);
+    await g.host.waitFor((s) => s.players.find((p) => p.id === nid).position === 7, 'next player rolled and moved');
+    check('the next player rolled right away and moved', g.player(nid).position === 7);
     for (const c of g.clients) c.ws.close();
   }
 
@@ -1190,10 +1207,10 @@ try {
     const b0 = g.S().banner;
     check('the opener banner is structured', !!b0 && b0.key === 'opener' && b0.actorId === g.S().turnPlayerId && typeof b0.name === 'string' && b0.name.length > 0, JSON.stringify(b0));
     const before = g.S().turnPlayerId;
-    g.hook('test_set_position', { playerId: before, space: 17 });
+    g.hook('test_set_position', { playerId: before, space: 4 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     g.turn().send('roll', {});
-    await g.host.waitFor((s) => s.phase === 'end' && s.turnPlayerId === before, 'first move settles on Owambe');
+    await g.host.waitFor((s) => s.phase === 'end' && s.turnPlayerId === before, 'first move settles on Kirikiri (just visiting)');
     g.turn().send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId !== before, 'turn advanced');
     const b1 = g.S().banner;
@@ -1349,7 +1366,7 @@ try {
     g.hold(botId, true);
     // Purchase: wrap START onto Makoko with the reserve comfortably intact.
     await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'end', 'host end phase for purchase', 30000);
-    g.hook('test_set_position', { playerId: botId, space: 38 });
+    g.hook('test_set_position', { playerId: botId, space: 26 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     g.host.send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId === botId && s.phase === 'roll', 'bot roll phase', 9000);
@@ -1359,15 +1376,14 @@ try {
     await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId, 'turn returns to host', 25000);
     g.hold(botId, true);
     // Build: a completed pink set gets a duplex while the host is playing.
+    g.hook('test_give', { playerId: botId, space: 10 });
     g.hook('test_give', { playerId: botId, space: 11 });
-    g.hook('test_give', { playerId: botId, space: 13 });
-    g.hook('test_give', { playerId: botId, space: 14 });
     g.hold(botId, false);
-    await driveUntil(g, (s) => [11, 13, 14].some((i) => s.props[i] && s.props[i].b >= 1), 'bot builds on the pink set', 30000);
-    check('bot builds evenly on its completed set using parallel management', [11, 13, 14].some((i) => g.S().props[i].b >= 1));
+    await driveUntil(g, (s) => [10, 11].some((i) => s.props[i] && s.props[i].b >= 1), 'bot builds on the pink set', 30000);
+    check('bot builds evenly on its completed set using parallel management', [10, 11].some((i) => g.S().props[i].b >= 1));
     // Kirikiri: roll for doubles twice, pay bail on the third attempt.
     const inJail = (s) => { const b = s.players.find((p) => p.id === botId); return b && b.inJail; };
-    await scriptBotTurn(g, { botId, pos: 28, dice: [[1, 1]] }, inJail, 'bot enters Kirikiri');
+    await scriptBotTurn(g, { botId, pos: 19, dice: [[1, 1]] }, inJail, 'bot enters Kirikiri');
     check('bot is in Kirikiri after landing on Go To Kirikiri', g.botRow(botId).inJail === true);
     const jailDice = [[2, 3], [3, 4], [1, 2]];
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1377,21 +1393,20 @@ try {
     }
     await scriptBotTurn(g, { botId, dice: [jailDice[2]] }, (s) => { const b = s.players.find((p) => p.id === botId); return b && !b.inJail; }, 'bot pays bail and walks', 5);
     check('bot pays the Kirikiri bail on the third attempt', g.S().feed.some((e) => e.playerId === botId && e.text.includes('Kirikiri bail')), g.S().feed.map((f) => f.text).join(' | '));
-    // Auction: bot owns Mushin and Bariga, so Agege completes its set (cap 1.2x of print).
+    // Auction: bot owns Mushin, so Yaba completes its lightblue set (cap 1.2x of print).
     g.hook('test_give', { playerId: botId, space: 6 });
-    g.hook('test_give', { playerId: botId, space: 8 });
     await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'roll' && !s.auction, 'host roll phase for auction', 30000);
-    g.hook('test_set_position', { playerId: g.host.playerId, space: 6 });
+    g.hook('test_set_position', { playerId: g.host.playerId, space: 5 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     g.host.send('roll', {});
-    await g.host.waitFor((s) => s.phase === 'buy' && s.turnPlayerId === g.host.playerId, 'host buy phase on Agege', 9000);
+    await g.host.waitFor((s) => s.phase === 'buy' && s.turnPlayerId === g.host.playerId, 'host buy phase on Yaba', 9000);
     g.host.send('decline', {});
-    await g.host.waitFor((s) => s.auction && s.auction.highBidder === botId, 'bot leads the Agege auction', 9000);
+    await g.host.waitFor((s) => s.auction && s.auction.highBidder === botId, 'bot leads the Yaba auction', 9000);
     const leadBid = g.S().auction.highBid;
-    check('bot bids for its set inside the 1.2x cap', leadBid >= 1000 && leadBid <= 144000, 'bid=' + leadBid);
+    check('bot bids for its set inside the 1.2x cap', leadBid >= 1000 && leadBid <= 216000, 'bid=' + leadBid);
     g.host.send('pass_bid', {});
-    await g.host.waitFor((s) => !s.auction && s.props[9] && s.props[9].o === botId, 'bot wins Agege', 9000);
-    check('bot wins the auction and completes the lightblue set', g.S().props[9].o === botId);
+    await g.host.waitFor((s) => !s.auction && s.props[8] && s.props[8].o === botId, 'bot wins Yaba', 9000);
+    check('bot wins the auction and completes the lightblue set', g.S().props[8].o === botId);
     const stats = await botStats(g);
     check('the whole scripted game cost the bot zero server errors', stats.length === 1 && stats[0].errors.length === 0, JSON.stringify(stats));
     g.host.ws.close();
@@ -1407,10 +1422,11 @@ try {
       await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId, 'bot free first turn', 25000);
     }
     g.hold(botId, true);
-    g.hook('test_give', { playerId: botId, space: 13 }); // Yaba: a cash neutral landing after jail
-    // Draw the Wahala Get Out card: 34 plus [1,1] lands on 36, extra roll [1,2] to Banana Island.
+    g.hook('test_give', { playerId: botId, space: 19 }); // MMIA: a cash neutral landing after the card
+    g.hook('test_give', { playerId: botId, space: 10 }); // Ebute Metta: Kirikiri 7 + [1,2] lands on an own deed
+    // Draw the Wahala Get Out card: 14 plus [1,1] lands on 16, extra roll [1,2] to MMIA (own deed).
     await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'end', 'host end phase for card draw', 30000);
-    g.hook('test_set_position', { playerId: botId, space: 34 });
+    g.hook('test_set_position', { playerId: botId, space: 14 });
     g.hook('test_dice', { rolls: [[1, 1], [1, 2]] });
     g.hook('test_card', { deck: 'wahala', cardId: 'w08' });
     g.host.send('end_turn', {});
@@ -1423,7 +1439,7 @@ try {
     // Into Kirikiri with the card in hand.
     g.hold(botId, false);
     const inJailB = (s) => { const b = s.players.find((p) => p.id === botId); return b && b.inJail; };
-    await scriptBotTurn(g, { botId, pos: 28, dice: [[1, 1]] }, inJailB, 'bot enters Kirikiri holding the card');
+    await scriptBotTurn(g, { botId, pos: 19, dice: [[1, 1]] }, inJailB, 'bot enters Kirikiri holding the card');
     check('bot is in Kirikiri holding the card', g.botRow(botId).inJail === true && g.botRow(botId).goojf === 1);
     const jailDice = [[2, 3], [3, 4], [1, 2]];
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1454,7 +1470,7 @@ try {
     await driveUntil(g, (s) => botIds.includes(s.turnPlayerId) && s.phase === 'roll', 'a bot roll phase arrives', 30000);
     const subject = g.S().turnPlayerId;
     const filler = botIds.find((id) => id !== subject);
-    // Phase 2 reserve is 250000 x 2.53 = 632500. Cash 800000 buys a 100000 street.
+    // Phase 2 reserve is 250000 x 2.53 = 632500. Cash 800000 buys the 160000 Mushin.
     g.hook('test_set_cash', { playerId: subject, amount: 800000 });
     g.hook('test_set_position', { playerId: subject, space: 3 });
     g.hook('test_dice', { rolls: [[1, 2]] });
@@ -1471,7 +1487,7 @@ try {
         const s = g.S();
         if (s.turnPlayerId === subject && s.phase === 'roll') {
           // Pick an unowned street priced 100000 or more, no START wrap.
-          const target = [8, 9, 11, 13, 14, 16, 18, 19].find((i) => { const pr = s.props[i]; return !pr || !pr.o; });
+          const target = [8, 10, 11, 13, 15, 17, 18, 20].find((i) => { const pr = s.props[i]; return !pr || !pr.o; });
           if (target == null) throw new Error('no decline target street left');
           g.hook('test_set_cash', { playerId: subject, amount: 700000 });
           g.hook('test_set_position', { playerId: subject, space: target - 3 });
@@ -1485,7 +1501,7 @@ try {
         if (s.auction) { if (s.auction.highBidder !== g.host.playerId) g.host.send('pass_bid', {}); }
         else if (s.turnPlayerId === g.host.playerId) {
           if (s.phase === 'roll') {
-            g.host.send('test_set_position', { playerId: g.host.playerId, space: 17 });
+            g.host.send('test_set_position', { playerId: g.host.playerId, space: 4 });
             g.host.send('test_dice', { rolls: [[1, 2]] });
             g.host.send('roll', {});
           }

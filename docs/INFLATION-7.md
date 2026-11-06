@@ -137,54 +137,65 @@ moment of the pass.
 - Using a Lifeline never blocks anyone else: it sits inside the landing
   player's own turn resolution, like the existing buy decision.
 
-## 3. Hustle
+## 3. Hustle (Hustle 2, board28)
 
-One short explanation, the way the game shows it: "Hustle: pick a player
-wey hold cash. You fit grab 10% of their cash (max ₦150,000). If dem guide
-their money, your chance drop and if dem catch you, half your fine reach
-dem. If dem catch you, you pay fine enter the Owambe pot."
+One short explanation, the way the game shows it: "Game cash only. Pick a
+player wey hold cash: you fit collect 12% of their cash (min ₦20,000, max
+₦200,000). Some wins na Big Grab: double. If dem catch you, you pay a
+fine (25% of the stake, ₦10,000 to ₦50,000) into the Owambe pot and your
+Heat go up. Reach 3 and police carry you go Kirikiri."
 
 - Inflation only. In-game cash only: no real money, no deposits, no
   staking, no cash-out. A Hustle is a normal game action.
 - Who and when: the turn player, during their roll phase, before rolling,
   once per turn. Not while an auction, debt, Lifeline bill, contract
-  proposal or another Hustle is open.
+  proposal or another Hustle is open, and not from inside Kirikiri.
 - Target: another solvent player holding at least ₦50,000 cash, who is not
-  in Kirikiri. A target can be hustled at most once per phase by anyone,
-  and the same attacker can hustle the same target at most twice per
-  match. Each attacker gets at most 3 attempts per match.
-- Amount: 10% of the target's current cash, minimum ₦10,000, capped at
-  ₦150,000 (floor to whole naira). The exact amount, the odds and the fine
-  are shown to the attacker before they confirm, and the target sees the
-  amount at stake when they are asked to defend.
-- Fine for being caught: half the amount at stake, minimum ₦10,000. The
-  attacker must hold at least the fine in cash to start a Hustle, so a
-  fine can never create a debt or bankrupt anyone. A steal is at most 10%
-  of the target's cash, so a single Hustle can never bankrupt the target
-  either, and cash never goes negative.
-- Defence: the target gets a 20 second window to answer. Two choices:
-  - Guide my money (defend): the success chance drops to 15%, and if the
-    attacker is caught, half the fine goes to the target, half to the pot.
-  - Leave am (no defence): the success chance is 45%, and a caught
-    attacker's whole fine goes to the Owambe pot.
-  - No answer in time (AFK, disconnected, or busy): the attempt resolves
-    at a 30% success chance and a caught fine goes wholly to the pot. The
-    match never waits longer than the window.
+  in Kirikiri and is not under hustle cover. A player who was just
+  hustled (win or lose) is covered for one full table round
+  (`hustleShielded` in state). The same attacker can hustle the same
+  target at most 3 times per match. Each attacker gets at most 6 attempts
+  per match.
+- Amount: 12% of the target's current cash, minimum ₦20,000, capped at
+  ₦200,000 (floor to whole naira). Never more than the target holds.
+- Big Grab: one in five successful rolls (roll below 20% of the odds) is
+  a Big Grab: min(2 x amount, 25% of the target's cash, ₦400,000).
+- The exact amount, the Big Grab amount, the odds and the attacker's Heat
+  are shown before they confirm; the target sees the amount at stake.
+- Caught pays a fail fine into the Owambe pot: 25% of the amount at
+  stake, minimum ₦10,000, maximum ₦50,000 (`room.hustle.fine`, shown
+  before confirming), capped at the attacker's cash in hand. The
+  attacker's Heat also goes up by one (`hustleHeat`, and the match counter `hustleFails`). At Heat 3 the
+  police carry the attacker straight to Kirikiri (the normal jail, the
+  normal ways out), their Heat resets to 0 and, because it is their roll
+  phase, the turn moves to its end. A success never changes Heat. Because
+  the fine is capped at cash in hand, a Hustle can never create a debt,
+  bankrupt anyone or make cash negative.
+- Defence: the target gets a 4 second window to answer. Two choices:
+  - Guard my money (defend): the success chance drops to 25%.
+  - Leave am (no defence): the success chance is 55%.
+  - No answer in time (AFK, disconnected, or busy): the target did not
+    guard, so the attempt is uncaught by default and resolves at the
+    unguarded 55%. The match never waits longer than the window, and the turn
+    clock is paused while the window runs.
 - The roll is made on the server at resolution time, once. Resolution is
   guarded by the Hustle's own state and id: defence answers, retries,
   double clicks and reconnects can never resolve or settle it twice.
-- Outcomes move money only at resolution: success moves the amount from
-  target to attacker (never more than the target actually holds at that
-  moment); caught moves the fine from the attacker, split as above.
-  Everyone at the table sees the result in the feed and the bank alerts,
-  and the settled outcome is written to the match stamps (the audit trail
-  the end screen and records read).
+- Outcomes: success moves the amount from target to attacker at
+  resolution. Everyone sees the result (`hustleResult`: win, big, caught,
+  defended or jailed) in the feed and a toast; the settled outcome is
+  written to the match stamps.
 - Bots: a bot may start a Hustle from phase 2 on, on its turn, when the
-  richest legal target holds at least twice its cash (or ₦500,000), it can
-  cover the fine, and a per-turn chance roll passes (about 1 in 3). A bot
-  target defends about 7 times in 10. Bots obey every limit above.
-- Abandoning or farming: Hustle attempts are capped per match, targets
-  rotate by rule, and no retention reward of any kind is tied to Hustle.
+  richest legal target holds at least twice its cash (or ₦500,000), its
+  Heat is under 2, and a per-turn chance roll passes (about 1 in 3). It
+  tries each target at most once per phase. A bot target guards about 7
+  times in 10. Bots obey every limit above. AFK takeover seats only
+  defend.
+- Farming: attempts are capped per match and per pair, every target gets
+  a round of cover, and no retention reward of any kind is tied to Hustle.
+- Lifeline and phases: Hustle is untouched by the phase multipliers (the
+  amount reads cash, never rent), and a Lifeline bill blocks a Hustle
+  from starting, exactly as before.
 
 ## 4. What the client shows
 
@@ -231,6 +242,9 @@ Built on the existing retention shelf and profile, no new backend:
 
 ## 6. Wire contract (what the server publishes and accepts)
 
+The 28 space board, Owambe Rush, missed turn fee and Sapa Deals (all
+modes) live in docs/BOARD28-HUSTLE-OWAMBE.md with their own wire fields.
+
 State (`publicRoom`):
 
 - `room.pendingBill`: null or `{ id, playerId, ownerId, space, printed,
@@ -238,13 +252,20 @@ State (`publicRoom`):
   choice is open.
 - `room.hustle`: null or `{ id, from, to, amount, fine, endsAt, defended }`
   where `defended` is null (awaiting), true or false. Present only while a
-  Hustle defence window is open.
+  Hustle defence window is open. `fine` is the fail fine at stake.
+- `room.hustleResult`: null or `{ id, from, to, outcome ('win' | 'big' |
+  'caught' | 'defended' | 'jailed'), amount, fine, heat, at }`, the last settled
+  Hustle (drives the result toast; a client never replays it on join).
 - `room.inf`: `{ phase, phaseName, nextPhaseName (null in phase 7),
   multKind ('none' | 'lower' | 'higher' | 'sum' | 'sumLower' | 'sumHigher'
   | 'sumSq'), phaseEndsAt, deadlineAt, announcedPhase, salary, index,
-  preset, hustleCaps: { maxAttempts, cap, targetMinCash }, ... }` plus the
+  preset, hustleCaps: { maxAttempts, cap, targetMinCash, pct, minAmount,
+  pairCap, heatLimit, windowSecs, bigShare, bigMaxPct, fine (min), finePct,
+  fineMin, fineMax, odds: { open,
+  defended, timeout } }, ... }` plus the
   pre-existing contract fields.
 - Player rows gain: `lifelineUsed`, `hustleAttempts`, `hustledTimes`,
+  `hustleHeat`, `hustleFails`, `hustleWins`, `hustleShielded`,
   `phaseSurvived` (the phase the player reached, or was eliminated in;
   null outside Inflation).
 - End table rows gain the same `phaseSurvived`, `lifelineUsed` and

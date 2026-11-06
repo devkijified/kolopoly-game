@@ -170,11 +170,11 @@ function rentFor(room, i, diceSum, rentMult) {
   if (!owner || owner.bankrupt) return 0;
   if (sp.type === 'station') {
     const count = D.STATIONS.filter((s) => room.props[s] && room.props[s].owner === p.owner).length;
-    return 25000 * Math.pow(2, count - 1) * (rentMult || 1);
+    return D.STATION_RENT[Math.max(0, Math.min(D.STATION_RENT.length, count) - 1)] * (rentMult || 1);
   }
   if (sp.type === 'utility') {
     const both = D.UTILITIES.every((s) => room.props[s] && room.props[s].owner === p.owner);
-    return (diceSum || 0) * 1000 * (both ? 10 : 4);
+    return (diceSum || 0) * D.UTILITY_PER_PIP[both ? 1 : 0];
   }
   if (p.buildings >= 5) return sp.rent[6];
   if (p.buildings > 0) return sp.rent[p.buildings + 1];
@@ -244,14 +244,50 @@ function infMultFor(phase, d1, d2) {
 }
 // Lifeline and Hustle tuning (contract sections 2 and 3).
 const LIFELINE_BOT_SAVE_MIN = 100000;
-const HUSTLE_MAX_ATTEMPTS = 3;
-const HUSTLE_PAIR_CAP = 2;
+// Hustle 2 (docs/INFLATION-7.md section 3): trying costs no cash. The risk
+// is Heat: every caught hustle adds one, and the third one sends the
+// hustler to Kirikiri (Heat then cools to zero). Success grabs a share of
+// the target's cash; about one success in five is a Big Grab (double).
+const HUSTLE_MAX_ATTEMPTS = 6;      // per player per match
+const HUSTLE_PAIR_CAP = 3;          // same hustler on the same target per match
 const HUSTLE_TARGET_MIN_CASH = 50000;
-const HUSTLE_CAP = 150000;
-const HUSTLE_MIN_AMOUNT = 10000;
-const HUSTLE_ODDS_OPEN = 0.45;
-const HUSTLE_ODDS_DEFENDED = 0.15;
-const HUSTLE_ODDS_TIMEOUT = 0.30;
+const HUSTLE_PCT = 12;              // percent of target cash at stake
+const HUSTLE_CAP = 200000;          // normal grab cap
+const HUSTLE_MIN_AMOUNT = 20000;
+const HUSTLE_BIG_SHARE = 0.20;      // share of successes that become a Big Grab
+const HUSTLE_BIG_MAX_PCT = 25;      // a Big Grab never takes more than 25% of target cash
+const HUSTLE_ODDS_OPEN = 0.55;      // target says "leave am"
+const HUSTLE_ODDS_DEFENDED = 0.25;  // target guards their money
+const HUSTLE_ODDS_TIMEOUT = HUSTLE_ODDS_OPEN; // no answer in time = unguarded (owner t109u): same 55% as Leave am
+const HUSTLE_HEAT_LIMIT = 3;        // caught this many times: straight to Kirikiri
+const HUSTLE_WINDOW_SECS = 4;       // defence window, snappier per owner t108u (3s in test builds)
+// Fail fine (owner t107u): a caught hustle pays 25% of the amount at stake,
+// at least 10,000 and at most 50,000, into the Owambe pot. Capped at the
+// hustler's cash in hand, so it never opens a debt or bankrupts anyone.
+const HUSTLE_FINE_PCT = 25;
+const HUSTLE_FINE_MIN = 10000;
+const HUSTLE_FINE_MAX = 50000;
+function hustleFineFor(amount) { return Math.min(HUSTLE_FINE_MAX, Math.max(HUSTLE_FINE_MIN, Math.floor(amount * HUSTLE_FINE_PCT / 100))); }
+// Hustle amount at stake for a target holding `cash` (whole naira).
+// Owambe Rush (docs/BOARD28-HUSTLE-OWAMBE.md): the Owambe pot is a race.
+// A rush opens when someone lands on Owambe Grounds with at least
+// OWAMBE_RUSH_MIN in the pot, or by itself once the pot reaches
+// OWAMBE_RUSH_AUTO. "Coming" countdown first, then a short grab window;
+// the first valid grab the server receives wins the whole pot.
+const OWAMBE_RUSH_MIN = 50000;
+const OWAMBE_RUSH_AUTO = 500000;
+const OWAMBE_COMING_MS = 3000;
+const OWAMBE_OPEN_MS = 8000;
+// Missed turn: a seat whose turn clock runs out before it rolls pays this
+// fee into the Owambe pot (never more than the cash in hand, so it can
+// never create a debt) and the turn passes.
+const MISSED_TURN_FEE = 25000;
+// Sapa Deals: while a player is in debt (raising money) any other solvent
+// player may offer cash for some of the debtor's deeds.
+const SAPA_DEAL_MS = 12000;
+const SAPA_DEAL_MAX_PER_OFFERER = 3; // per debt
+const SAPA_DEAL_MIN_CASH = 1000;
+function hustleAmountFor(cash) { return Math.min(HUSTLE_CAP, Math.max(HUSTLE_MIN_AMOUNT, Math.floor(cash * HUSTLE_PCT / 100))); }
 function isInf(room) { return room.settings && room.settings.gameMode === 'inflation'; }
 function infPhase(room) { return room.inf ? room.inf.phase : 1; }
 function stamp(room, kind, text, value, playerId) {
@@ -372,6 +408,7 @@ function newPlayer(name, token, colorIdx) {
     lastStartPassAt: 0, dealBreakLap: -1, sapaWindowUsed: false,
     lifelineUsed: false, hustleAttempts: 0, lastHustleTurn: -1,
     lastHustledPhase: 0, hustledTimes: 0, eliminatedPhase: null,
+    hustleHeat: 0, hustleFails: 0, hustleWins: 0, hustleShieldTurn: -1,
     peakCash: D.START_CASH, purchases: [], salaryNote2: false,
     resigned: false,
     lastActive: 0, afkWarn: 0, afkTaken: false, humanName: null
@@ -421,7 +458,7 @@ function newRoom(code, isPublic, mode, settings) {
     code, isPublic: !!isPublic, mode: mode || 'online', settings,
     players: [], spectators: new Set(), hostId: null,
     status: 'lobby', paused: false,
-    props, duplexSupply: 32, mansionSupply: 12, pot: 0,
+    props, duplexSupply: D.DUPLEX_SUPPLY, mansionSupply: D.MANSION_SUPPLY, pot: 0, boardSize: D.BOARD_SIZE,
     decks: { wahala: shuffle(D.WAHALA.map((c) => c.id)), family: shuffle(D.FAMILY.map((c) => c.id)) },
     discard: { wahala: [], family: [] },
     turnOrder: [], turnIdx: 0, turnPlayerId: null,
@@ -433,6 +470,8 @@ function newRoom(code, isPublic, mode, settings) {
     // awaiting its owner's choice, the open Hustle awaiting defence, the
     // pair-target counters, and the per-match turn counter Hustle uses.
     pendingBill: null, hustle: null, hustlePairs: {}, hustleCounter: 0,
+    hustleResult: null, owambe: null, owambeCounter: 0, owambeResult: null,
+    sapaOffer: null, sapaCounter: 0, sapaResult: null, missedTurn: null,
     hustleRollQueue: [], billCounter: 0, turnCount: 0, hornRanking: null,
     contracts: [], contractProposal: null, dealBreak: null,
     loanDecision: null, loanDecisionQueue: [], stamps: [],
@@ -455,7 +494,7 @@ function curPlayer(room) { return room.players.find((p) => p.id === room.turnPla
 
 function publicRoom(room) {
   const propsArr = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < D.BOARD_SIZE; i++) {
     const p = room.props[i];
     propsArr.push(p ? { o: p.owner, m: p.mortgaged ? 1 : 0, b: p.buildings, pl: p.pledged ? 1 : 0 } : null);
   }
@@ -507,6 +546,20 @@ function publicRoom(room) {
       amount: room.hustle.amount, fine: room.hustle.fine,
       endsAt: room.hustle.endsAt, defended: room.hustle.defended
     } : null,
+    hustleResult: room.hustleResult || null,
+    owambe: room.owambe ? {
+      id: room.owambe.id, state: room.owambe.state, opensAt: room.owambe.opensAt,
+      closesAt: room.owambe.closesAt, by: room.owambe.by, reason: room.owambe.reason
+    } : null,
+    owambeResult: room.owambeResult || null,
+    owambeRules: { min: OWAMBE_RUSH_MIN, auto: OWAMBE_RUSH_AUTO, comingSecs: (TEST ? 1000 : OWAMBE_COMING_MS) / 1000, openSecs: (TEST ? 2500 : OWAMBE_OPEN_MS) / 1000 },
+    sapaOffer: room.sapaOffer ? {
+      id: room.sapaOffer.id, from: room.sapaOffer.from, to: room.sapaOffer.to,
+      spaces: room.sapaOffer.spaces.slice(), cash: room.sapaOffer.cash, endsAt: room.sapaOffer.endsAt
+    } : null,
+    sapaResult: room.sapaResult || null,
+    missedTurn: room.missedTurn || null,
+    missedTurnFee: MISSED_TURN_FEE,
     inf: room.inf ? {
       phase: room.inf.phase, phaseName: INF_PHASE_NAMES[room.inf.phase - 1],
       nextPhaseName: room.inf.phase < 7 ? INF_PHASE_NAMES[room.inf.phase] : null,
@@ -515,7 +568,14 @@ function publicRoom(room) {
       announcedPhase: room.inf.announcedPhase || 0,
       salary: INF_SALARIES[room.inf.phase - 1], index: INF_INDEX[room.inf.phase - 1],
       preset: room.inf.preset,
-      hustleCaps: { maxAttempts: HUSTLE_MAX_ATTEMPTS, cap: HUSTLE_CAP, targetMinCash: HUSTLE_TARGET_MIN_CASH },
+      hustleCaps: {
+        maxAttempts: HUSTLE_MAX_ATTEMPTS, cap: HUSTLE_CAP, targetMinCash: HUSTLE_TARGET_MIN_CASH,
+        pct: HUSTLE_PCT, minAmount: HUSTLE_MIN_AMOUNT, pairCap: HUSTLE_PAIR_CAP,
+        heatLimit: HUSTLE_HEAT_LIMIT, windowSecs: TEST ? 3 : HUSTLE_WINDOW_SECS,
+        bigShare: HUSTLE_BIG_SHARE, bigMaxPct: HUSTLE_BIG_MAX_PCT, fine: HUSTLE_FINE_MIN,
+        finePct: HUSTLE_FINE_PCT, fineMin: HUSTLE_FINE_MIN, fineMax: HUSTLE_FINE_MAX,
+        odds: { open: HUSTLE_ODDS_OPEN, defended: HUSTLE_ODDS_DEFENDED, timeout: HUSTLE_ODDS_TIMEOUT }
+      },
       dealBreakEndsAt: room.dealBreak ? room.dealBreak.endsAt : null,
       proposal: room.contractProposal ? {
         id: room.contractProposal.id, kind: room.contractProposal.kind,
@@ -535,6 +595,8 @@ function publicRoom(room) {
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
       lifelineUsed: !!p.lifelineUsed, hustleAttempts: p.hustleAttempts || 0,
       hustledTimes: p.hustledTimes || 0,
+      hustleHeat: p.hustleHeat || 0, hustleFails: p.hustleFails || 0, hustleWins: p.hustleWins || 0,
+      hustleShielded: room.turnCount != null && (p.hustleShieldTurn == null ? -1 : p.hustleShieldTurn) > (room.turnCount || 0),
       phaseSurvived: room.inf ? (p.eliminatedPhase || room.inf.phase) : null,
       shelfRent: !!p.shelfRent, shelfFee: !!p.shelfFee,
       sapa: room.inf ? sapaFor(room, p) : null,
@@ -586,8 +648,8 @@ function moveForward(room, player, n, opts) {
   opts = opts || {};
   const from = player.position;
   const raw = from + n;
-  const wrapped = raw >= 40;
-  player.position = raw % 40;
+  const wrapped = raw >= D.BOARD_SIZE;
+  player.position = raw % D.BOARD_SIZE;
   if (wrapped) {
     player.lap += 1;
     noteLap(room, player);
@@ -596,7 +658,7 @@ function moveForward(room, player, n, opts) {
   return wrapped;
 }
 function sendToKirikiri(room, player, reason) {
-  player.position = 10;
+  player.position = D.JAIL_INDEX;
   player.inJail = true;
   player.jailTurns = 0;
   player.doublesCount = 0;
@@ -862,7 +924,7 @@ function resolveLanding(room, player, opts) {
   }
 
   if (sp.type === 'tax') {
-    if (i === 4) {
+    if (i === D.INCOME_TAX_INDEX) {
       room.phase = 'tax';
       room.taxPlayer = player.id;
       room.taxAfter = opts.after || 'endPhase';
@@ -880,7 +942,15 @@ function resolveLanding(room, player, opts) {
     return;
   }
   if (sp.type === 'freeparking') {
-    if (room.pot > 0) {
+    if (room.pot >= OWAMBE_RUSH_MIN && !room.owambe) {
+      // Owambe Rush: the lander rings the bell, the whole table races.
+      startOwambeRush(room, player, 'landing');
+      afterCharge(room, opts.after || 'endPhase', player);
+      return;
+    }
+    if (room.owambe) {
+      setMessage(room, player.name + ' landed on Owambe Grounds. The rush don already start: grab fast!');
+    } else if (room.pot > 0) {
       const amount = room.pot;
       room.pot = 0;
       moveMoney(room, null, player, amount,
@@ -983,7 +1053,7 @@ function applyCard(room, player, card, opts) {
       return;
     }
     case 'moveBack': {
-      player.position = (player.position - fx.n + 40) % 40;
+      player.position = (player.position - fx.n + D.BOARD_SIZE) % D.BOARD_SIZE;
       resolveLanding(room, player, { after, cardMove: true });
       return;
     }
@@ -996,7 +1066,7 @@ function applyCard(room, player, card, opts) {
       return;
     }
     case 'nepaLight': {
-      if (room.props[12].owner === player.id) {
+      if (room.props[D.NEPA_INDEX].owner === player.id) {
         moveMoney(room, null, player, fx.amount, 'NEPA na your own. The street don pay you ' + D.fmtN(fx.amount) + ' for darkness.', {});
         cardDone(room, player, opts);
       } else {
@@ -1005,7 +1075,7 @@ function applyCard(room, player, card, opts) {
       return;
     }
     case 'upNepa': {
-      const amt = room.props[12].owner === player.id ? fx.ownerAmount : fx.amount;
+      const amt = room.props[D.NEPA_INDEX].owner === player.id ? fx.ownerAmount : fx.amount;
       moveMoney(room, null, player, amt, 'Up NEPA! ' + player.name + ' collect ' + D.fmtN(amt) + '.', {});
       cardDone(room, player, opts);
       return;
@@ -1158,6 +1228,8 @@ function updatePause(room) {
       }
       if (room.pendingBill) room.pendingBill.endsAt += shift;
       if (room.hustle) room.hustle.endsAt += shift;
+      if (room.owambe) { room.owambe.opensAt += shift; room.owambe.closesAt += shift; }
+      if (room.sapaOffer) room.sapaOffer.endsAt += shift;
     }
     room.pauseSince = null;
     room.pauseClockMs = null;
@@ -1243,6 +1315,7 @@ function endGame(room, winner, why) {
   room.winner = { playerId: winner.id, name: winner.name };
   room.pendingBill = null;
   if (room.hustle) room.hustle = null;
+  room.owambe = null; room.sapaOffer = null;
   room.endTable = room.players.map((p) => ({
     playerId: p.id, name: p.name, token: p.token, color: p.color, bot: !!p.bot,
     netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt, resigned: !!p.resigned,
@@ -1424,8 +1497,9 @@ function startGame(room) {
   // a fresh key per start (including play-again rematches) so the
   // client's countdown ceremony runs for every game, not just the first
   room.startedKey = room.code + ':' + now();
+  room.props = {};
   for (const i of D.OWNABLE) room.props[i] = { owner: null, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null };
-  room.duplexSupply = 32; room.mansionSupply = 12; room.pot = 0;
+  room.duplexSupply = D.DUPLEX_SUPPLY; room.mansionSupply = D.MANSION_SUPPLY; room.pot = 0;
   room.decks = { wahala: shuffle(D.WAHALA.map((c) => c.id)), family: shuffle(D.FAMILY.map((c) => c.id)) };
   room.discard = { wahala: [], family: [] };
   room.bankAuctionQueue = [];
@@ -1442,6 +1516,7 @@ function startGame(room) {
     p.lastStartPassAt = 0; p.dealBreakLap = -1; p.sapaWindowUsed = false;
     p.lifelineUsed = false; p.hustleAttempts = 0; p.lastHustleTurn = -1;
     p.lastHustledPhase = 0; p.hustledTimes = 0; p.eliminatedPhase = null;
+    p.hustleHeat = 0; p.hustleFails = 0; p.hustleWins = 0; p.hustleShieldTurn = -1;
     p.peakCash = D.START_CASH; p.purchases = []; p.salaryNote2 = false;
   }
   room.bankInterest = 0; room.interestLine = null;
@@ -1449,6 +1524,10 @@ function startGame(room) {
   room.loanDecision = null; room.loanDecisionQueue = []; room.stamps = [];
   room.firstBankruptId = null; room.activePhase = 1; room.lastDice = null;
   room.pendingBill = null; room.hustle = null; room.hustlePairs = {};
+  room.hustleResult = null; room.owambe = null; room.owambeResult = null;
+  room.sapaOffer = null; room.sapaResult = null; room.missedTurn = null;
+  room.owambeCounter = room.owambeCounter || 0; room.sapaCounter = room.sapaCounter || 0;
+  room.boardSize = D.BOARD_SIZE;
   room.hustleCounter = 0; room.hustleRollQueue = []; room.billCounter = 0;
   room.turnCount = 0; room.hornRanking = null; room.hornDebt = null;
   room.inf = null;
@@ -1670,24 +1749,240 @@ function resolveHustle(room, via) {
   target.hustledTimes = (target.hustledTimes || 0) + 1;
   const odds = h.defended === true ? HUSTLE_ODDS_DEFENDED : h.defended === false ? HUSTLE_ODDS_OPEN : HUSTLE_ODDS_TIMEOUT;
   const roll = room.hustleRollQueue && room.hustleRollQueue.length ? room.hustleRollQueue.shift() : Math.random();
+  const how = h.defended === true ? ' even as dem guard their money' : (h.defended == null ? ' while dem no answer' : '');
   if (roll < odds) {
-    const amt = Math.max(0, Math.min(h.amount, target.cash));
-    if (amt > 0) moveMoney(room, target, attacker, amt, 'Hustle! ' + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.', {});
-    const how = h.defended === true ? ' even as dem guide their money' : (h.defended == null ? ' while dem no answer' : '');
-    pushFeed(room, 'hustle', 'Hustle land: ' + attacker.name + ' grab ' + D.fmtN(amt) + ' from ' + target.name + how + '.', { playerId: attacker.id, otherId: target.id, amount: amt });
-    stamp(room, 'hustle', attacker.name + ' hustle ' + target.name + ' and grab ' + D.fmtN(amt) + '.', amt, attacker.id);
-    setMessage(room, 'Hustle land! ' + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.');
+    // Big Grab: the luckiest fifth of successes take double, still capped so
+    // one hustle never takes more than a quarter of the target's cash.
+    const big = roll < odds * HUSTLE_BIG_SHARE;
+    let want = h.amount;
+    if (big) want = Math.min(h.amount * 2, Math.floor(target.cash * HUSTLE_BIG_MAX_PCT / 100), HUSTLE_CAP * 2);
+    want = Math.max(want, h.amount);
+    const amt = Math.max(0, Math.min(want, target.cash));
+    attacker.hustleWins = (attacker.hustleWins || 0) + 1;
+    if (amt > 0) moveMoney(room, target, attacker, amt, (big ? 'BIG GRAB! ' : 'Hustle! ') + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.', {});
+    pushFeed(room, 'hustle', (big ? 'BIG GRAB! ' : 'Hustle land! ') + attacker.name + ' grab ' + D.fmtN(amt) + ' from ' + target.name + how + '.',
+      { playerId: attacker.id, otherId: target.id, amount: amt, outcome: big ? 'big' : 'win' });
+    stamp(room, 'hustle', attacker.name + ' hustle ' + target.name + ' and grab ' + D.fmtN(amt) + (big ? ' (Big Grab)' : '') + '.', amt, attacker.id);
+    setMessage(room, (big ? 'BIG GRAB! ' : 'Hustle land! ') + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.');
+    room.hustleResult = { id: h.id, from: h.from, to: h.to, outcome: big ? 'big' : 'win', amount: amt, heat: attacker.hustleHeat || 0, at: now() };
   } else {
-    const fine = Math.max(0, Math.min(h.fine, attacker.cash));
-    const toTarget = h.defended === true ? Math.floor(fine / 2) : 0;
-    if (toTarget > 0) moveMoney(room, attacker, target, toTarget, 'Hustle compensation: part of ' + attacker.name + ' fine reach ' + target.name + '.', { stat: 'fine' });
-    if (fine - toTarget > 0) moveMoney(room, attacker, null, fine - toTarget, 'Hustle fine: ' + attacker.name + ' pay enter the Owambe pot.', { toPot: true, stat: 'fine' });
-    pushFeed(room, 'hustle', 'Dem catch ' + attacker.name + '! The hustle on ' + target.name + ' fail. Fine na ' + D.fmtN(fine) + (toTarget > 0 ? ': ' + D.fmtN(toTarget) + ' reach ' + target.name + ', the rest enter the pot.' : ', all enter the Owambe pot.'), { playerId: attacker.id, otherId: target.id, amount: fine });
-    stamp(room, 'hustle', 'Dem catch ' + attacker.name + ' hustling ' + target.name + '. Fine ' + D.fmtN(fine) + '.', fine, attacker.id);
-    setMessage(room, 'Dem catch ' + attacker.name + '! Hustle fail, fine na ' + D.fmtN(fine) + '.');
+    // Caught: the fail fine goes to the Owambe pot (capped at cash in
+    // hand, never a debt). Heat goes up; the Heat limit means the
+    // officers carry the hustler to Kirikiri and Heat cools to zero.
+    const fine = Math.max(0, Math.min(h.fine != null ? h.fine : hustleFineFor(h.amount), attacker.cash));
+    if (fine > 0) payNow(room, attacker, fine, null, 'Hustle fail fine', { toPot: true, stat: 'fine' });
+    attacker.hustleFails = (attacker.hustleFails || 0) + 1;
+    attacker.hustleHeat = (attacker.hustleHeat || 0) + 1;
+    const heat = attacker.hustleHeat;
+    const jailed = heat >= HUSTLE_HEAT_LIMIT;
+    const who = h.defended === true ? target.name + ' guard their money and catch ' + attacker.name : 'Dem catch ' + attacker.name;
+    pushFeed(room, 'hustle', who + '! The hustle on ' + target.name + ' fail. Fine ' + D.fmtN(fine) + ' enter the Owambe pot. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.',
+      { playerId: attacker.id, otherId: target.id, amount: fine, fine, outcome: h.defended === true ? 'defended' : 'caught', heat });
+    stamp(room, 'hustle', 'Dem catch ' + attacker.name + ' hustling ' + target.name + '. Fine ' + D.fmtN(fine) + '. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.', 0, attacker.id);
+    setMessage(room, who + '! Hustle fail, fine ' + D.fmtN(fine) + '. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.');
+    room.hustleResult = { id: h.id, from: h.from, to: h.to, outcome: jailed ? 'jailed' : (h.defended === true ? 'defended' : 'caught'), amount: 0, fine, heat, at: now() };
+    if (jailed) {
+      attacker.hustleHeat = 0;
+      const wasTurn = room.turnPlayerId === attacker.id && room.phase === 'roll';
+      sendToKirikiri(room, attacker, 'Too much hustle: ' + HUSTLE_HEAT_LIMIT + ' catches, the officers don carry am go Kirikiri.');
+      stamp(room, 'hustle', attacker.name + ' hustle too much and land for Kirikiri.', 0, attacker.id);
+      if (wasTurn) afterCharge(room, 'endPhase', attacker);
+    }
   }
   return true;
 }
+// ---------------------------------------------------------------------------
+// Owambe Rush: first valid grab wins the whole pot. No randomness anywhere:
+// the server handles intents one at a time per room (Node event loop, one
+// Durable Object per room), so the first grab it processes inside the open
+// window is the winner, and the rush record is cleared before money moves.
+// ---------------------------------------------------------------------------
+// Missed turn (docs/BOARD28-HUSTLE-OWAMBE.md): the turn clock ran out
+// before the seat rolled. Charge the fee into the Owambe pot (capped at
+// the cash in hand, so it can never open a debt or bankrupt anyone) and
+// pass the turn. A Kirikiri stay counts the missed turn as one jail turn.
+function missTurn(room, player) {
+  const fee = Math.max(0, Math.min(MISSED_TURN_FEE, player.cash));
+  if (fee > 0) payNow(room, player, fee, null, 'Missed turn fee', { toPot: true, stat: 'fine' });
+  player.missedTurns = (player.missedTurns || 0) + 1;
+  if (player.inJail) player.jailTurns = (player.jailTurns || 0) + 1;
+  room.missedTurn = { playerId: player.id, fee, at: now(), turn: room.turnCount || 0 };
+  pushFeed(room, 'timeout', player.name + ' miss their turn: ' + D.fmtN(fee) + ' fee enter the Owambe pot and the turn don pass.', { playerId: player.id, amount: fee, auto: true, reason: 'turn timer', missed: true });
+  setMessage(room, player.name + ' miss their turn. ' + D.fmtN(fee) + ' fee, turn skipped.');
+  endTurn(room);
+}
+// ---------------------------------------------------------------------------
+// Board migration: snapshots written by the 40 space build. The old names
+// and printed prices are kept here only to translate a saved table.
+// Positions and deeds move by name where the space still exists; a deed
+// that left the board is bought back by the bank at its old printed price
+// plus its buildings at the old duplex cost, so nobody loses value.
+// Contracts on vanished deeds are voided; any open auction, buy prompt,
+// Lifeline bill or rush on the old geometry is cleared (no money moved).
+// ---------------------------------------------------------------------------
+const LEGACY_40 = [
+  ['START'], ['Makoko', 60000, 50000], ['Family Meeting'], ['Ajegunle', 60000, 50000], ['FIRS Income Tax'],
+  ['Iddo Terminus', 200000], ['Mushin', 100000, 50000], ['Wahala'], ['Bariga', 100000, 50000], ['Agege', 120000, 50000],
+  ['Kirikiri Prison'], ['Ebute Metta', 140000, 100000], ['NEPA (PHCN)', 150000], ['Yaba', 140000, 100000], ['Surulere', 160000, 100000],
+  ['Murtala Muhammed Intl Airport', 200000], ['Maryland', 180000, 100000], ['Family Meeting'], ['Opebi', 180000, 100000], ['Ikeja', 200000, 100000],
+  ['Owambe Grounds'], ['Ajah', 220000, 150000], ['Wahala'], ['Lekki Phase 1', 220000, 150000], ['GRA, Port Harcourt', 240000, 150000],
+  ['Apapa Port', 200000], ['Oniru', 260000, 150000], ['Victoria Island', 260000, 150000], ['Water Board', 150000], ['Maitama, Abuja', 280000, 150000],
+  ['Go to Kirikiri'], ['Ikoyi', 300000, 200000], ['Osborne, Ikoyi', 300000, 200000], ['Family Meeting'], ['Bourdillon, Ikoyi', 320000, 200000],
+  ['Oshodi Transport Interchange', 200000], ['Wahala'], ['Parkview Estate, Ikoyi', 350000, 200000], ['Lagos Consumption Tax'], ['Banana Island', 400000, 200000]
+];
+function migrateBoard(room) {
+  const from = room.boardSize || 40;
+  if (from === D.BOARD_SIZE) { room.boardSize = D.BOARD_SIZE; return false; }
+  const nameToNew = {};
+  D.SPACES.forEach((sp, i) => { if (nameToNew[sp.name] == null) nameToNew[sp.name] = i; });
+  const mapIdx = (old) => {
+    const L = LEGACY_40[old];
+    if (L && nameToNew[L[0]] != null) return nameToNew[L[0]];
+    return null;
+  };
+  const oldProps = room.props || {};
+  const props = {};
+  for (const i of D.OWNABLE) props[i] = { owner: null, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null };
+  const vanished = new Set();
+  for (const k of Object.keys(oldProps)) {
+    const old = Number(k), pr = oldProps[k];
+    if (!pr || pr.owner == null) continue;
+    const ni = mapIdx(old);
+    if (ni != null && props[ni] && D.SPACES[ni].price) { props[ni] = Object.assign({}, pr); continue; }
+    vanished.add(old);
+    const owner = (room.players || []).find((p) => p.id === pr.owner);
+    const L = LEGACY_40[old] || [];
+    if (owner && !owner.bankrupt) {
+      const b = pr.buildings >= 5 ? 5 : (pr.buildings || 0);
+      const refund = (pr.mortgaged ? Math.floor((L[1] || 0) / 2) : (L[1] || 0)) + b * (L[2] || 0);
+      owner.cash += refund;
+    }
+  }
+  room.props = props;
+  // A set can change shape across boards: buildings on a street whose
+  // new colour set the owner no longer holds whole go back to the bank,
+  // refunded at the new printed duplex price.
+  for (const i of D.OWNABLE) {
+    const pr = props[i], sp = D.SPACES[i];
+    if (!pr || !pr.buildings || sp.type !== 'street') continue;
+    const whole = D.GROUP_MEMBERS ? D.GROUP_MEMBERS[sp.group].every((j) => props[j] && props[j].owner === pr.owner)
+      : D.SPACES.every((x, j) => x.group !== sp.group || (props[j] && props[j].owner === pr.owner));
+    if (whole) continue;
+    const owner = (room.players || []).find((p) => p.id === pr.owner);
+    if (owner && !owner.bankrupt) owner.cash += (pr.buildings >= 5 ? 5 : pr.buildings) * (sp.duplex || 0);
+    pr.buildings = 0; pr.mansionLap = -1;
+  }
+  for (const p of room.players || []) {
+    const ni = mapIdx(p.position || 0);
+    if (p.inJail) p.position = D.JAIL_INDEX;
+    else p.position = ni != null ? ni : Math.min(D.BOARD_SIZE - 1, Math.floor((p.position || 0) * D.BOARD_SIZE / from));
+  }
+  for (const c of room.contracts || []) {
+    for (const key of ['street', 'pledgedSpace']) {
+      if (c[key] == null) continue;
+      const ni = vanished.has(c[key]) ? null : mapIdx(c[key]);
+      if (ni == null) { c.status = 'void'; } else c[key] = ni;
+    }
+  }
+  room.auction = null; room.buySpace = null; room.buyPrice = null;
+  room.bankAuctionQueue = []; room.pendingBill = null; room.owambe = null; room.sapaOffer = null;
+  if (room.status === 'playing' && ['buy', 'auction'].includes(room.phase)) room.phase = 'end';
+  room.duplexSupply = Math.min(room.duplexSupply == null ? D.DUPLEX_SUPPLY : room.duplexSupply, D.DUPLEX_SUPPLY);
+  room.mansionSupply = Math.min(room.mansionSupply == null ? D.MANSION_SUPPLY : room.mansionSupply, D.MANSION_SUPPLY);
+  room.boardSize = D.BOARD_SIZE;
+  return true;
+}
+function startOwambeRush(room, player, reason) {
+  if (room.owambe || room.status !== 'playing') return false;
+  const t = now();
+  const coming = TEST ? 1000 : OWAMBE_COMING_MS;
+  const open = TEST ? 2500 : OWAMBE_OPEN_MS;
+  room.owambe = { id: ++room.owambeCounter, state: 'coming', opensAt: t + coming, closesAt: t + coming + open, by: player ? player.id : null, reason };
+  room.owambeResult = null;
+  const lead = reason === 'landing' ? player.name + ' don ring the Owambe bell!' : 'Owambe pot don full reach ' + D.fmtN(room.pot) + '!';
+  pushFeed(room, 'owambe', lead + ' Owambe Rush dey come in ' + Math.round(coming / 1000) + ' seconds. First person wey grab, carry everything.', { playerId: player ? player.id : null, amount: room.pot, rushId: room.owambe.id });
+  stamp(room, 'owambe', 'Owambe Rush ' + room.owambe.id + ' called (' + reason + ') with ' + D.fmtN(room.pot) + ' in the pot.', room.pot, player ? player.id : null);
+  return true;
+}
+function owambeGrab(room, player, rushId) {
+  const r = room.owambe;
+  if (!r || r.id !== rushId) return 'That Owambe Rush don close.';
+  const t = now();
+  if (r.state !== 'open' || t < r.opensAt) return 'Wait for GRAB. The rush never open.';
+  if (t >= r.closesAt) return 'Too late. The rush don close.';
+  if (!player || player.bankrupt || player.resigned) return 'Only players inside the game fit grab.';
+  // Exactly once: the record closes before any money moves.
+  room.owambe = null;
+  const amount = room.pot;
+  room.pot = 0;
+  if (amount > 0) moveMoney(room, null, player, amount, 'OWAMBE RUSH! ' + player.name + ' grab the whole pot, ' + D.fmtN(amount) + '. Spray am!', {});
+  room.owambeResult = { id: r.id, winnerId: player.id, amount, at: t, reactionMs: Math.max(0, t - r.opensAt) };
+  pushFeed(room, 'jackpot', player.name + ' win the Owambe Rush: ' + D.fmtN(amount) + '!', { playerId: player.id, amount, rushId: r.id });
+  stamp(room, 'owambe', player.name + ' win Owambe Rush ' + r.id + ' for ' + D.fmtN(amount) + ' (' + (t - r.opensAt) + 'ms after open).', amount, player.id);
+  setMessage(room, player.name + ' win the Owambe Rush! ' + D.fmtN(amount) + ' don land.');
+  return null;
+}
+function owambeTick(room) {
+  let changed = false;
+  const t = now();
+  const r = room.owambe;
+  if (r && r.state === 'coming' && t >= r.opensAt) {
+    r.state = 'open';
+    pushFeed(room, 'owambe', 'GRAB NOW! Owambe pot of ' + D.fmtN(room.pot) + ' dey open. First tap carry am.', { amount: room.pot, rushId: r.id });
+    changed = true;
+  }
+  if (room.owambe && room.owambe.state === 'open' && t >= room.owambe.closesAt) {
+    const id = room.owambe.id;
+    room.owambe = null;
+    room.owambeResult = { id, winnerId: null, amount: 0, at: t };
+    pushFeed(room, 'owambe', 'Nobody grab the Owambe pot in time. ' + D.fmtN(room.pot) + ' still dey wait.', { rushId: id });
+    changed = true;
+  }
+  if (!room.owambe && room.pot >= OWAMBE_RUSH_AUTO && (!room.owambeResult || room.owambeResult.winnerId != null || t - room.owambeResult.at > (TEST ? 1500 : 60000))) {
+    // Overflow: a full pot calls its own rush (an unclaimed overflow rush
+    // waits a minute before the next one, so nobody gets spammed).
+    if (startOwambeRush(room, null, 'overflow')) changed = true;
+  }
+  return changed;
+}
+
+// ---------------------------------------------------------------------------
+// Sapa Deals: while a player is raising money for a debt, other players may
+// offer cash for some of the debtor's deeds. One offer at a time, a short
+// answer window, everything revalidated on accept. Offers never pause or
+// extend the debt: when an offer lapses the normal raise or bankruptcy
+// path simply continues.
+// ---------------------------------------------------------------------------
+function sapaDealProblem(room, from, to, spaces, cash) {
+  if (!room.debt || room.debt.playerId !== to.id) return to.name + ' no dey raise money right now.';
+  if (!from || from.bankrupt || from.id === to.id) return 'Only another living player fit offer.';
+  if (!spaces.length) return 'Pick at least one deed.';
+  if (cash < SAPA_DEAL_MIN_CASH) return 'Offer at least ' + D.fmtN(SAPA_DEAL_MIN_CASH) + '.';
+  if (cash > from.cash) return 'You no get that cash to offer.';
+  for (const i of spaces) {
+    const sp = D.SPACES[i];
+    if (!sp || !sp.price || !room.props[i] || room.props[i].owner !== to.id) return to.name + ' no own that deed again.';
+    if (room.props[i].pledged) return sp.name + ' dey pledged as loan security.';
+    if (sp.type === 'street' && groupBuildings(room, sp.group) > 0) return sp.name + ' set still get buildings. Dem must sell first.';
+  }
+  return null;
+}
+function expireSapaOffer(room, why) {
+  const o = room.sapaOffer;
+  if (!o) return false;
+  room.sapaOffer = null;
+  room.sapaResult = { id: o.id, from: o.from, to: o.to, outcome: why, at: now() };
+  if (why === 'timeout') pushFeed(room, 'trade', 'Sapa Deal no get answer in time. E don lapse.', { playerId: o.from, auto: true, reason: 'sapa deal timeout' });
+  return true;
+}
+function sapaTick(room) {
+  const o = room.sapaOffer;
+  if (!o) return false;
+  if (!room.debt || room.debt.playerId !== o.to) return expireSapaOffer(room, 'void');
+  if (now() >= o.endsAt) return expireSapaOffer(room, 'timeout');
+  return false;
+}
+
 function infTick(room) {
   const inf = room.inf;
   if (!inf) return false;
@@ -1981,6 +2276,8 @@ function tick() {
     if (room.status !== 'playing' || room.paused) continue;
     let changed = false;
     if (room.inf) { if (infTick(room)) changed = true; if (room.status !== 'playing') { broadcast(room); continue; } }
+    if (owambeTick(room)) changed = true;
+    if (sapaTick(room)) changed = true;
     if (room.auction && now() >= room.auction.endsAt) { finishAuction(room); changed = true; }
     if (!room.auction && room.bankAuctionQueue.length && ['roll', 'end', 'jail'].includes(room.phase) && !room.debt && !room.hustle && !room.pendingBill) {
       // Deeds from a bank bankruptcy auction between decisions.
@@ -2005,8 +2302,7 @@ function tick() {
         if ((room.pendingChoices[player.id] || []).length) {
           if (resolveMortgageChoice(room, player, 'interest')) { pushFeed(room, 'timeout', player.name + ' time don finish: the server pay the mortgage interest by itself.', Object.assign({ playerId: player.id }, autoTag)); changed = true; }
           else room.turnDeadline = now() + 30000;
-        } else if (room.phase === 'roll') { pushFeed(room, 'timeout', player.name + ' time don finish: the dice roll by itself.', Object.assign({ playerId: player.id }, autoTag)); doRoll(room, player); changed = true; }
-        else if (room.phase === 'jail') { pushFeed(room, 'timeout', player.name + ' time don finish: the Kirikiri dice roll by itself.', Object.assign({ playerId: player.id }, autoTag)); jailRoll(room, player); changed = true; }
+        } else if ((room.phase === 'roll' || room.phase === 'jail') && !room.hustle && !room.pendingBill) { missTurn(room, player); changed = true; }
         else if (room.phase === 'buy') { pushFeed(room, 'timeout', player.name + ' time don finish with no answer: the deed go auction.', Object.assign({ playerId: player.id }, autoTag)); declineBuy(room, player); changed = true; }
         else if (room.phase === 'tax') { pushFeed(room, 'timeout', player.name + ' time don finish: FIRS collect the smaller charge.', Object.assign({ playerId: player.id }, autoTag)); taxChoose(room, player, null); changed = true; }
         else if (room.phase === 'end') { pushFeed(room, 'timeout', player.name + ' time don finish: turn don pass.', Object.assign({ playerId: player.id }, autoTag)); endTurn(room); changed = true; }
@@ -2052,7 +2348,7 @@ function declineBuy(room, player) {
 }
 function taxChoose(room, player, choice) {
   const worth = netWorth(room, player);
-  const flat = D.SPACES[4].amount;
+  const flat = D.SPACES[D.INCOME_TAX_INDEX].amount;
   const pct = Math.floor(worth * 0.10);
   const amount = choice === 'flat' ? flat : choice === 'percent' ? pct : Math.min(flat, pct);
   room.taxPlayer = null;
@@ -2257,10 +2553,11 @@ function handleConnection(ws) {
       if (msg.type === 'test_dice') { room.diceQueue = (msg.rolls || []).map((r) => [Number(r[0]), Number(r[1])]); }
       if (msg.type === 'test_card') { room.forcedCards[msg.deck] = msg.cardId; }
       if (msg.type === 'test_set_cash') { const p = room.players.find((x) => x.id === Number(msg.playerId)) || ctx.player; if (p) { p.cash = Number(msg.amount); p.minCash = Math.min(p.minCash, p.cash); } }
-      if (msg.type === 'test_set_position') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p) p.position = Number(msg.space) % 40; }
+      if (msg.type === 'test_set_position') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p) p.position = Number(msg.space) % D.BOARD_SIZE; }
       if (msg.type === 'test_give') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p && room.props[msg.space]) room.props[msg.space].owner = p.id; }
       if (msg.type === 'test_clock') { room.gameEndsAt = now() + Number(msg.secondsLeft) * 1000; }
       if (msg.type === 'test_set_pot') { room.pot = Number(msg.amount); }
+      if (msg.type === 'test_owambe_rush') { startOwambeRush(room, null, 'test'); }
       if (msg.type === 'test_phase') {
         if (room.inf) {
           const ph = Math.min(7, Math.max(1, Number(msg.phase) || 1));
@@ -2832,6 +3129,62 @@ function handleConnection(ws) {
       return;
     }
 
+    // ---- Owambe Rush ---------------------------------------------------------
+    if (msg.type === 'owambe_grab') {
+      if (room.status !== 'playing') return fail('The game is not in play right now.');
+      if (room.mode !== 'pass' && room.paused) return fail('The game is paused, waiting for players.');
+      const why = owambeGrab(room, me, Number(msg.rushId));
+      if (why) return fail(why);
+      broadcast(room);
+      return;
+    }
+    // ---- Sapa Deals ----------------------------------------------------------
+    if (msg.type === 'sapa_offer') {
+      if (room.status !== 'playing') return fail('The game is not in play right now.');
+      if (room.sapaOffer) return fail('One Sapa Deal dey wait for answer already.');
+      const to = room.players.find((p) => p.id === Number(msg.to));
+      if (!to || to.bankrupt) return fail('Pick the player wey dey raise money.');
+      const spaces = Array.isArray(msg.spaces) ? [...new Set(msg.spaces.map(Number))].filter((i) => Number.isInteger(i)) : [];
+      const cash = Math.max(0, Math.floor(Number(msg.cash) || 0));
+      const bad = sapaDealProblem(room, me, to, spaces, cash);
+      if (bad) return fail(bad);
+      const counts = room.debt.sapaCounts || (room.debt.sapaCounts = {});
+      if ((counts[me.id] || 0) >= SAPA_DEAL_MAX_PER_OFFERER) return fail('You don offer ' + SAPA_DEAL_MAX_PER_OFFERER + ' Sapa Deals for this debt already.');
+      counts[me.id] = (counts[me.id] || 0) + 1;
+      room.sapaOffer = { id: ++room.sapaCounter, from: me.id, to: to.id, spaces, cash, endsAt: now() + (TEST ? 3000 : SAPA_DEAL_MS) };
+      room.sapaResult = null;
+      pushFeed(room, 'trade', me.name + ' offer ' + to.name + ' ' + D.fmtN(cash) + ' for ' + spaces.map((i) => D.SPACES[i].name).join(', ') + '. Sapa Deal: ' + Math.round((TEST ? 3000 : SAPA_DEAL_MS) / 1000) + ' seconds to answer.', { playerId: me.id, otherId: to.id, amount: cash });
+      broadcast(room);
+      return;
+    }
+    if (msg.type === 'sapa_answer') {
+      const o = room.sapaOffer;
+      if (!o || o.id !== Number(msg.offerId)) return fail('That Sapa Deal don close.');
+      if (!me || o.to !== me.id) return fail('Na the person wey dey raise money dey answer.');
+      if (!msg.accept) {
+        expireSapaOffer(room, 'declined');
+        pushFeed(room, 'trade', me.name + ' reject the Sapa Deal.', { playerId: me.id, otherId: o.from });
+        broadcast(room);
+        return;
+      }
+      const from = room.players.find((p) => p.id === o.from);
+      const bad = sapaDealProblem(room, from, me, o.spaces, o.cash);
+      room.sapaOffer = null; // exactly once: closed before anything moves
+      if (bad) { room.sapaResult = { id: o.id, from: o.from, to: o.to, outcome: 'void', at: now() }; broadcast(room); return fail('Sapa Deal don spoil: ' + bad); }
+      moveMoney(room, from, me, o.cash, 'Sapa Deal: ' + from.name + ' pay ' + me.name + ' ' + D.fmtN(o.cash) + '.', {});
+      for (const i of o.spaces) {
+        room.props[i].owner = from.id;
+        if (room.props[i].mortgaged) queueChoice(room, from, i);
+        if (isInf(room)) settlePassesAfterTransfer(room, i, from.id, false);
+      }
+      room.sapaResult = { id: o.id, from: o.from, to: o.to, outcome: 'accepted', cash: o.cash, spaces: o.spaces.slice(), at: now() };
+      pushFeed(room, 'trade', 'Sapa Deal sealed: ' + from.name + ' buy ' + o.spaces.map((i) => D.SPACES[i].name).join(', ') + ' from ' + me.name + ' for ' + D.fmtN(o.cash) + '.', { playerId: from.id, otherId: me.id, amount: o.cash });
+      stamp(room, 'sapa', from.name + ' buy ' + o.spaces.map((i) => D.SPACES[i].name).join(', ') + ' from ' + me.name + ' in a Sapa Deal for ' + D.fmtN(o.cash) + '.', o.cash, from.id);
+      settleDebtIfPossible(room);
+      broadcast(room);
+      return;
+    }
+
     // ---- Hustle (INFLATION-7 section 3) --------------------------------------
     if (msg.type === 'hustle_start') {
       if (!isInf(room)) return fail('Hustle na Inflation Mode move.');
@@ -2851,24 +3204,24 @@ function handleConnection(ws) {
       if (target.bankrupt) return fail(target.name + ' don bankrupt. Nothing to grab.');
       if (target.inJail) return fail(target.name + ' dey Kirikiri. Their money no dey reachable.');
       if (target.cash < HUSTLE_TARGET_MIN_CASH) return fail(target.name + ' cash too small to hustle (under ' + D.fmtN(HUSTLE_TARGET_MIN_CASH) + ').');
-      if (target.lastHustledPhase === room.inf.phase) return fail(target.name + ' don collect hustle this phase. Pick another person.');
+      if ((target.hustleShieldTurn == null ? -1 : target.hustleShieldTurn) > room.turnCount) return fail(target.name + ' just collect hustle. Dem dey cool off till everybody play one round.');
       const pairKey = me.id + '>' + target.id;
-      if ((room.hustlePairs[pairKey] || 0) >= HUSTLE_PAIR_CAP) return fail('You don hustle ' + target.name + ' enough for one match.');
-      const amount = Math.min(HUSTLE_CAP, Math.max(HUSTLE_MIN_AMOUNT, Math.floor(target.cash * 0.10)));
-      const fine = Math.max(HUSTLE_MIN_AMOUNT, Math.floor(amount / 2));
-      if (me.cash < fine) return fail('You need at least the catch fine (' + D.fmtN(fine) + ') for hand before you hustle.');
+      if ((room.hustlePairs[pairKey] || 0) >= HUSTLE_PAIR_CAP) return fail('You don hustle ' + target.name + ' enough for one match (max ' + HUSTLE_PAIR_CAP + ').');
+      const amount = hustleAmountFor(target.cash);
       me.hustleAttempts = (me.hustleAttempts || 0) + 1;
       me.lastHustleTurn = room.turnCount;
       room.hustlePairs[pairKey] = (room.hustlePairs[pairKey] || 0) + 1;
       target.lastHustledPhase = room.inf.phase;
+      // The target cools off for one full table round: nobody can farm them.
+      target.hustleShieldTurn = room.turnCount + solventPlayers(room).length;
       room.hustle = {
         id: ++room.hustleCounter, from: me.id, to: target.id,
-        amount, fine, endsAt: now() + (TEST ? 5000 : 20000),
+        amount, fine: hustleFineFor(amount), endsAt: now() + (TEST ? 3000 : HUSTLE_WINDOW_SECS * 1000),
         defended: null, state: 'open', startedAt: now(),
         savedDeadline: room.turnDeadline
       };
       room.turnDeadline = null;
-      pushFeed(room, 'hustle', me.name + ' dey try hustle ' + target.name + ' for ' + D.fmtN(amount) + '! ' + target.name + ', guide your money or leave am. Catch fine na ' + D.fmtN(fine) + '.', { playerId: me.id, otherId: target.id, amount });
+      pushFeed(room, 'hustle', me.name + ' dey try hustle ' + target.name + ' for ' + D.fmtN(amount) + '! ' + target.name + ', guard your money or leave am. ' + (TEST ? 3 : HUSTLE_WINDOW_SECS) + ' seconds.', { playerId: me.id, otherId: target.id, amount });
       setMessage(room, me.name + ' dey try hustle ' + target.name + ' for ' + D.fmtN(amount) + '. ' + target.name + ' get small time to guide their money.');
       broadcast(room);
       return;
@@ -2880,7 +3233,7 @@ function handleConnection(ws) {
       if (Number(msg.hustleId) !== h.id) return fail('That hustle don close.');
       if (h.defended !== null) return fail('You don answer already. First answer na im count.');
       h.defended = msg.defend === true;
-      pushFeed(room, 'hustle', me.name + (h.defended ? ' don guide their money well.' : ' say leave am, no guide.'), { playerId: me.id, otherId: h.from });
+      pushFeed(room, 'hustle', me.name + (h.defended ? ' don guard their money.' : ' say leave am, no guard.'), { playerId: me.id, otherId: h.from });
       // An answered hustle resolves at once; only an unanswered one waits
       // out its window. Exactly-once lives in resolveHustle's state guard.
       resolveHustle(room, 'answered');
@@ -3042,7 +3395,7 @@ function handleConnection(ws) {
       settlePassesAfterTransfer(room, i, a.id, false);
       payNow(room, a, price, null, 'Buy ' + sp.name, { stat: 'purchase', spaceName: sp.name });
       if (price !== sp.price) stamp(room, 'buy', a.name + ' buy ' + sp.name + ' at dice price: ' + D.fmtN(price) + ' (printed ' + D.fmtN(sp.price) + ').', price, a.id);
-      pushFeed(room, i === 39 ? 'deedBig' : 'deed', a.name + ' don buy ' + sp.name + ' for ' + D.fmtN(price) + '. Landlord don land.', { playerId: a.id, amount: price, space: i });
+      pushFeed(room, i === D.TOP_INDEX ? 'deedBig' : 'deed', a.name + ' don buy ' + sp.name + ' for ' + D.fmtN(price) + '. Landlord don land.', { playerId: a.id, amount: price, space: i });
       setMessage(room, a.name + ' don buy ' + sp.name + ' for ' + D.fmtN(price) + '.');
       afterCharge(room, room.afterLanding || 'endPhase', a);
       broadcast(room);
@@ -3272,6 +3625,10 @@ function handleConnection(ws) {
         p.lastHustleTurn = p.lastHustleTurn == null ? -1 : p.lastHustleTurn;
         p.lastHustledPhase = p.lastHustledPhase || 0;
         p.hustledTimes = p.hustledTimes || 0;
+        p.hustleHeat = p.hustleHeat || 0;
+        p.hustleFails = p.hustleFails || 0;
+        p.hustleWins = p.hustleWins || 0;
+        p.hustleShieldTurn = p.hustleShieldTurn == null ? -1 : p.hustleShieldTurn;
         if (p.eliminatedPhase === undefined) p.eliminatedPhase = null;
         return p;
       });
@@ -3280,6 +3637,17 @@ function handleConnection(ws) {
       // Lifeline bill, whose amounts are frozen, does survive.
       room.pendingBill = room.pendingBill || null;
       room.hustle = null;
+      room.hustleResult = room.hustleResult || null;
+      // An Owambe Rush survives a host move or Durable Object wake: its
+      // times are absolute and its money only moves inside owambeGrab.
+      room.owambe = room.owambe || null;
+      room.owambeCounter = room.owambeCounter || 0;
+      room.owambeResult = room.owambeResult || null;
+      room.sapaOffer = room.sapaOffer || null;
+      room.sapaCounter = room.sapaCounter || 0;
+      room.sapaResult = room.sapaResult || null;
+      room.missedTurn = room.missedTurn || null;
+      migrateBoard(room);
       room.hustlePairs = room.hustlePairs || {};
       room.hustleCounter = room.hustleCounter || 0;
       room.hustleRollQueue = [];
@@ -3331,6 +3699,9 @@ function handleConnection(ws) {
         if (room.auction) consider(room.auction.endsAt);
         if (room.turnDeadline) consider(room.turnDeadline);
         if (room.gameEndsAt) consider(room.gameEndsAt);
+        if (room.owambe) consider(room.owambe.state === 'coming' ? room.owambe.opensAt : room.owambe.closesAt);
+        if (room.sapaOffer) consider(room.sapaOffer.endsAt);
+        if (!room.owambe && room.pot >= OWAMBE_RUSH_AUTO) consider(room.owambeResult && room.owambeResult.winnerId == null ? room.owambeResult.at + (TEST ? 1500 : 60000) : t + 25);
         if (room.inf) {
           if (room.dealBreak) consider(room.dealBreak.endsAt);
           if (room.contractProposal) consider(room.contractProposal.endsAt);

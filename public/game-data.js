@@ -1,9 +1,10 @@
 'use strict';
 // KOLOPOLY game data. One content source for the server and the client.
-// Board, prices and rent ladders come from the design brief
-// (~/workspace/research_notes/kolopoly-design-brief-20261026.md) with the
-// two board swaps from the nostalgia research: space 24 is GRA, Port
-// Harcourt and space 29 is Maitama, Abuja, prices unchanged.
+// board28 (docs/BOARD28-HUSTLE-OWAMBE.md): a 28 space, all Lagos board,
+// 7 steps a side (4 corners + 6 middle tiles per side), with raised prices
+// and rent ladders. Kirikiri stays the jail (7) and Go to Kirikiri (21).
+// The old 40 space board lives only in game-host.js LEGACY_40, used to
+// migrate saved rooms.
 // Money scale: classic $1 = ₦1,000 throughout. Money is always exact.
 // Rent ladder reads: site / full set / 1 duplex / 2 / 3 / 4 / mansion.
 // Mortgage is always half the price. Zero em dashes in all copy.
@@ -25,8 +26,8 @@ const GROUPS = {
   brown:    { name: 'The Trenches',          color: '#8a5a33' },
   lightblue:{ name: 'Mainland Hustle Belt',  color: '#7ec3e8' },
   pink:     { name: 'Old Lagos Middle',      color: '#d94f9e' },
-  orange:   { name: 'The Capital Side',      color: '#f08c28' },
-  red:      { name: 'New Money Corridor',    color: '#d63a2f' },
+  orange:   { name: 'Ikeja Side',            color: '#f08c28' },
+  red:      { name: 'Hotels and Nightlife',  color: '#d63a2f' },
   yellow:   { name: 'Corporate and Capital', color: '#e8c62a' },
   green:    { name: 'Old Money',             color: '#2e9e5b' },
   darkblue: { name: 'The Final Boss',        color: '#2b3f9e' }
@@ -35,54 +36,74 @@ const GROUPS = {
 // type: start | street | station | utility | card | tax | jail |
 //       freeparking | gotojail
 // deck on card spaces: 'wahala' or 'family'
+// KOLOPOLY 28 (board28): 28 spaces, 7 per side counting each corner once
+// (4 corners + 6 middle tiles per side). Fewer, bigger tiles read clearly on
+// a 360 to 430px phone. A lap is 28 spaces instead of 40, so START comes
+// round about 1.4 times as often; deeds, duplexes and rents are raised
+// about 1.5x so land still feels valuable and rent still bites.
+// art: emblem key shared by the 2D (board.js) and 3D (board3d.js) renderers.
 const SPACES = [
-  { type: 'start', name: 'START', short: 'START', meaning: 'Every lap starts here. Pass am, salary alert go enter.' },
-  { type: 'street', name: 'Makoko', short: 'Makoko', group: 'brown', price: 60000, duplex: 50000, rent: [2000, 4000, 10000, 30000, 90000, 160000, 250000], meaning: 'Water world. Houses on stilts, rent on vibes, pride full ground.' },
+  // ---- Side 1 (near side): START to Kirikiri --------------------------------
+  { type: 'start', name: 'START', short: 'START', art: 'payday', meaning: 'Every lap starts here. Pass am, salary alert go enter.' },
+  { type: 'street', name: 'Makoko', short: 'Makoko', group: 'brown', art: 'stilts', price: 90000, duplex: 75000, rent: [3000, 6000, 15000, 45000, 135000, 240000, 375000], meaning: 'Water world. Houses on stilts, rent on vibes, pride full ground.' },
   { type: 'card', deck: 'family', name: 'Family Meeting', short: 'Family Meeting' },
-  { type: 'street', name: 'Ajegunle', short: 'Ajegunle', group: 'brown', price: 60000, duplex: 50000, rent: [4000, 8000, 20000, 60000, 180000, 320000, 450000], meaning: 'AJ City. Ghetto pride, football factory, music no dey carry last.' },
-  { type: 'tax', name: 'FIRS Income Tax', short: 'FIRS Tax', amount: 200000, meaning: 'Federal tax. Pay ₦200,000 flat, or 10 percent of everything you worth. Choose well.' },
-  { type: 'station', name: 'Iddo Terminus', short: 'Iddo', price: 200000, meaning: 'The old rail heart of Lagos. Trains, traders and travellers since forever.' },
-  { type: 'street', name: 'Mushin', short: 'Mushin', group: 'lightblue', price: 100000, duplex: 50000, rent: [6000, 12000, 30000, 90000, 270000, 400000, 550000], meaning: 'No dull yourself here. Mushin boys no dey fear anybody.' },
+  { type: 'street', name: 'Ajegunle', short: 'Ajegunle', group: 'brown', art: 'ball', price: 100000, duplex: 75000, rent: [6000, 12000, 30000, 90000, 270000, 480000, 675000], meaning: 'AJ City. Ghetto pride, football factory, music no dey carry last.' },
+  { type: 'tax', name: 'FIRS Income Tax', short: 'FIRS Tax', art: 'taxdoc', amount: 200000, meaning: 'Federal tax. Pay ₦200,000 flat, or 10 percent of everything you worth. Choose well.' },
+  { type: 'station', name: 'Oshodi Transport Interchange', short: 'Oshodi', art: 'interchange', price: 300000, meaning: 'Danfo capital of the world. Every road for Lagos dey pass here.' },
+  { type: 'street', name: 'Mushin', short: 'Mushin', group: 'lightblue', art: 'stalls', price: 160000, duplex: 100000, rent: [9000, 18000, 45000, 135000, 405000, 600000, 825000], meaning: 'No dull yourself here. Mushin boys no dey fear anything.' },
+  // ---- Corner: Kirikiri -------------------------------------------------------
+  { type: 'jail', name: 'Kirikiri Prison', short: 'Kirikiri', art: 'bars', meaning: 'Kirikiri. If you just dey visit, no wahala. If dem send you here, na another story.' },
+  // ---- Side 2 (left side) ---------------------------------------------------
+  { type: 'street', name: 'Yaba', short: 'Yaba', group: 'lightblue', art: 'tech', price: 180000, duplex: 100000, rent: [12000, 24000, 60000, 150000, 450000, 675000, 900000], meaning: 'Yabacon Valley. Tech money, student wahala, and Yaba left for the stories.' },
+  { type: 'utility', name: 'NEPA (PHCN)', short: 'NEPA', art: 'pylon', price: 225000, meaning: 'Light people. Own am, and every dice roll for your side dey pay you. Up NEPA!' },
+  { type: 'street', name: 'Ebute Metta', short: 'Ebute Metta', group: 'pink', art: 'house', price: 220000, duplex: 150000, rent: [15000, 30000, 75000, 225000, 675000, 940000, 1125000], meaning: 'Three shores, old railway blood, Brazilian houses wey still dey stand.' },
+  { type: 'street', name: 'Surulere', short: 'Surulere', group: 'pink', art: 'stadium', price: 240000, duplex: 150000, rent: [18000, 36000, 90000, 270000, 750000, 1050000, 1350000], meaning: 'Old Lagos pride. Stadium, nightlife, and real Lagos noise.' },
+  { type: 'station', name: 'Lekki Tollgate', short: 'Lekki Toll', art: 'gate', price: 300000, meaning: 'Pay before you pass. Every car wey enter Lekki must drop something for this gate.' },
+  { type: 'street', name: 'Allen Avenue', short: 'Allen', group: 'orange', art: 'computer', price: 280000, duplex: 150000, rent: [21000, 42000, 105000, 300000, 825000, 1125000, 1425000], meaning: 'Ikeja side hustle money. Small avenue, big transaction, bigger stories.' },
+  // ---- Corner: Owambe Grounds -------------------------------------------------
+  { type: 'freeparking', name: 'Owambe Grounds', short: 'Owambe', art: 'party', meaning: 'Owambe Grounds. Every fine, tax and fee for this game dey inside the pot here. Land here, collect everything.' },
+  // ---- Side 3 (far side) ----------------------------------------------------
+  { type: 'street', name: 'Ikeja GRA', short: 'Ikeja GRA', group: 'orange', art: 'palms', price: 300000, duplex: 150000, rent: [24000, 48000, 120000, 330000, 900000, 1200000, 1500000], meaning: 'The capital side. Government quarters calm inside mainland storm.' },
   { type: 'card', deck: 'wahala', name: 'Wahala', short: 'Wahala' },
-  { type: 'street', name: 'Bariga', short: 'Bariga', group: 'lightblue', price: 100000, duplex: 50000, rent: [6000, 12000, 30000, 90000, 270000, 400000, 550000], meaning: 'Mainland heart. Small money, big noise, everybody sabi everybody.' },
-  { type: 'street', name: 'Agege', short: 'Agege', group: 'lightblue', price: 120000, duplex: 50000, rent: [8000, 16000, 40000, 100000, 300000, 450000, 600000], meaning: 'Home of Agege bread. If you never chop am with ewa agoyin, you never ready.' },
-  { type: 'jail', name: 'Kirikiri Prison', short: 'Kirikiri', meaning: 'Kirikiri. If you just dey visit, no wahala. If dem send you here, na another story.' },
-  { type: 'street', name: 'Ebute Metta', short: 'Ebute Metta', group: 'pink', price: 140000, duplex: 100000, rent: [10000, 20000, 50000, 150000, 450000, 625000, 750000], meaning: 'Three shores, old railway blood, Brazilian houses wey don see everything.' },
-  { type: 'utility', name: 'NEPA (PHCN)', short: 'NEPA', price: 150000, meaning: 'Light people. Own am, and every dice roll for your side dey pay you. Up NEPA!' },
-  { type: 'street', name: 'Yaba', short: 'Yaba', group: 'pink', price: 140000, duplex: 100000, rent: [10000, 20000, 50000, 150000, 450000, 625000, 750000], meaning: 'Yabacon Valley. Tech money, student wahala, and Yaba Left wey everybody dey joke.' },
-  { type: 'street', name: 'Surulere', short: 'Surulere', group: 'pink', price: 160000, duplex: 100000, rent: [12000, 24000, 60000, 180000, 500000, 700000, 900000], meaning: 'Old Lagos pride. Stadium, nightlife, and respect wey money no fit buy.' },
-  { type: 'station', name: 'Murtala Muhammed Intl Airport', short: 'MMIA Airport', price: 200000, meaning: 'The japa gate. Every flight out of this country starts for this side.' },
-  { type: 'street', name: 'Maryland', short: 'Maryland', group: 'orange', price: 180000, duplex: 100000, rent: [14000, 28000, 70000, 200000, 550000, 750000, 950000], meaning: 'GRA calm inside mainland storm. Quiet streets, serious landlords.' },
-  { type: 'card', deck: 'family', name: 'Family Meeting', short: 'Family Meeting' },
-  { type: 'street', name: 'Opebi', short: 'Opebi', group: 'orange', price: 180000, duplex: 100000, rent: [14000, 28000, 70000, 200000, 550000, 750000, 950000], meaning: 'Allen side hustle money. Small street, big transactions.' },
-  { type: 'street', name: 'Ikeja', short: 'Ikeja', group: 'orange', price: 200000, duplex: 100000, rent: [16000, 32000, 80000, 220000, 600000, 800000, 1000000], meaning: 'The capital. Computer Village cash, government paper, traffic as tax.' },
-  { type: 'freeparking', name: 'Owambe Grounds', short: 'Owambe', meaning: 'Owambe Grounds. Every fine, tax and fee for this game dey inside the pot here. Land here, collect everything.' },
-  { type: 'street', name: 'Ajah', short: 'Ajah', group: 'red', price: 220000, duplex: 150000, rent: [18000, 36000, 90000, 250000, 700000, 875000, 1050000], meaning: 'Lekki corridor starter pack. New estates, old flood, long traffic.' },
-  { type: 'card', deck: 'wahala', name: 'Wahala', short: 'Wahala' },
-  { type: 'street', name: 'Lekki Phase 1', short: 'Lekki Ph 1', group: 'red', price: 220000, duplex: 150000, rent: [18000, 36000, 90000, 250000, 700000, 875000, 1050000], meaning: 'New money uniform. If your estate no get gate, you never arrive.' },
-  { type: 'street', name: 'GRA, Port Harcourt', short: 'GRA PH', group: 'red', price: 240000, duplex: 150000, rent: [20000, 40000, 100000, 300000, 750000, 925000, 1100000], meaning: 'Oil money old guard. Quiet, green, and very sure of itself.' },
-  { type: 'station', name: 'Apapa Port', short: 'Apapa Port', price: 200000, meaning: 'Where containers land. If Nigeria imports am, e pass here first.' },
-  { type: 'street', name: 'Oniru', short: 'Oniru', group: 'yellow', price: 260000, duplex: 150000, rent: [22000, 44000, 110000, 330000, 800000, 975000, 1150000], meaning: 'Village boy wey don blow. New wealth, no apology.' },
-  { type: 'street', name: 'Victoria Island', short: 'V.I.', group: 'yellow', price: 260000, duplex: 150000, rent: [22000, 44000, 110000, 330000, 800000, 975000, 1150000], meaning: 'Bank headquarters and champagne Lagos. Business first, sleep later.' },
-  { type: 'utility', name: 'Water Board', short: 'Water Board', price: 150000, meaning: 'Water people. Own am with NEPA and your tenants go pay proper utility money.' },
-  { type: 'street', name: 'Maitama, Abuja', short: 'Maitama', group: 'yellow', price: 280000, duplex: 150000, rent: [24000, 48000, 120000, 360000, 850000, 1025000, 1200000], meaning: 'Capital old money. Ministers, embassies, and silence wey cost billions.' },
-  { type: 'gotojail', name: 'Go to Kirikiri', short: 'Go to Kirikiri', meaning: 'Straight to Kirikiri. No START money, no story.' },
-  { type: 'street', name: 'Ikoyi', short: 'Ikoyi', group: 'green', price: 300000, duplex: 200000, rent: [26000, 52000, 130000, 390000, 900000, 1100000, 1275000], meaning: 'Old money headquarters. High gates, low voices.' },
-  { type: 'street', name: 'Osborne, Ikoyi', short: 'Osborne', group: 'green', price: 300000, duplex: 200000, rent: [26000, 52000, 130000, 390000, 900000, 1100000, 1275000], meaning: 'Foreshore calm. Corporate oga dem dey hide here.' },
-  { type: 'card', deck: 'family', name: 'Family Meeting', short: 'Family Meeting' },
-  { type: 'street', name: 'Bourdillon, Ikoyi', short: 'Bourdillon', group: 'green', price: 320000, duplex: 200000, rent: [28000, 56000, 150000, 450000, 1000000, 1200000, 1400000], meaning: 'The most expensive street for Nigeria. Houses start where sense end.' },
-  { type: 'station', name: 'Oshodi Transport Interchange', short: 'Oshodi', price: 200000, meaning: 'Danfo capital of the world. Every road for Lagos dey pass here.' },
-  { type: 'card', deck: 'wahala', name: 'Wahala', short: 'Wahala' },
-  { type: 'street', name: 'Parkview Estate, Ikoyi', short: 'Parkview', group: 'darkblue', price: 350000, duplex: 200000, rent: [35000, 70000, 175000, 500000, 1100000, 1300000, 1500000], meaning: 'Estate wey fine like abroad. Accent sef don change.' },
-  { type: 'tax', name: 'Lagos Consumption Tax', short: 'Lagos Tax', amount: 100000, meaning: 'Lagos State consumption tax. Flat ₦100,000. The city must chop too.' },
-  { type: 'street', name: 'Banana Island', short: 'Banana Island', group: 'darkblue', price: 400000, duplex: 200000, rent: [50000, 100000, 200000, 600000, 1400000, 1700000, 2000000], meaning: 'Final boss. If you get house here, you no need introduce yourself.' }
+  { type: 'street', name: 'Oriental Hotel', short: 'Oriental', group: 'red', art: 'towers', price: 340000, duplex: 225000, rent: [27000, 54000, 135000, 375000, 1050000, 1315000, 1575000], meaning: 'Lekki Road landmark. Big conference, bigger owambe, everybody don pass the lobby.' },
+  { type: 'street', name: 'Quilox', short: 'Quilox', group: 'red', art: 'party', price: 360000, duplex: 225000, rent: [30000, 60000, 150000, 450000, 1125000, 1390000, 1650000], meaning: 'The club wey Lagos dey talk about. Bottles dey fly, money dey rain, bouncers dey watch.' },
+  { type: 'station', name: 'Murtala Muhammed Intl Airport', short: 'MMIA Airport', art: 'plane', price: 300000, meaning: 'The japa gate. Every flight out of this country starts for this side.' },
+  { type: 'street', name: 'Victoria Island', short: 'V.I.', group: 'yellow', art: 'bank', price: 400000, duplex: 225000, rent: [33000, 66000, 165000, 495000, 1200000, 1465000, 1725000], meaning: 'Bank headquarters and champagne Lagos. Business first, sleep later.' },
+  // ---- Corner: Go to Kirikiri -------------------------------------------------
+  { type: 'gotojail', name: 'Go to Kirikiri', short: 'Go to Kirikiri', art: 'bars', meaning: 'Straight to Kirikiri. No START money, no story.' },
+  // ---- Side 4 (right side) --------------------------------------------------
+  { type: 'street', name: 'Eko Hotel', short: 'Eko Hotel', group: 'yellow', art: 'dome', price: 420000, duplex: 225000, rent: [36000, 72000, 180000, 540000, 1275000, 1540000, 1800000], meaning: 'Eko Hotel and Suites. Every big wedding, every big show, every big man for one roof.' },
+  { type: 'utility', name: 'Water Board', short: 'Water Board', art: 'watertower', price: 225000, meaning: 'Water people. Own am with NEPA and your tenants go pay proper utility money.' },
+  { type: 'street', name: 'Ikoyi', short: 'Ikoyi', group: 'green', art: 'mansion', price: 460000, duplex: 300000, rent: [39000, 78000, 195000, 585000, 1350000, 1650000, 1915000], meaning: 'Old money headquarters. High gates, low voices.' },
+  { type: 'street', name: 'Bourdillon, Ikoyi', short: 'Bourdillon', group: 'green', art: 'towers', price: 480000, duplex: 300000, rent: [42000, 84000, 225000, 675000, 1500000, 1800000, 2100000], meaning: 'The most expensive street for Nigeria. Houses start where sense end.' },
+  { type: 'street', name: 'Eko Atlantic', short: 'Eko Atlantic', group: 'darkblue', art: 'crane', price: 520000, duplex: 300000, rent: [53000, 105000, 263000, 750000, 1650000, 1950000, 2250000], meaning: 'City wey dem build from the sea. Sand fill, towers rise, abroad don come Lagos.' },
+  { type: 'street', name: 'Banana Island', short: 'Banana Island', group: 'darkblue', art: 'island', price: 600000, duplex: 300000, rent: [75000, 150000, 300000, 900000, 2100000, 2550000, 3000000], meaning: 'Final boss. If you get house here, you no need introduce yourself.' }
 ];
+
+// Board geometry, derived once. Every renderer and the engine read these
+// instead of hard coding a board length.
+const BOARD_SIZE = SPACES.length;          // 28
+const SIDE = BOARD_SIZE / 4;               // 7 steps per side
+const indexOfType = (t) => SPACES.findIndex((s) => s.type === t);
+const JAIL_INDEX = indexOfType('jail');          // 7
+const PARKING_INDEX = indexOfType('freeparking'); // 14
+const GOTOJAIL_INDEX = indexOfType('gotojail');  // 21
+const INCOME_TAX_INDEX = SPACES.findIndex((s) => s.name === 'FIRS Income Tax'); // 4
+const NEPA_INDEX = SPACES.findIndex((s) => s.name === 'NEPA (PHCN)');
+const TOP_INDEX = SPACES.findIndex((s) => s.name === 'Banana Island');
+// Station rent by number of stations one owner holds (1, 2, 3).
+const STATION_RENT = [50000, 100000, 200000];
+// Utility rent per dice pip: one utility, both utilities.
+const UTILITY_PER_PIP = [6000, 15000];
+// Bank building stock, scaled to 16 streets (was 32 and 12 for 22 streets).
+const DUPLEX_SUPPLY = 24;
+const MANSION_SUPPLY = 9;
 
 // Group membership by space index, derived once.
 const GROUP_SPACES = {};
 SPACES.forEach((s, i) => { if (s.group) { (GROUP_SPACES[s.group] = GROUP_SPACES[s.group] || []).push(i); } });
-const STATIONS = [5, 15, 25, 35];
-const UTILITIES = [12, 28];
+const STATIONS = SPACES.map((s, i) => (s.type === 'station' ? i : -1)).filter((i) => i >= 0);
+const UTILITIES = SPACES.map((s, i) => (s.type === 'utility' ? i : -1)).filter((i) => i >= 0);
 const OWNABLE = SPACES.map((s, i) => (s.price ? i : -1)).filter((i) => i >= 0);
 
 function mortgageOf(p) { return Math.floor(p / 2); }
@@ -94,7 +115,7 @@ function unmortgageCost(p) { const m = mortgageOf(p); return m + Math.round(m * 
 // 'C' current habit, 'E' era. fx types are implemented in server.js.
 // ---------------------------------------------------------------------------
 const WAHALA = [
-  { id: 'w01', tag: 'U', text: 'Advance to Banana Island. If you pass START, collect ₦200,000.', fx: { type: 'moveTo', space: 39 } },
+  { id: 'w01', tag: 'U', text: 'Advance to Banana Island. If you pass START, collect ₦200,000.', fx: { type: 'moveTo', space: TOP_INDEX } },
   { id: 'w02', tag: 'U', text: 'Go directly to Kirikiri. Do not pass START. Do not collect ₦200,000.', fx: { type: 'jail' } },
   { id: 'w03', tag: 'U', text: 'LASTMA don catch you. Park! Park! You drove one way at Oshodi. Pay a fine of ₦15,000 and register for retraining.', fx: { type: 'payBank', amount: 15000 } },
   { id: 'w04', tag: 'U', text: 'Advance to the nearest Station. If it is owned, pay the owner twice the normal rent.', fx: { type: 'moveNearest', kind: 'station', rentMult: 2 } },
@@ -109,7 +130,7 @@ const WAHALA = [
   { id: 'w13', tag: 'C', text: 'Transfer don hang. I don send am, e never drop. Keep this shield: the next rent you owe is halved, the rest forgiven by network wahala.', fx: { type: 'shield' } },
   { id: 'w14', tag: 'C', text: 'POS agent charge don enter 15 percent. Pay ₦15,000 to withdraw your own money.', fx: { type: 'payBank', amount: 15000 } },
   { id: 'w15', tag: 'E', text: 'Molue don pack up for road. Advance to the nearest Station. If it is owned, pay normal rent only.', fx: { type: 'moveNearest', kind: 'station', rentMult: 1 } },
-  { id: 'w16', tag: 'C', text: 'Rain don fall for Lekki. Everywhere na swimming pool. If you own anything in the New Money Corridor set, pay ₦15,000 for each one to pump water. If you own nothing there, collect ₦10,000.', fx: { type: 'lekkiRain', perProp: 15000, noneAmount: 10000 } }
+  { id: 'w16', tag: 'C', text: 'Rain don fall for Lekki. Everywhere na swimming pool. If you own anything in the Hotels and Nightlife set (Oriental Hotel, Quilox), pay ₦15,000 for each one to pump water. If you own nothing there, collect ₦10,000.', fx: { type: 'lekkiRain', perProp: 15000, noneAmount: 10000 } }
 ];
 
 const FAMILY = [
@@ -142,6 +163,6 @@ const TOKENS = [
 
 const PLAYER_COLORS = ['#ff6b4a', '#ffc857', '#39c2a5', '#5aa9e6', '#c39bff', '#ff8fb2'];
 
-const DATA = { fmtN, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, PLAYER_COLORS, mortgageOf, unmortgageCost };
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, PLAYER_COLORS, mortgageOf, unmortgageCost };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;

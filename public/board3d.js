@@ -187,13 +187,17 @@ KP3D.probe = function () { return lastProbe; };
 // ---------------------------------------------------------------------------
 // Layout maths, mirrored from board.js (same grid, same slots)
 // ---------------------------------------------------------------------------
-const COLW = [1.6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.6];
+// board28: geometry from KP_DATA. 7 steps per side, an 8 x 8 grid with 6
+// middle tiles per side. The ring keeps its 12.2 unit footprint, so a
+// middle tile is 1.5 units wide (was 1.0): same camera fit, bigger cards.
+const SIDE = D.SIDE, NSP = D.BOARD_SIZE, G = SIDE + 1, MID = SIDE - 1;
 const TOTALW = 12.2;
+const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? 1.6 : (TOTALW - 3.2) / MID));
 function gridPos(i) {
-  if (i <= 10) return { row: 11, col: 11 - i };
-  if (i <= 20) return { row: 21 - i, col: 1 };
-  if (i <= 30) return { row: 1, col: i - 19 };
-  return { row: i - 29, col: 11 };
+  if (i <= SIDE) return { row: G, col: G - i };
+  if (i <= 2 * SIDE) return { row: G + SIDE - i, col: 1 };
+  if (i <= 3 * SIDE) return { row: 1, col: i - 2 * SIDE + 1 };
+  return { row: i - 3 * SIDE + 1, col: G };
 }
 function tileRect(i, L) {
   const g = L || { TW: TOTALW, TD: TOTALW, colX: COLW, rowD: COLW };
@@ -225,18 +229,18 @@ function trackLayout(boxAspect, forceTall) {
   let TW, TD;
   if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
   else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
-  const wm = (TW - 3.2) / 9, dm = (TD - 3.2) / 9;
+  const wm = (TW - 3.2) / MID, dm = (TD - 3.2) / MID;
   const colX = [], rowD = [];
-  for (let k = 0; k < 11; k++) {
-    colX.push(k === 0 || k === 10 ? 1.6 : wm);
-    rowD.push(k === 0 || k === 10 ? 1.6 : dm);
+  for (let k = 0; k < G; k++) {
+    colX.push(k === 0 || k === G - 1 ? 1.6 : wm);
+    rowD.push(k === 0 || k === G - 1 ? 1.6 : dm);
   }
   return { TW, TD, colX, rowD, boxAspect, tallForced: !!forceTall };
 }
 function portraitWindow() { return window.innerHeight >= window.innerWidth; }
 // Texture top (the colour band) always points toward the board centre, so a
 // name reads correctly from its own side of the table on all four edges.
-function tileRotY(i) { return i <= 9 ? 0 : i <= 19 ? -Math.PI / 2 : i <= 29 ? Math.PI : Math.PI / 2; }
+function tileRotY(i) { return i < SIDE ? 0 : i < 2 * SIDE ? -Math.PI / 2 : i < 3 * SIDE ? Math.PI : Math.PI / 2; }
 function tileLocal(rect, i) {
   const th = tileRotY(i);
   return (th === 0 || th === Math.PI) ? { lx: rect.w, lz: rect.d } : { lx: rect.d, lz: rect.w };
@@ -245,25 +249,20 @@ function localToWorld(rect, th, lx, lz) {
   const cx = rect.x + rect.w / 2, cz = rect.z + rect.d / 2;
   return { x: cx + lx * Math.cos(th) + lz * Math.sin(th), z: cz - lx * Math.sin(th) + lz * Math.cos(th) };
 }
-const TOKEN_SLOTS = [[-0.20, 0.10], [0.20, 0.10], [-0.20, 0.38], [0.20, 0.38], [0, -0.05], [0, 0.52]];
+// board28: wider slots for the bolder pieces on the wider (1.5 unit) tiles.
+const TOKEN_SLOTS = [[-0.34, 0.08], [0.34, 0.08], [-0.34, 0.50], [0.34, 0.50], [0, -0.14], [0, 0.62]];
 function bandColorFor(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
     : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
-    : i === 0 || i === 20 ? '#e8a90c' : i === 10 || i === 30 ? '#8c2f2f'
+    : i === 0 || i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
 const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'house', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', darkblue: 'mansion' };
-const ART_BY_SPACE = {
-  0: 'payday', 1: 'stilts', 3: 'ball', 4: 'taxdoc', 5: 'train', 6: 'stalls', 9: 'bread',
-  12: 'pylon', 13: 'tech', 14: 'stadium', 15: 'plane', 18: 'stalls', 19: 'computer',
-  20: 'party', 24: 'palms', 25: 'crane', 27: 'bank', 28: 'watertower', 29: 'dome',
-  30: 'bars', 32: 'towers', 35: 'danfo', 39: 'island'
-};
 function artFor(i, sp) {
-  if (ART_BY_SPACE[i]) return ART_BY_SPACE[i];
+  if (sp.art) return sp.art === 'interchange' ? 'danfo' : sp.art;
   if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
   if (sp.type === 'station') return 'train';
-  if (sp.type === 'utility') return i === 12 ? 'pylon' : 'watertower';
+  if (sp.type === 'utility') return i === D.NEPA_INDEX ? 'pylon' : 'watertower';
   if (sp.type === 'jail' || sp.type === 'gotojail') return 'bars';
   if (sp.type === 'freeparking') return 'party';
   if (sp.type === 'tax') return 'taxdoc';
@@ -482,7 +481,7 @@ const tileTexCache = {};
 // layout, so H stays 336 and every painter constant below stays true.
 function tileTexture(i, mortgaged, wPx) {
   const sp = D.SPACES[i];
-  const corner = i % 10 === 0;
+  const corner = i % SIDE === 0;
   const W = corner ? 336 : (wPx || 208), H = 336;
   const key = i + (mortgaged ? 'm' : '') + 'w' + W;
   if (tileTexCache[key]) return tileTexCache[key];
@@ -508,7 +507,7 @@ function tileTexture(i, mortgaged, wPx) {
     fitFont(x, name.toUpperCase(), W - 26, 42, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.865);
     if (i === 0) { x.fillStyle = INK; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Collect ' + D.fmtN(D.START_PAY) + ' salary', W / 2, H * 0.66); }
-    if (i === 20) { x.fillStyle = '#6e5510'; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Land here, collect the pot', W / 2, H * 0.66); }
+    if (i === D.PARKING_INDEX) { x.fillStyle = '#6e5510'; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Land here: Owambe Rush', W / 2, H * 0.66); }
   } else if (sp.type === 'street') {
     x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.25);
     x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(6, H * 0.25 + 3, W - 12, 4);
@@ -924,8 +923,11 @@ const TOKEN_BUILDERS = { danfo: buildDanfo, keke: buildKeke, okada: buildOkada, 
 function makeToken(tokenId, colorHex, scale) {
   const g = new THREE.Group();
   // Phone track: thicker coloured pedestal so the piece reads against cream tiles.
-  const disc = cyl(0.255, 0.27, 0.055, std(new THREE.Color(colorHex).getHex(), 0.48), 0, 0.028, 0, 24);
+  // board28: bolder pieces: a wider pedestal with a dark rim so every piece
+  // pops off the cream tiles at phone size.
+  const disc = cyl(0.30, 0.32, 0.07, std(new THREE.Color(colorHex).getHex(), 0.48), 0, 0.035, 0, 28);
   g.add(disc);
+  g.add(cyl(0.335, 0.345, 0.03, std(0x2b2018, 0.6), 0, 0.015, 0, 28));
   const sc = (scale == null ? 1.18 : scale);
   const inner = (TOKEN_BUILDERS[tokenId] || buildDanfo)(sc);
   inner.position.y = 0.055;
@@ -1183,7 +1185,7 @@ function centreTexture(innerW, innerD) {
 function bandColorHex(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
     : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
-    : i === 0 ? '#e8a90c' : i === 20 ? '#e8a90c' : i === 10 || i === 30 ? '#8c2f2f'
+    : i === 0 ? '#e8a90c' : i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
 
@@ -1270,7 +1272,7 @@ class GameScene {
     this.tiles = [];
     const pickMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true });
     this.pickables = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < NSP; i++) {
       const rect = tileRect(i, this.layout);
       const th = tileRotY(i);
       const { lx, lz } = tileLocal(rect, i);
@@ -1427,7 +1429,7 @@ class GameScene {
       dis.visible = false; s.add(dis); this['discard_' + deck] = dis;
     }
     // dice
-    this.dice = [makeDie(0.42), makeDie(0.42)];
+    this.dice = [makeDie(0.58), makeDie(0.58)]; // board28: bigger dice
     this.diceRest = [new THREE.Vector3(1.55, 0.235, 3.05), new THREE.Vector3(2.35, 0.235, 2.55)];
     this.dice.forEach((d, k) => { d.position.copy(this.diceRest[k]); d.visible = false; s.add(d); });
     // flying card for draws
@@ -1437,7 +1439,7 @@ class GameScene {
     this.tray = new THREE.Group(); s.add(this.tray);
     this.trayCards = new Map();
     // deed card that rises from a tapped tile
-    this.deedCard = makeCardMesh(1.05, 1.48, deedCardTexture(39, null), cardBackTexture(null));
+    this.deedCard = makeCardMesh(1.05, 1.48, deedCardTexture(D.TOP_INDEX, null), cardBackTexture(null));
     this.deedCard.visible = false; s.add(this.deedCard);
   }
 
@@ -1499,7 +1501,7 @@ class GameScene {
     if (this._turnKey !== turnKey) { this._turnKey = turnKey; flushPendingAutoPr(); }
     // tiles: ownership, mortgage, buildings, pledges
     const byId = {}; for (const p of state.players) byId[p.id] = p;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < NSP; i++) {
       const t = this.tiles[i];
       const pr = state.props[i];
       const sig = pr ? (pr.o + '|' + pr.m + '|' + pr.b + '|' + pr.pl) : 'x';
@@ -1616,7 +1618,7 @@ class GameScene {
       const slot = slotCount[p.position] || 0; slotCount[p.position] = slot + 1;
       let o = this.tokens.get(p.id);
       if (!o) {
-        const grp = makeToken(p.token, p.color, 1);
+        const grp = makeToken(p.token, p.color, 1.32);
         this.tokenGroup.add(grp);
         o = { grp, inner: grp.userData.inner, pos: p.position, target: p.position, anim: null, bob: Math.random() * 6, slot };
         this.tokens.set(p.id, o);
@@ -1624,13 +1626,23 @@ class GameScene {
       }
       o.slot = slot;
       o.bankrupt = p.bankrupt; o.inJail = p.inJail;
+      // YOU tag over my own piece (online rooms only).
+      const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
+      const isMe = state.mode !== 'pass' && meId != null && p.id === meId;
+      if (isMe && !o.you) {
+        o.you = textSprite('YOU', { bg: p.color, fg: '#ffffff', size: 54 });
+        o.you.scale.set(1.05, 0.27, 1);
+        o.you.position.set(0, 1.18, 0);
+        o.you.renderOrder = 20;
+        o.grp.add(o.you);
+      } else if (!isMe && o.you) { o.grp.remove(o.you); o.you = null; }
       // bankrupt tokens sink and shrink a touch; materials are shared, so no opacity tricks
       o.grp.scale.setScalar(p.bankrupt ? 0.78 : 1);
       if (o.target !== p.position) {
         const from = o.target;
         o.target = p.position;
         if (o.anim) { o.pos = o.anim.cur; o.anim = null; }
-        const fwd = (p.position - from + 40) % 40;
+        const fwd = (p.position - from + NSP) % NSP;
         if (p.inJail || fwd > 12 || fwd === 0 || state.status !== 'playing') {
           o.pos = p.position;
           o.grp.position.copy(this.worldFor(p.position, slot));
@@ -1639,7 +1651,7 @@ class GameScene {
         } else {
           const path = [];
           let cur = from;
-          while (cur !== p.position) { cur = (cur + 1) % 40; path.push(cur); }
+          while (cur !== p.position) { cur = (cur + 1) % NSP; path.push(cur); }
           o.anim = { path, t: 0, step: 0.235, cur: from };
         }
       } else if (!o.anim) {
@@ -2597,6 +2609,7 @@ function initGL() {
     SCENES.lobby = new LobbyScene();
     SCENES.end = new EndScene();
   } catch (e) {
+    try { console.warn('KP3D scene build failed, 2D board fallback:', e && (e.stack || e.message)); } catch (e2) { /* quiet */ }
     renderer = null;
     return;
   }
