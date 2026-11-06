@@ -187,12 +187,18 @@ KP3D.probe = function () { return lastProbe; };
 // ---------------------------------------------------------------------------
 // Layout maths, mirrored from board.js (same grid, same slots)
 // ---------------------------------------------------------------------------
-// board28: geometry from KP_DATA. 7 steps per side, an 8 x 8 grid with 6
+// board20: geometry from KP_DATA. 5 steps per side, a 6 x 6 grid with 4
 // middle tiles per side. The ring keeps its 12.2 unit footprint, so a
-// middle tile is 1.5 units wide (was 1.0): same camera fit, bigger cards.
+// middle tile is 1.8 units wide (1.5 on board28, 1.0 on the 40 board):
+// same camera fit, much bigger cards.
+// board20 (owner t114u): tiles are long rectangles, not squares. The ring
+// depth (CORNER, every tile's local depth) is 2.5 units (was 1.6), so a
+// middle tile is 1.8 wide by 2.5 deep: bigger, bolder and readable on a
+// phone. The centre field shrinks to 7.2 x 7.2 and its props still fit.
 const SIDE = D.SIDE, NSP = D.BOARD_SIZE, G = SIDE + 1, MID = SIDE - 1;
 const TOTALW = 12.2;
-const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? 1.6 : (TOTALW - 3.2) / MID));
+const CORNER = 2.5, RING2 = 2 * CORNER;
+const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? CORNER : (TOTALW - RING2) / MID));
 function gridPos(i) {
   if (i <= SIDE) return { row: G, col: G - i };
   if (i <= 2 * SIDE) return { row: G + SIDE - i, col: 1 };
@@ -212,11 +218,11 @@ function tileRect(i, L) {
 // the track over a footprint whose depth-to-width ratio equals the box
 // aspect (corrected for the fitted camera's elevation, so the projected
 // silhouette binds both box axes at once at 100 percent). Corners stay
-// square (1.6 x 1.6) in every layout: a tall box pours its extra depth
+// square (CORNER x CORNER) in every layout: a tall box pours its extra depth
 // into the nine middle rows (near/far tiles keep their depth, side tiles
 // gain length); a wide box pours its extra width into the nine middle
 // columns (side tiles keep their width, near/far tiles gain breadth).
-// Tile local depth (lz) is 1.6 in every layout, so only local width (lx)
+// Tile local depth (lz) is CORNER in every layout, so only local width (lx)
 // varies, and tile face textures are generated for the tile's own lx.
 function trackLayout(boxAspect, forceTall) {
   const camAspect = 1 / boxAspect;
@@ -229,11 +235,11 @@ function trackLayout(boxAspect, forceTall) {
   let TW, TD;
   if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
   else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
-  const wm = (TW - 3.2) / MID, dm = (TD - 3.2) / MID;
+  const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
   for (let k = 0; k < G; k++) {
-    colX.push(k === 0 || k === G - 1 ? 1.6 : wm);
-    rowD.push(k === 0 || k === G - 1 ? 1.6 : dm);
+    colX.push(k === 0 || k === G - 1 ? CORNER : wm);
+    rowD.push(k === 0 || k === G - 1 ? CORNER : dm);
   }
   return { TW, TD, colX, rowD, boxAspect, tallForced: !!forceTall };
 }
@@ -477,15 +483,21 @@ const tileTexCache = {};
 // KP11: the canvas is generated for the tile's own rectangular
 // proportions in the current layout (wPx from the tile's local width at
 // 210px per unit, bucketed to 8px), so the face art never stretches when
-// the track spreads. Height is constant: local depth is 1.6 in every
-// layout, so H stays 336 and every painter constant below stays true.
+// the track spreads. Height is constant: local depth is CORNER in every
+// layout, so the canvas is CORNER x 210px deep; painting happens in a
+// logical space 336 deep (scale TS), so every painter constant below
+// stays true and type grows with the deeper tile.
+const TS = CORNER / 1.6;
 function tileTexture(i, mortgaged, wPx) {
   const sp = D.SPACES[i];
   const corner = i % SIDE === 0;
-  const W = corner ? 336 : (wPx || 208), H = 336;
-  const key = i + (mortgaged ? 'm' : '') + 'w' + W;
+  const Hpx = Math.round(336 * TS);
+  const Wpx = corner ? Hpx : (wPx || 208);
+  const W = Wpx / TS, H = 336;
+  const key = i + (mortgaged ? 'm' : '') + 'w' + Wpx;
   if (tileTexCache[key]) return tileTexCache[key];
-  const [c, x] = cnvS(W, H, TIER.texScale);
+  const [c, x] = cnvS(Wpx, Hpx, TIER.texScale);
+  x.scale(TS, TS);
   const band = deepenBand(bandColorFor(i, sp));
   const art = artFor(i, sp);
   const g = x.createLinearGradient(0, 0, 0, H);
@@ -498,7 +510,7 @@ function tileTexture(i, mortgaged, wPx) {
     x.fillStyle = sp.deck === 'wahala' ? '#f9ded8' : '#dcecfb'; x.fillRect(6, 6, W - 12, H - 12);
     emblem(x, 'cards', W / 2, H * 0.40, corner ? 150 : 118, band);
     x.fillStyle = band; x.fillRect(6, H * 0.70, W - 12, H * 0.24);
-    x.fillStyle = '#fff'; fitFont(x, name.toUpperCase(), W - 24, 36, '900', '"Aeonik Pro", sans-serif');
+    x.fillStyle = '#fff'; fitFont(x, name.toUpperCase(), W - 20, 44, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.86);
   } else if (corner) {
     emblem(x, art, W / 2, H * 0.40, 168, band);
@@ -509,28 +521,33 @@ function tileTexture(i, mortgaged, wPx) {
     if (i === 0) { x.fillStyle = INK; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Collect ' + D.fmtN(D.START_PAY) + ' salary', W / 2, H * 0.66); }
     if (i === D.PARKING_INDEX) { x.fillStyle = '#6e5510'; x.font = '800 24px "Figtree", sans-serif'; x.fillText('Land here: Owambe Rush', W / 2, H * 0.66); }
   } else if (sp.type === 'street') {
-    x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.25);
-    x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(6, H * 0.25 + 3, W - 12, 4);
+    // board20: a thick colour band (30 percent of the tile) carrying the
+    // name in heavy type, and a big price on a cream foot.
+    x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.30);
+    x.fillStyle = 'rgba(0,0,0,0.22)'; x.fillRect(6, H * 0.30 + 3, W - 12, 6);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
     const words = name.split(' ');
     let lines = [name];
-    if (x.measureText(name).width > 0 && fitFont(x, name.toUpperCase(), W - 20, 36, '900', '"Aeonik Pro", sans-serif') <= 21 && words.length > 1) {
+    if (x.measureText(name).width > 0 && fitFont(x, name.toUpperCase(), W - 16, 46, '900', '"Aeonik Pro", sans-serif') <= 30 && words.length > 1) {
       const mid = Math.ceil(words.length / 2);
       lines = [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
     }
-    x.font = '900 ' + Math.min(36, fitFont(x, lines[0].toUpperCase(), W - 20, 36, '900', '"Aeonik Pro", sans-serif')) + 'px "Aeonik Pro", sans-serif';
-    lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.115 + k * H * 0.085));
-    emblem(x, art, W / 2, H * 0.55, 104, band);
-    x.fillStyle = INK; x.font = '900 34px "Aeonik Pro", sans-serif';
-    x.fillText(D.fmtN(sp.price), W / 2, H * 0.945);
-  } else {
-    x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.075);
+    const nameSize = Math.min(46, Math.min.apply(null, lines.map((ln) => fitFont(x, ln.toUpperCase(), W - 16, 46, '900', '"Aeonik Pro", sans-serif'))));
+    x.font = '900 ' + nameSize + 'px "Aeonik Pro", sans-serif';
+    if (lines.length === 1) x.fillText(lines[0].toUpperCase(), W / 2, H * 0.185);
+    else lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.135 + k * H * 0.115));
+    emblem(x, art, W / 2, H * 0.58, 96, band);
     x.fillStyle = INK;
-    fitFont(x, name.toUpperCase(), W - 18, 30, '900', '"Aeonik Pro", sans-serif');
-    x.fillText(name.toUpperCase(), W / 2, H * 0.20);
-    emblem(x, art, W / 2, H * 0.52, 112, band);
-    if (sp.price) { x.font = '900 30px "Aeonik Pro", sans-serif'; x.fillText(D.fmtN(sp.price), W / 2, H * 0.945); }
-    else if (sp.amount) { x.font = '800 27px "Aeonik Pro", sans-serif'; x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.945); }
+    fitFont(x, D.fmtN(sp.price), W - 16, 44, '900', '"Aeonik Pro", sans-serif');
+    x.fillText(D.fmtN(sp.price), W / 2, H * 0.94);
+  } else {
+    x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.13);
+    x.fillStyle = INK;
+    fitFont(x, name.toUpperCase(), W - 16, 40, '900', '"Aeonik Pro", sans-serif');
+    x.fillText(name.toUpperCase(), W / 2, H * 0.25);
+    emblem(x, art, W / 2, H * 0.56, 104, band);
+    if (sp.price) { fitFont(x, D.fmtN(sp.price), W - 16, 42, '900', '"Aeonik Pro", sans-serif'); x.fillText(D.fmtN(sp.price), W / 2, H * 0.94); }
+    else if (sp.amount) { fitFont(x, 'Pay ' + D.fmtN(sp.amount), W - 16, 36, '800', '"Aeonik Pro", sans-serif'); x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.94); }
   }
   if (mortgaged) {
     x.fillStyle = 'rgba(60,60,66,0.45)'; x.fillRect(0, 0, W, H);
@@ -1050,6 +1067,7 @@ function textSprite(text, opts) {
   const o = opts || {};
   const c = cnv(384, 96), x = c.getContext('2d');
   x.fillStyle = o.bg || 'rgba(30,20,10,0.88)'; rr(x, 6, 14, 372, 68, 18); x.fill();
+  if (o.rim) { x.strokeStyle = o.rim; x.lineWidth = 7; rr(x, 6, 14, 372, 68, 18); x.stroke(); }
   x.fillStyle = o.fg || '#ffe9c9'; x.textAlign = 'center';
   fitFont(x, text, 350, o.size || 40, '900', '"Aeonik Pro", sans-serif');
   x.fillText(text, 192, 62);
@@ -1117,12 +1135,14 @@ function centreTexture(innerW, innerD) {
   x.strokeStyle = 'rgba(160,116,32,0.25)'; x.lineWidth = 2; x.strokeRect(44, 44, W - 88, H - 88);
   const px = (wx) => (wx / innerW + 0.5) * W, pz = (wz) => (wz / innerD + 0.5) * H;
   // Lagos skyline wash: stepped towers with lit windows that still read at phone size
-  const hs = [70, 120, 88, 150, 96, 132, 74, 118, 84, 140, 92];
+  // board20: the deeper ring leaves 0.45 units north of the baseline, so
+  // the painted towers are scaled to fit inside the field border.
+  const hs = [70, 120, 88, 150, 96, 132, 74, 118, 84, 140, 92].map((h) => Math.round(h * Math.min(1, Math.max(0.36, (innerD - 7.2) / 1.8 * 0.64 + 0.36))));
   const skyCols = ['rgba(46,80,66,0.42)', 'rgba(55,70,88,0.40)', 'rgba(90,70,48,0.38)'];
   let bx0 = px(-innerW / 2 + 0.2);
   hs.forEach((h, ki) => {
     const w = 52 + (h % 40);
-    const top = pz(1.35 - innerD / 2) - h;
+    const top = pz(0.45 - innerD / 2) - h;
     x.fillStyle = skyCols[ki % 3]; x.fillRect(bx0, top, w, h);
     x.fillStyle = 'rgba(255,233,168,0.55)';
     for (let r = 0; r < Math.floor(h / 18); r++) for (let c = 0; c < Math.floor(w / 14); c++) {
@@ -1266,7 +1286,7 @@ class GameScene {
   // Texture width for a tile's face: its local width at 210px per unit,
   // bucketed to 8px, so the generated canvas matches the tile's own
   // rectangular proportions in the live layout (no stretched art).
-  texW(t) { return Math.max(160, Math.min(420, Math.round(t.lx * 210 / 8) * 8)); }
+  texW(t) { return Math.max(160, Math.min(560, Math.round(t.lx * 210 / 8) * 8)); }
 
   buildTiles(s) {
     this.tiles = [];
@@ -1378,14 +1398,14 @@ class GameScene {
 
   buildCentre(s) {
     const L = this.layout;
-    const innerW = L.TW - 3.2, innerD = L.TD - 3.2;
+    const innerW = L.TW - RING2, innerD = L.TD - RING2;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(innerW + 0.34, innerD + 0.34), new THREE.MeshStandardMaterial({ map: centreTexture(innerW, innerD), roughness: 0.9 }));
     floor.rotation.x = -Math.PI / 2; floor.position.y = 0.02; floor.receiveShadow = true; s.add(floor);
     this.floorMesh = floor;
     // skyline row
     const winMats = [0x39594a, 0x51606e, 0x6e5a41].map((col, k) => new THREE.MeshStandardMaterial({ map: skylineTexture('#' + col.toString(16).padStart(6, '0'), 0.55), roughness: 0.78 }));
     // Skyline kept low (tallest 0.52) and riding the centre field's north
-    // edge (z = 1.28 - innerD/2, span inside x +-3.95 at the square
+    // edge (z = 0.36 - innerD/2, board20 ring is deeper; span inside the
     // layout) so it stays strictly inside the centre island and never
     // crowds the top track from the full-board camera. _fitCentre
     // re-seats the row when the layout reflows.
@@ -1394,13 +1414,14 @@ class GameScene {
     let sx = -3.3;
     hs.forEach((h, k) => {
       const w = 0.42 + (k % 3) * 0.1;
-      const b = bx(w, h, 0.44, winMats[k % 3], sx + w / 2, h / 2 + 0.02, 1.28 - innerD / 2);
+      const b = bx(w, h, 0.44, winMats[k % 3], sx + w / 2, h / 2 + 0.02, 0.36 - innerD / 2);
       b.userData.baseX = sx + w / 2;
       sx += w + 0.16; s.add(b); this.skylineBars.push(b);
     });
     // water and bridge
     const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x2f6fad, roughness: 0.22, metalness: 0.45, envMapIntensity: 0.6 }));
     water.rotation.x = -Math.PI / 2; water.position.set(0, 0.035, -2.45); water.receiveShadow = true; s.add(water);
+    water.scale.x = Math.min(1, (innerW - 0.3) / 8.4); this.water = water;
     const bridgeMat = std(0x333a40, 0.6, 0.3);
     // Bridge arc shrunk (Lesson 6c): radius 1.1 (peak 1.2), deck 2.6 long,
     // piers to match. Between the smaller arc and the wordmark's move
@@ -1451,7 +1472,8 @@ class GameScene {
   _fitCentre() {
     if (!this.floorMesh) return;
     const L = this.layout;
-    const innerW = L.TW - 3.2, innerD = L.TD - 3.2;
+    const innerW = L.TW - RING2, innerD = L.TD - RING2;
+    if (this.water) this.water.scale.x = Math.min(1, (innerW - 0.3) / 8.4);
     this.floorMesh.geometry.dispose();
     this.floorMesh.geometry = new THREE.PlaneGeometry(innerW + 0.34, innerD + 0.34);
     if (this.floorMesh.material.map) this.floorMesh.material.map.dispose();
@@ -1460,7 +1482,7 @@ class GameScene {
     const spread = innerW / 9;
     for (const b of this.skylineBars || []) {
       b.position.x = b.userData.baseX * spread;
-      b.position.z = 1.28 - innerD / 2;
+      b.position.z = 0.36 - innerD / 2;
     }
   }
 
@@ -1626,16 +1648,23 @@ class GameScene {
       }
       o.slot = slot;
       o.bankrupt = p.bankrupt; o.inJail = p.inJail;
-      // YOU tag over my own piece (online rooms only).
+      // Name tag over every piece (owner t115u): YOU over my own piece in
+      // online rooms, the player's name over everyone else's.
       const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
       const isMe = state.mode !== 'pass' && meId != null && p.id === meId;
-      if (isMe && !o.you) {
-        o.you = textSprite('YOU', { bg: p.color, fg: '#ffffff', size: 54 });
-        o.you.scale.set(1.05, 0.27, 1);
-        o.you.position.set(0, 1.18, 0);
-        o.you.renderOrder = 20;
+      const nm = String(p.name || '').trim() || 'Player';
+      const tag = isMe ? 'YOU' : (nm.length > 9 ? nm.slice(0, 8) + '\u2026' : nm);
+      if (o.tagText !== tag || o.tagColor !== p.color) {
+        if (o.you) { o.grp.remove(o.you); if (o.you.material.map) o.you.material.map.dispose(); o.you.material.dispose(); }
+        // Sized for a phone held upright: about a tile wide, so the name
+        // reads at a glance from across the board.
+        o.you = textSprite(tag, { bg: p.color, fg: '#ffffff', size: 64, rim: isMe ? '#ffe9a8' : '#ffffff' });
+        o.you.scale.set(1.8, 0.45, 1);
+        o.you.position.set(0, 1.3, 0);
+        o.you.renderOrder = isMe ? 21 : 20;
         o.grp.add(o.you);
-      } else if (!isMe && o.you) { o.grp.remove(o.you); o.you = null; }
+        o.tagText = tag; o.tagColor = p.color; o.isMe = isMe;
+      }
       // bankrupt tokens sink and shrink a touch; materials are shared, so no opacity tricks
       o.grp.scale.setScalar(p.bankrupt ? 0.78 : 1);
       if (o.target !== p.position) {

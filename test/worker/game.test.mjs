@@ -119,18 +119,18 @@ describe('worker table', () => {
     expect(playing.room.settings.gameMode).toBe('classic');
     const turn = playing.room.turnPlayerId;
     const actor = turn === ada.playerId ? ada : bola;
-    actor.send({ type: 'test_set_position', playerId: turn, space: 17 });
+    actor.send({ type: 'test_set_position', playerId: turn, space: 13 });
     actor.send({ type: 'test_dice', rolls: [[1, 2]] });
     actor.send({ type: 'roll' });
-    const moved = await ada.until((m) => m.type === 'state' && m.room.players.find((p) => p.id === turn).position === 20, 'rolled to 20');
-    expect(moved.room.players.find((p) => p.id === turn).position).toBe(20);
+    const moved = await ada.until((m) => m.type === 'state' && m.room.players.find((p) => p.id === turn).position === 16, 'rolled to 16');
+    expect(moved.room.players.find((p) => p.id === turn).position).toBe(16);
 
     await env.ROOM.get(env.ROOM.idFromName(ada.code)).fetch('http://room.internal/evict?code=' + ada.code);
     ada.send({ type: 'test_set_cash', playerId: ada.playerId, amount: 1234567 });
     const after = await ada.until((m) => {
       if (m.type !== 'state') return false;
       const row = m.room.players.find((p) => p.id === ada.playerId);
-      return row && row.cash === 1234567 && m.room.players.find((p) => p.id === turn).position === 20;
+      return row && row.cash === 1234567 && m.room.players.find((p) => p.id === turn).position === 16;
     }, 'state survived eviction');
     expect(after.room.code).toBe(ada.code);
 
@@ -140,7 +140,7 @@ describe('worker table', () => {
     const rejoined = await back.until((m) => m.type === 'joined' && m.rejoined, 'rejoined');
     expect(rejoined.playerId).toBe(ada.playerId);
     const restored = await back.until((m) => m.type === 'state' && m.room.players.find((p) => p.id === ada.playerId).cash === 1234567, 'cash held');
-    expect(restored.room.players.find((p) => p.id === turn).position).toBe(20);
+    expect(restored.room.players.find((p) => p.id === turn).position).toBe(16);
 
     const stranger = await seat('/room/' + ada.code);
     stranger.send({ type: 'rejoin', code: ada.code, playerId: ada.playerId, token: 'not-the-token' });
@@ -350,9 +350,9 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
     buyer.send({ type: 'test_set_position', playerId: turn, space: 5 });
     buyer.send({ type: 'test_dice', rolls: [[1, 2]] });
     buyer.send({ type: 'roll' });
-    await ada.until((m) => m.type === 'state' && m.room.phase === 'buy' && m.room.buySpace === 8, 'yaba offered');
+    await ada.until((m) => m.type === 'state' && m.room.phase === 'buy' && m.room.buySpace === 8, 'surulere offered');
     buyer.send({ type: 'buy' });
-    await ada.until((m) => m.type === 'state' && m.room.props[8].o === turn, 'yaba bought');
+    await ada.until((m) => m.type === 'state' && m.room.props[8].o === turn, 'surulere bought');
     buyer.send({ type: 'end_turn' });
     await ada.until((m) => m.type === 'state' && m.room.turnPlayerId === tenantId && m.room.phase === 'roll', 'tenant to roll');
     ada.send({ type: 'test_phase', phase: 2 });
@@ -361,15 +361,15 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
     tenant.send({ type: 'test_dice', rolls: [[2, 5]] });
     tenant.send({ type: 'roll' });
     const billed = await ada.until((m) => m.type === 'state' && m.room.pendingBill && m.room.pendingBill.playerId === tenantId, 'lifeline bill');
-    expect(billed.room.pendingBill.printed).toBe(12000);
+    expect(billed.room.pendingBill.printed).toBe(24000);
     expect(billed.room.pendingBill.mult).toBe(2);
-    expect(billed.room.pendingBill.amount).toBe(24000);
+    expect(billed.room.pendingBill.amount).toBe(48000);
     const ownerBefore = billed.room.players.find((p) => p.id === turn).cash;
     const tenantBefore = billed.room.players.find((p) => p.id === tenantId).cash;
     tenant.send({ type: 'lifeline_skip', billId: billed.room.pendingBill.id, id: billed.room.pendingBill.id });
     const settled = await ada.until((m) => m.type === 'state' && !m.room.pendingBill
-      && m.room.players.find((p) => p.id === turn).cash === ownerBefore + 24000, 'rent settled');
-    expect(settled.room.players.find((p) => p.id === tenantId).cash).toBe(tenantBefore - 24000);
+      && m.room.players.find((p) => p.id === turn).cash === ownerBefore + 48000, 'rent settled');
+    expect(settled.room.players.find((p) => p.id === tenantId).cash).toBe(tenantBefore - 48000);
   });
 
   it('imports an old shape snapshot with defaults and the game continues', async () => {
@@ -404,8 +404,8 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
         delete p.hustleAttempts;
         delete p.lastHustledPhase;
       }
-      // board28: the snapshot is also a 40 space board. The other seat
-      // owns old Yaba (13) and old Parkview Estate (37, gone on 28).
+      // The snapshot is also a 40 space board. The other seat owns old
+      // Yaba (13) and old Parkview Estate (37, gone on board20).
       const other = room.players.find((p) => p.id !== room.turnPlayerId);
       delete room.boardSize;
       const legacy = [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39];
@@ -420,23 +420,23 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
     const restored = await ada.until((m) => m.type === 'state'
       && m.room.players.find((p) => p.id === ada.playerId).cash === 7654321, 'restored after eviction');
     expect(restored.room.inf.phase).toBe(2);
-    expect(Object.keys(restored.room.props).every((k) => Number(k) < 28)).toBe(true);
+    expect(Object.keys(restored.room.props).every((k) => Number(k) < 20)).toBe(true);
     expect(typeof restored.room.inf.deadlineAt).toBe('number');
     // The imported game continues: a multiplied Squeeze landing still bills
     // at printed times the lower die and settles.
     const turn = restored.room.turnPlayerId;
     const tenant = turn === ada.playerId ? ada : bola;
     const ownerId = restored.room.players.find((p) => p.id !== turn).id;
-    // migrated by name: old Yaba 13 is Yaba 8 on the 28 space board
-    expect(restored.room.props[8].o).toBe(ownerId);
+    // migrated by name: old Yaba 13 is Yaba 6 on the 20 space board
+    expect(restored.room.props[6].o).toBe(ownerId);
     tenant.send({ type: 'test_set_position', playerId: turn, space: 1 });
-    tenant.send({ type: 'test_dice', rolls: [[2, 5]] });
+    tenant.send({ type: 'test_dice', rolls: [[2, 3]] });
     tenant.send({ type: 'roll' });
     const billed = await ada.until((m) => m.type === 'state' && m.room.pendingBill && m.room.pendingBill.playerId === turn, 'bill after import');
-    expect(billed.room.pendingBill.amount).toBe(24000);
+    expect(billed.room.pendingBill.amount).toBe(32000);
     const ownerBefore = billed.room.players.find((p) => p.id === ownerId).cash;
     tenant.send({ type: 'lifeline_skip', billId: billed.room.pendingBill.id, id: billed.room.pendingBill.id });
     await ada.until((m) => m.type === 'state' && !m.room.pendingBill
-      && m.room.players.find((p) => p.id === ownerId).cash === ownerBefore + 24000, 'rent settled after import');
+      && m.room.players.find((p) => p.id === ownerId).cash === ownerBefore + 32000, 'rent settled after import');
   });
 });

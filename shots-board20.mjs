@@ -1,6 +1,6 @@
-// board28 screenshot proof at phone sizes (390x844 and 360x740), 3D and 2D.
-// Run: node shots-board28.mjs   (spawns its own KP_TEST server on 4232)
-// Needs puppeteer-core and Chrome (CHROME_PATH). Writes shots/board28/.
+// board20 screenshot proof at phone sizes (390x844, 360x740, 430x932), 3D and 2D: long bold tiles, name tags on every piece.
+// Run: node shots-board20.mjs   (spawns its own KP_TEST server on 4232)
+// Needs puppeteer-core and Chrome (CHROME_PATH). Writes shots/board20/.
 import { spawn } from 'child_process';
 import fs from 'fs';
 
@@ -8,7 +8,7 @@ const puppeteer = (await import('puppeteer-core')).default;
 const PORT = 4232;
 const BASE = 'http://127.0.0.1:' + PORT;
 const CHROME = process.env.CHROME_PATH || '/usr/bin/google-chrome';
-const OUT = new URL('./shots/board28/', import.meta.url).pathname;
+const OUT = new URL('./shots/board20/', import.meta.url).pathname;
 fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const errors = [];
@@ -131,11 +131,11 @@ async function run(label, W, H, gl) {
     const debtorPage = [C, Dp][ids2.indexOf(st2.turnPlayerId)];
     const buyerPage = debtorPage === C ? Dp : C;
     const debtorId = st2.turnPlayerId, buyerId = ids2.find((x) => x !== debtorId);
-    await send(C, 'test_give', { playerId: buyerId, space: 27 });
+    await send(C, 'test_give', { playerId: buyerId, space: 19 });
     await send(C, 'test_give', { playerId: debtorId, space: 1 });
     await send(C, 'test_give', { playerId: debtorId, space: 3 });
     await send(C, 'test_set_cash', { playerId: debtorId, amount: 10000 });
-    await send(C, 'test_set_position', { playerId: debtorId, space: 24 });
+    await send(C, 'test_set_position', { playerId: debtorId, space: 16 });
     await send(C, 'test_dice', { rolls: [[1, 2]] });
     await sleep(300);
     await clickId(debtorPage, 'abRoll');
@@ -163,6 +163,7 @@ async function run(label, W, H, gl) {
 
 try {
   await run('m390-3d', 390, 844, true);
+  await run('m360-3d', 360, 740, true);
   await run('m360-2d', 360, 740, false);
   await run('m430-2d', 430, 932, false);
 } finally {

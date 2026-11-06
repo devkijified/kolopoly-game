@@ -242,8 +242,9 @@ Built on the existing retention shelf and profile, no new backend:
 
 ## 6. Wire contract (what the server publishes and accepts)
 
-The 28 space board, Owambe Rush, missed turn fee and Sapa Deals (all
-modes) live in docs/BOARD28-HUSTLE-OWAMBE.md with their own wire fields.
+The 20 space board lives in docs/BOARD20.md. Owambe Rush, missed turn fee
+and Sapa Deals (all modes) live in docs/BOARD28-HUSTLE-OWAMBE.md with their
+own wire fields.
 
 State (`publicRoom`):
 

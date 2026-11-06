@@ -1,8 +1,8 @@
-// KOLOPOLY board28 tests: the 28 space board, Owambe Rush, missed turn fee,
+// KOLOPOLY board20 tests: the 20 space board, Owambe Rush, missed turn fee,
 // Sapa Deals, reconnects and the old 40 space snapshot migration, per
 // docs/BOARD28-HUSTLE-OWAMBE.md. Spawns the server with KP_TEST=1 on its
 // own port and plays scripted games over WebSocket, mirroring
-// test-inflation2.mjs. Run: node test-board28.mjs
+// test-inflation2.mjs. Run: node test-board20.mjs
 // Exit code 0 means every check passed.
 import WebSocket from 'ws';
 import { spawn } from 'child_process';
@@ -81,13 +81,13 @@ async function makeGame(settings, names) {
 }
 const INF = { gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 };
 
-// A turn that changes nothing (board28): stand on FIRS Tax (4), roll 3, land on Kirikiri just visiting (7), end.
+// A turn that changes nothing (board20): stand on Family Meeting (2), roll 3, land on Kirikiri just visiting (5), end.
 async function nullTurn(g) {
   await g.host.waitFor((s) => s.status === 'playing' && (s.phase === 'roll' || s.phase === 'jail'), 'an actionable turn state');
   const before = g.S().turnPlayerId;
   if (g.player(before).inJail) throw new Error('nullTurn called for a jailed player');
   const t = g.turn();
-  g.hook('test_set_position', { playerId: before, space: 4 });
+  g.hook('test_set_position', { playerId: before, space: 2 });
   g.hook('test_dice', { rolls: [[1, 2]] });
   t.send('roll', {});
   await t.waitFor((s) => s.phase === 'end' && s.turnPlayerId === before, 'null turn resolves');
@@ -140,7 +140,7 @@ async function driveUntil(g, pred, label, ms) {
         const me = s.players.find((p) => p.id === host.playerId);
         if (me && me.inJail) host.send('jail_roll', {});
         else if (s.phase === 'roll') {
-          host.send('test_set_position', { playerId: host.playerId, space: 4 });
+          host.send('test_set_position', { playerId: host.playerId, space: 2 });
           host.send('test_dice', { rolls: [[1, 2]] });
           host.send('roll', {});
         }
@@ -172,15 +172,15 @@ async function reconnect(g, old) {
   if (old === g.host) { g.host = c; g.S = () => c.state; g.hook = (type, obj) => c.send(type, obj); }
   return c;
 }
-// Put a player into a debt: owner holds Banana Island (rent 75,000), the
-// debtor stands on 24 holding the given cash and rolls 3.
+// Put a player into a debt: owner holds Banana Island (rent 100,000), the
+// debtor stands on 16 holding the given cash and rolls 3.
 async function makeDebt(g, debtor, owner, cash) {
   await g.host.waitFor((s) => s.turnPlayerId === debtor.playerId && s.phase === 'roll', 'debtor roll');
-  g.hook('test_give', { playerId: owner.playerId, space: 27 });
+  g.hook('test_give', { playerId: owner.playerId, space: 19 });
   g.hook('test_give', { playerId: debtor.playerId, space: 1 });
   g.hook('test_give', { playerId: debtor.playerId, space: 3 });
   g.hook('test_set_cash', { playerId: debtor.playerId, amount: cash });
-  g.hook('test_set_position', { playerId: debtor.playerId, space: 24 });
+  g.hook('test_set_position', { playerId: debtor.playerId, space: 16 });
   g.hook('test_dice', { rolls: [[1, 2]] });
   await sleep(150);
   debtor.send('roll', {});
@@ -199,25 +199,26 @@ console.log('server up on ' + PORT);
 
 try {
   // ---------------------------------------------------------------- B1 ---
-  console.log('B1: the board is 28 spaces, 7 steps a side, with the Lagos landmarks and raised prices');
+  console.log('B1: the board is 20 spaces, 5 steps a side, with the Lagos landmarks and raised prices');
   {
-    check('28 spaces, side 7', D.SPACES.length === 28 && D.BOARD_SIZE === 28 && D.SIDE === 7);
-    check('corners: START 0, Kirikiri 7, Owambe 14, Go to Kirikiri 21',
-      D.SPACES[0].type === 'start' && D.SPACES[7].type === 'jail' && D.SPACES[14].type === 'freeparking' && D.SPACES[21].type === 'gotojail' &&
-      D.JAIL_INDEX === 7 && D.PARKING_INDEX === 14 && D.GOTOJAIL_INDEX === 21);
-    check('Kirikiri is the jail name', /Kirikiri/.test(D.SPACES[7].name) && /Kirikiri/.test(D.SPACES[21].name));
+    check('20 spaces, side 5', D.SPACES.length === 20 && D.BOARD_SIZE === 20 && D.SIDE === 5);
+    check('corners: START 0, Kirikiri 5, Owambe 10, Go to Kirikiri 15',
+      D.SPACES[0].type === 'start' && D.SPACES[5].type === 'jail' && D.SPACES[10].type === 'freeparking' && D.SPACES[15].type === 'gotojail' &&
+      D.JAIL_INDEX === 5 && D.PARKING_INDEX === 10 && D.GOTOJAIL_INDEX === 15);
+    check('Kirikiri is the jail name', /Kirikiri/.test(D.SPACES[5].name) && /Kirikiri/.test(D.SPACES[15].name));
     const names = D.SPACES.map((s) => s.name);
     for (const must of ['Quilox', 'Oriental Hotel', 'Eko Hotel', 'Lekki Tollgate']) check('board carries ' + must, names.includes(must));
     check('no product copy says Monopoly', !JSON.stringify(D).toLowerCase().includes('monopoly'));
-    check('every colour set is exactly two streets', Object.keys(D.GROUPS).every((g) => D.SPACES.filter((s) => s.group === g).length === 2));
-    check('21 ownable spaces', D.OWNABLE.length === 21);
-    check('stations at 5, 12, 19 and utilities at 9, 23', JSON.stringify(D.STATIONS) === '[5,12,19]' && JSON.stringify(D.UTILITIES) === '[9,23]');
-    check('prices rose: cheapest street 90,000, Banana Island 600,000', D.SPACES[1].price === 90000 && D.SPACES[27].price === 600000);
+    check('five colour sets of exactly two streets', Object.keys(D.GROUPS).length === 5 && Object.keys(D.GROUPS).every((g) => D.SPACES.filter((s) => s.group === g).length === 2));
+    check('13 ownable spaces', D.OWNABLE.length === 13);
+    check('stations at 7 and 14, the one utility at 9', JSON.stringify(D.STATIONS) === '[7,14]' && JSON.stringify(D.UTILITIES) === '[9]');
+    check('prices rose again: Makoko 120,000, Banana Island 800,000, stations 400,000', D.SPACES[1].price === 120000 && D.SPACES[19].price === 800000 && D.SPACES[7].price === 400000 && D.SPACES[14].price === 400000);
     const streets = D.SPACES.filter((s) => s.type === 'street');
     check('street prices climb around the board', streets.every((s, k) => k === 0 || s.price >= streets[k - 1].price));
     check('every street has a seven step rent ladder that climbs', streets.every((s) => s.rent.length === 7 && s.rent.every((r, k) => k === 0 || r > s.rent[k - 1])));
     check('every non card space carries an art key', D.SPACES.every((s) => s.type === 'card' || (typeof s.art === 'string' && s.art.length > 0)));
-    check('station ladder 50k/100k/200k', JSON.stringify(D.STATION_RENT) === '[50000,100000,200000]');
+    check('station ladder 75k/200k, utility 10k per pip', JSON.stringify(D.STATION_RENT) === '[75000,200000]' && JSON.stringify(D.UTILITY_PER_PIP) === '[10000,10000]');
+    check('building stock scaled to ten streets', D.DUPLEX_SUPPLY === 16 && D.MANSION_SUPPLY === 6);
   }
 
   // ---------------------------------------------------------------- B2 ---
@@ -237,7 +238,7 @@ try {
     t.send('end_turn', {});
     await g.host.waitFor((s) => s.turnPlayerId !== t.playerId, 'turn passes');
     const u = g.turn();
-    g.hook('test_set_position', { playerId: u.playerId, space: 11 });
+    g.hook('test_set_position', { playerId: u.playerId, space: 7 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     await sleep(150);
     u.send('roll', {});
@@ -335,7 +336,7 @@ try {
     debtor.send('sapa_offer', { to: debtor.playerId, spaces: [1], cash: 100000 });
     await sleep(200);
     check('the debtor cannot offer to themself', !g.S().sapaOffer);
-    third.send('sapa_offer', { to: debtor.playerId, spaces: [5], cash: 100000 });
+    third.send('sapa_offer', { to: debtor.playerId, spaces: [7], cash: 100000 });
     await sleep(200);
     check('an offer for a deed the debtor does not own is refused', !g.S().sapaOffer && third.errors.length > 0);
     const tc0 = g.player(third.playerId).cash, dc0 = g.player(debtor.playerId).cash, oc0 = g.player(owner.playerId).cash;
@@ -422,7 +423,7 @@ try {
   }
 
   // ---------------------------------------------------------------- B8 ---
-  console.log('B8: an old 40 space snapshot migrates onto the 28 space board');
+  console.log('B8: an old 40 space snapshot migrates onto the 20 space board');
   {
     const host = createGameHost({ test: true });
     const sent = [];
@@ -451,13 +452,50 @@ try {
     host.importState(snap);
     const after = JSON.parse(JSON.stringify(host.exportState())).rooms[code];
     const A = after.players.find((p) => p.id === a.id), B = after.players.find((p) => p.id === b.id);
-    check('Banana Island keeps its owner at its new index 27', after.props[27].owner === a.id);
-    check('Victoria Island keeps its owner at its new index 20', after.props[20].owner === b.id);
+    check('Banana Island keeps its owner at its new index 19', after.props[19].owner === a.id);
+    check('Victoria Island keeps its owner at its new index 16', after.props[16].owner === b.id);
     check('a vanished deed is refunded at the old price plus buildings', A.cash === ca + 350000 + 2 * 200000, 'cash=' + A.cash);
     check('a vanished mortgaged deed refunds half', B.cash === cb + 60000, 'cash=' + B.cash);
-    check('positions map by name; old index 30 lands on a real space', A.position === 27 && B.position >= 0 && B.position < 28);
-    check('the room is stamped as a 28 space board', after.boardSize === 28);
-    check('no prop sits outside the board', Object.keys(after.props).every((k) => Number(k) < 28));
+    check('positions map by name; a free player never rests on Go to Kirikiri', A.position === 19 && B.position === 16);
+    check('the room is stamped as a 20 space board', after.boardSize === 20);
+    check('no prop sits outside the board', Object.keys(after.props).every((k) => Number(k) < 20));
+  }
+
+  console.log('B9: a board28 snapshot (28 spaces) migrates onto the 20 space board');
+  {
+    const host = createGameHost({ test: true });
+    const fake = new EventEmitter();
+    fake.readyState = 1;
+    fake.send = () => {};
+    fake.close = () => { fake.readyState = 3; fake.emit('close'); };
+    host.handleConnection(fake);
+    const say = (o) => fake.emit('message', JSON.stringify(o));
+    say({ type: 'create_room', name: 'Ada', token: 'danfo', mode: 'pass', settings: CLASSIC });
+    say({ type: 'add_local_player', name: 'Bola', token: 'keke' });
+    say({ type: 'start_game' });
+    const snap = JSON.parse(JSON.stringify(host.exportState()));
+    const code = Object.keys(snap.rooms)[0];
+    const room = snap.rooms[code];
+    room.status = 'playing';
+    const [a, b] = room.players;
+    room.boardSize = 28;
+    room.props = {};
+    room.props[27] = { owner: a.id, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null }; // Banana Island
+    room.props[24] = { owner: a.id, mortgaged: true, buildings: 0, mansionLap: -1, pledged: null };  // Ikoyi: gone
+    room.props[22] = { owner: b.id, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null }; // Eko Hotel
+    room.props[13] = { owner: b.id, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null }; // Allen Avenue: gone
+    room.props[12] = { owner: b.id, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null }; // Lekki Tollgate
+    a.position = 24; b.position = 21; b.inJail = false;
+    const ca = a.cash, cb = b.cash;
+    host.importState(snap);
+    const after = JSON.parse(JSON.stringify(host.exportState())).rooms[code];
+    const A = after.players.find((p) => p.id === a.id), B = after.players.find((p) => p.id === b.id);
+    check('board28 deeds move by name: Banana Island 19, Eko Hotel 17, Lekki Tollgate 7',
+      after.props[19].owner === a.id && after.props[17].owner === b.id && after.props[7].owner === b.id);
+    check('a vanished mortgaged board28 deed (Ikoyi) refunds half its old price', A.cash === ca + 230000, 'cash=' + A.cash);
+    check('a vanished board28 deed (Allen Avenue) refunds its old price', B.cash === cb + 280000, 'cash=' + B.cash);
+    check('positions: a vanished space maps proportionally, Go to Kirikiri steps off the corner', A.position === 17 && B.position === 16, 'A=' + A.position + ' B=' + B.position);
+    check('the board28 room is stamped as a 20 space board', after.boardSize === 20 && Object.keys(after.props).every((k) => Number(k) < 20));
   }
 } catch (err) {
   failures += 1;

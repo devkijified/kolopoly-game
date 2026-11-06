@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-engine.mjs && node test-board28.mjs && node test-ops.mjs && node test-retention-gate.mjs",
+    "test": "node test-engine.mjs && node test-board20.mjs && node test-ops.mjs && node test-retention-gate.mjs",
     "test:worker": "vitest run --config vitest.worker.config.mjs",
     "vapid": "node scripts/generate-vapid.js"
   },

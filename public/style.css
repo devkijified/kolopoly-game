@@ -261,8 +261,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .board {
   position: absolute; inset: var(--frame); display: grid;
-  grid-template-columns: 1.6fr repeat(9, 1fr) 1.6fr;
-  grid-template-rows: 1.6fr repeat(9, 1fr) 1.6fr;
+  grid-template-columns: 2.5fr repeat(4, 1.8fr) 2.5fr; /* board20 default; board.js sets the live layout */
+  grid-template-rows: 2.5fr repeat(4, 1.8fr) 2.5fr;
   transform-origin: 0 0; transition: transform 0.45s ease;
   border-radius: 10px; background: #fdf6df;
   box-shadow: inset 0 0 0 2px #20402c, inset 0 0 46px rgba(46, 107, 70, 0.22);
@@ -277,28 +277,28 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 @media (hover: hover) { .bspace:hover { filter: brightness(1.05); } }
 .bspace .band {
-  width: 100%; height: 19%; flex: none;
+  width: 100%; height: 26%; flex: none; /* board20: thick, bold colour band */
   background: linear-gradient(180deg, color-mix(in srgb, var(--band) 68%, #ffffff), var(--band) 58%, color-mix(in srgb, var(--band) 78%, #000000));
   box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 .bspace .tile-art { flex: 1 1 0; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding-top: 1px; }
 .bspace .tileart { height: 100%; width: auto; max-width: 94%; }
 .bspace .nm {
-  font-size: 11px; font-size: clamp(9.5px, 3.1cqw, 16px); /* board28: 6 tiles per side read bigger */
-  font-weight: 800; line-height: 1.06; text-align: center;
+  font-size: 12px; font-size: clamp(11px, 3.8cqw, 20px); /* board20: 4 long tiles per side, big bold type */
+  font-weight: 900; line-height: 1.06; text-align: center;
   padding: 1px 1px 0; letter-spacing: -0.2px; flex: none;
 }
 .bspace .pr {
-  font-size: 10px; font-size: clamp(8.5px, 2.7cqw, 14px);
-  font-weight: 700; color: var(--ink-soft); padding-bottom: 2px; flex: none;
+  font-size: 11px; font-size: clamp(10px, 3.3cqw, 17px);
+  font-weight: 800; color: var(--ink-soft); padding-bottom: 2px; flex: none;
 }
 .bspace .pr .pr-full { display: none; }
-@container (min-width: 620px) {
+@container (min-width: 520px) {
   .bspace .pr .pr-full { display: inline; }
   .bspace .pr .pr-compact { display: none; }
 }
 .bspace.corner { background: linear-gradient(180deg, #fdf6df, #f3e3bc); }
-.bspace.corner .nm { font-size: 10.5px; font-size: clamp(8.5px, 2.8cqw, 16px); padding-top: 2px; }
+.bspace.corner .nm { font-size: 11.5px; font-size: clamp(10px, 3.4cqw, 19px); padding-top: 2px; }
 .bspace.owned { box-shadow: inset 0 0 0 2.5px var(--own), inset 0 1px 0 rgba(255, 255, 255, 0.9); }
 .bspace.mortgaged { filter: grayscale(0.9); opacity: 0.62; }
 .bspace.mortgaged::after {
@@ -307,6 +307,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .bspace .ownbar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; }
 .bspace .pips { display: flex; gap: 1px; justify-content: center; align-items: flex-end; height: 22%; flex: none; width: 100%; }
+.bspace .pips:empty { height: 0; } /* board20: no reserved strip on unbuilt tiles, so a 2 line name keeps its price */
 .bspace .pips svg { height: 100%; width: auto; max-width: 36%; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
 .bspace .potamt { font-family: 'Aeonik Pro', sans-serif; font-size: 10.5px; font-size: clamp(8px, 2.4cqw, 13px); color: var(--gold-deep); flex: none; }
 .bspace.legal { box-shadow: inset 0 0 0 3px var(--gold-deep), inset 0 0 12px rgba(232, 169, 12, 0.55); }
@@ -328,12 +329,16 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .btoken .tok-base { outline: 2px solid rgba(43, 32, 24, 0.75); outline-offset: -1px; }
 .btoken.me { z-index: 7; }
 .btoken.me .tok-base { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--gold-deep, #b8860b), 0 2px 6px rgba(0, 0, 0, 0.4); }
-.btoken .tok-you {
+.btoken .tok-tag {
   position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -2px);
-  font: 900 11px/1 "Figtree", system-ui, sans-serif; letter-spacing: 0.06em; color: #fff;
+  font: 900 12px/1 "Figtree", system-ui, sans-serif; letter-spacing: 0.03em; color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
   background: var(--own, #2b2018); border: 2px solid #fff; border-radius: 999px; padding: 3px 7px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35); white-space: nowrap; pointer-events: none;
 }
+.btoken .tok-you { font-size: 12.5px; letter-spacing: 0.06em; border-color: #ffe9a8; }
+.btoken .tok-name { padding: 3px 6px; }
+.btoken.me .tok-tag { z-index: 2; }
 .btoken .tok-in svg { width: 100%; height: 100%; display: block; }
 .btoken .tok-in.hop { animation: tokenhop 0.23s ease; }
 @keyframes tokenhop {
