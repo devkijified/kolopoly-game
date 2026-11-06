@@ -485,14 +485,14 @@ try {
   }
 
   // ------------------------------------------------------------ X7 HUSTLE ---
-  console.log('X7a: Hustle 2: a successful Hustle moves exactly 12 percent, once, with no fine at stake');
+  console.log('X7a: Hustle 2: a successful Hustle moves exactly 12 percent, once; the fail fine is shown up front');
   {
     const g = await makeGame(INF, ['Ash', 'Bisi']);
     const atk = g.turn();
     const tgt = g.clients.find((c) => c !== atk);
     const caps = g.S().inf.hustleCaps;
-    check('the published Hustle rules carry odds, Heat limit, a short window and no fine',
-      caps && caps.fine === 0 && caps.heatLimit === 3 && caps.windowSecs <= 8 && caps.odds && caps.odds.open === 0.55 && caps.odds.defended === 0.25 && caps.odds.timeout === 0.40 && caps.pct === 12 && caps.cap === 200000,
+    check('the published Hustle rules carry odds, Heat limit, the 4s window and the fail fine (25 percent, 10000 to 50000)',
+      caps && caps.finePct === 25 && caps.fineMin === 10000 && caps.fineMax === 50000 && caps.heatLimit === 3 && caps.windowSecs === 3 && caps.odds && caps.odds.open === 0.55 && caps.odds.defended === 0.25 && caps.odds.timeout === 0.55 && caps.pct === 12 && caps.cap === 200000,
       JSON.stringify(caps));
     g.hook('test_set_cash', { playerId: atk.playerId, amount: 500000 });
     g.hook('test_set_cash', { playerId: tgt.playerId, amount: 1000000 });
@@ -502,9 +502,9 @@ try {
     atk.send('hustle_start', { targetId: tgt.playerId });
     await atk.waitFor((s) => !!s.hustle, 'hustle opens');
     const openHustle = g.S().hustle;
-    check('the open Hustle shows the amount (12 percent of 1000000) and no fine',
-      openHustle.amount === 120000 && openHustle.fine === 0, JSON.stringify(openHustle));
-    check('the defence window is short (test build 3s, live 6s)', openHustle.endsAt - Date.now() <= 3500, 'endsIn=' + (openHustle.endsAt - Date.now()));
+    check('the open Hustle shows the amount (12 percent of 1000000) and the fail fine 30000 (25 percent)',
+      openHustle.amount === 120000 && openHustle.fine === 30000, JSON.stringify(openHustle));
+    check('the defence window is short (test build 3s, live 4s)', openHustle.endsAt - Date.now() <= 3500, 'endsIn=' + (openHustle.endsAt - Date.now()));
     atk.send('hustle_start', { targetId: tgt.playerId }); // repeated click while open
     await sleep(300);
     check('a repeated hustle_start click opens no second Hustle', !!g.S().hustle && g.S().hustle.id === openHustle.id,
@@ -534,14 +534,14 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('X7c: a caught Hustle costs no cash: it adds Heat');
+  console.log('X7c: a caught Hustle pays the fail fine into the Owambe pot and adds Heat');
   {
     const g = await makeGame(INF, ['Ash', 'Bisi']);
     const atk = g.turn();
     const tgt = g.clients.find((c) => c !== atk);
     await hustleResolve(g, atk, tgt, 0.99, false);
-    check('roll 0.99 is caught: nobody pays anything, the pot stays empty',
-      g.player(atk.playerId).cash === 500000 && g.player(tgt.playerId).cash === 1000000 && g.S().pot === 0,
+    check('roll 0.99 is caught: the hustler pays the 30000 fine into the pot, the target keeps everything',
+      g.player(atk.playerId).cash === 470000 && g.player(tgt.playerId).cash === 1000000 && g.S().pot === 30000 && g.S().hustleResult.fine === 30000,
       'atk=' + g.player(atk.playerId).cash + ' tgt=' + g.player(tgt.playerId).cash + ' pot=' + g.S().pot);
     check('the caught hustler carries Heat 1 and one failed hustle', g.player(atk.playerId).hustleHeat === 1 && g.player(atk.playerId).hustleFails === 1,
       'heat=' + g.player(atk.playerId).hustleHeat + ' fails=' + g.player(atk.playerId).hustleFails);
@@ -555,13 +555,13 @@ try {
     const tgt = g.clients.find((c) => c !== atk);
     // 0.30 beats the undefended 55 percent line but fails the defended 25 percent line.
     await hustleResolve(g, atk, tgt, 0.30, true);
-    check('roll 0.30 is caught against a guarded target, no cash moves',
-      g.player(atk.playerId).cash === 500000 && g.player(tgt.playerId).cash === 1000000 && g.S().hustleResult.outcome === 'defended',
+    check('roll 0.30 is caught against a guarded target: fine 30000 to the pot, target untouched',
+      g.player(atk.playerId).cash === 470000 && g.player(tgt.playerId).cash === 1000000 && g.S().pot === 30000 && g.S().hustleResult.outcome === 'defended',
       'atk=' + g.player(atk.playerId).cash + ' ' + JSON.stringify(g.S().hustleResult));
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('X7e: no answer inside the short window resolves at 40 percent');
+  console.log('X7e: no answer inside the short window is uncaught: it resolves at the unguarded 55 percent');
   {
     const g = await makeGame(INF, ['Ash', 'Bisi']);
     const atk = g.turn();
@@ -569,15 +569,15 @@ try {
     g.hook('test_set_cash', { playerId: atk.playerId, amount: 500000 });
     g.hook('test_set_cash', { playerId: tgt.playerId, amount: 1000000 });
     await sleep(200);
-    // 0.45 would pass an answered Leave am (55 percent) but fails the silent 40 percent.
+    // 0.45 passes the unguarded 55 percent line: a silent target is not defended.
     g.hook('test_hustle_rolls', { rolls: [0.45] });
     atk.send('hustle_start', { targetId: tgt.playerId });
     await atk.waitFor((s) => !!s.hustle, 'hustle opens');
     const t0 = Date.now();
     await atk.waitFor((s) => !s.hustle, 'hustle times out and resolves', 15000);
     check('the silent window closed in under 5 seconds (test build 3s)', Date.now() - t0 < 5000, 'ms=' + (Date.now() - t0));
-    check('the silent target default caught the hustler: no cash moved, Heat 1',
-      g.player(atk.playerId).cash === 500000 && g.player(tgt.playerId).cash === 1000000 && g.player(atk.playerId).hustleHeat === 1,
+    check('the silent target was not guarded: the steal lands (120000 moves), no Heat',
+      g.player(atk.playerId).cash === 620000 && g.player(tgt.playerId).cash === 880000 && (g.player(atk.playerId).hustleHeat || 0) === 0 && g.S().hustleResult.outcome === 'win',
       'atk=' + g.player(atk.playerId).cash + ' heat=' + g.player(atk.playerId).hustleHeat);
     for (const c of g.clients) c.ws.close();
   }
@@ -601,10 +601,10 @@ try {
     g.hook('test_hustle_rolls', { rolls: [0.99] });
     atk.send('hustle_start', { targetId: tgt.playerId });
     await atk.waitFor((s) => !!s.hustle, 'a broke hustler may still try');
-    check('a hustler with no cash may still try (failure costs no money)', !!g.S().hustle);
+    check('a hustler with no cash may still try (the fine caps at cash in hand)', !!g.S().hustle);
     tgt.send('hustle_defend', { hustleId: g.S().hustle.id, defend: false });
     await atk.waitFor((s) => !s.hustle, 'resolved');
-    check('the broke hustler is never pushed negative', g.player(atk.playerId).cash === 0, 'cash=' + g.player(atk.playerId).cash);
+    check('the broke hustler is never pushed negative and no debt opens', g.player(atk.playerId).cash === 0 && !g.S().debt, 'cash=' + g.player(atk.playerId).cash);
     for (const c of g.clients) c.ws.close();
   }
   {
@@ -636,7 +636,7 @@ try {
       await ensureRollTurn(g, atk, 'attacker turn ' + k);
       await hustleResolve(g, atk, tgt, 0.99, false);
       if (k < 3) {
-        check('catch ' + k + ': Heat ' + k + ', no cash lost, still free', g.player(atk.playerId).hustleHeat === k && g.player(atk.playerId).cash === 500000 && !g.player(atk.playerId).inJail,
+        check('catch ' + k + ': Heat ' + k + ', fine 30000 paid, still free', g.player(atk.playerId).hustleHeat === k && g.player(atk.playerId).cash === 470000 && g.S().pot === 30000 && !g.player(atk.playerId).inJail,
           'heat=' + g.player(atk.playerId).hustleHeat + ' cash=' + g.player(atk.playerId).cash);
         await nullTurn(g); // attacker rolls on
       }
@@ -644,7 +644,7 @@ try {
     await atk.waitFor((s) => s.players.find((p) => p.id === atk.playerId).inJail, 'hustler jailed');
     const a = g.player(atk.playerId);
     check('the third catch sends the hustler to Kirikiri (space 7) with Heat back to 0 and 3 fails on record',
-      a.inJail && a.position === 7 && a.hustleHeat === 0 && a.hustleFails === 3 && a.cash === 500000,
+      a.inJail && a.position === 7 && a.hustleHeat === 0 && a.hustleFails === 3 && a.cash === 470000 && g.S().pot === 30000,
       JSON.stringify({ inJail: a.inJail, pos: a.position, heat: a.hustleHeat, fails: a.hustleFails, cash: a.cash }));
     check('the jailed hustler turn moves to its end phase (no roll after Kirikiri)', g.S().phase === 'end' && g.S().turnPlayerId === atk.playerId, 'phase=' + g.S().phase);
     check('the jail trip is in the result and the feed', g.S().hustleResult.outcome === 'jailed' && g.S().feed.some((e) => e.kind === 'kirikiri' && /hustle/i.test(e.text || '')));

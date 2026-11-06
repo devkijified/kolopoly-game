@@ -258,9 +258,16 @@ const HUSTLE_BIG_SHARE = 0.20;      // share of successes that become a Big Grab
 const HUSTLE_BIG_MAX_PCT = 25;      // a Big Grab never takes more than 25% of target cash
 const HUSTLE_ODDS_OPEN = 0.55;      // target says "leave am"
 const HUSTLE_ODDS_DEFENDED = 0.25;  // target guards their money
-const HUSTLE_ODDS_TIMEOUT = 0.40;   // target no answer in the window
+const HUSTLE_ODDS_TIMEOUT = HUSTLE_ODDS_OPEN; // no answer in time = unguarded (owner t109u): same 55% as Leave am
 const HUSTLE_HEAT_LIMIT = 3;        // caught this many times: straight to Kirikiri
-const HUSTLE_WINDOW_SECS = 6;       // defence window (3s in test builds)
+const HUSTLE_WINDOW_SECS = 4;       // defence window, snappier per owner t108u (3s in test builds)
+// Fail fine (owner t107u): a caught hustle pays 25% of the amount at stake,
+// at least 10,000 and at most 50,000, into the Owambe pot. Capped at the
+// hustler's cash in hand, so it never opens a debt or bankrupts anyone.
+const HUSTLE_FINE_PCT = 25;
+const HUSTLE_FINE_MIN = 10000;
+const HUSTLE_FINE_MAX = 50000;
+function hustleFineFor(amount) { return Math.min(HUSTLE_FINE_MAX, Math.max(HUSTLE_FINE_MIN, Math.floor(amount * HUSTLE_FINE_PCT / 100))); }
 // Hustle amount at stake for a target holding `cash` (whole naira).
 // Owambe Rush (docs/BOARD28-HUSTLE-OWAMBE.md): the Owambe pot is a race.
 // A rush opens when someone lands on Owambe Grounds with at least
@@ -565,7 +572,8 @@ function publicRoom(room) {
         maxAttempts: HUSTLE_MAX_ATTEMPTS, cap: HUSTLE_CAP, targetMinCash: HUSTLE_TARGET_MIN_CASH,
         pct: HUSTLE_PCT, minAmount: HUSTLE_MIN_AMOUNT, pairCap: HUSTLE_PAIR_CAP,
         heatLimit: HUSTLE_HEAT_LIMIT, windowSecs: TEST ? 3 : HUSTLE_WINDOW_SECS,
-        bigShare: HUSTLE_BIG_SHARE, bigMaxPct: HUSTLE_BIG_MAX_PCT, fine: 0,
+        bigShare: HUSTLE_BIG_SHARE, bigMaxPct: HUSTLE_BIG_MAX_PCT, fine: HUSTLE_FINE_MIN,
+        finePct: HUSTLE_FINE_PCT, fineMin: HUSTLE_FINE_MIN, fineMax: HUSTLE_FINE_MAX,
         odds: { open: HUSTLE_ODDS_OPEN, defended: HUSTLE_ODDS_DEFENDED, timeout: HUSTLE_ODDS_TIMEOUT }
       },
       dealBreakEndsAt: room.dealBreak ? room.dealBreak.endsAt : null,
@@ -1758,18 +1766,21 @@ function resolveHustle(room, via) {
     setMessage(room, (big ? 'BIG GRAB! ' : 'Hustle land! ') + attacker.name + ' don grab ' + D.fmtN(amt) + ' from ' + target.name + '.');
     room.hustleResult = { id: h.id, from: h.from, to: h.to, outcome: big ? 'big' : 'win', amount: amt, heat: attacker.hustleHeat || 0, at: now() };
   } else {
-    // Caught: no fine, no cash lost. Heat goes up; the Heat limit means
-    // the officers carry the hustler to Kirikiri and Heat cools to zero.
+    // Caught: the fail fine goes to the Owambe pot (capped at cash in
+    // hand, never a debt). Heat goes up; the Heat limit means the
+    // officers carry the hustler to Kirikiri and Heat cools to zero.
+    const fine = Math.max(0, Math.min(h.fine != null ? h.fine : hustleFineFor(h.amount), attacker.cash));
+    if (fine > 0) payNow(room, attacker, fine, null, 'Hustle fail fine', { toPot: true, stat: 'fine' });
     attacker.hustleFails = (attacker.hustleFails || 0) + 1;
     attacker.hustleHeat = (attacker.hustleHeat || 0) + 1;
     const heat = attacker.hustleHeat;
     const jailed = heat >= HUSTLE_HEAT_LIMIT;
     const who = h.defended === true ? target.name + ' guard their money and catch ' + attacker.name : 'Dem catch ' + attacker.name;
-    pushFeed(room, 'hustle', who + '! The hustle on ' + target.name + ' fail. No money move. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.',
-      { playerId: attacker.id, otherId: target.id, amount: 0, outcome: h.defended === true ? 'defended' : 'caught', heat });
-    stamp(room, 'hustle', 'Dem catch ' + attacker.name + ' hustling ' + target.name + '. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.', 0, attacker.id);
-    setMessage(room, who + '! Hustle fail. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.');
-    room.hustleResult = { id: h.id, from: h.from, to: h.to, outcome: jailed ? 'jailed' : (h.defended === true ? 'defended' : 'caught'), amount: 0, heat, at: now() };
+    pushFeed(room, 'hustle', who + '! The hustle on ' + target.name + ' fail. Fine ' + D.fmtN(fine) + ' enter the Owambe pot. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.',
+      { playerId: attacker.id, otherId: target.id, amount: fine, fine, outcome: h.defended === true ? 'defended' : 'caught', heat });
+    stamp(room, 'hustle', 'Dem catch ' + attacker.name + ' hustling ' + target.name + '. Fine ' + D.fmtN(fine) + '. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.', 0, attacker.id);
+    setMessage(room, who + '! Hustle fail, fine ' + D.fmtN(fine) + '. Heat ' + Math.min(heat, HUSTLE_HEAT_LIMIT) + '/' + HUSTLE_HEAT_LIMIT + '.');
+    room.hustleResult = { id: h.id, from: h.from, to: h.to, outcome: jailed ? 'jailed' : (h.defended === true ? 'defended' : 'caught'), amount: 0, fine, heat, at: now() };
     if (jailed) {
       attacker.hustleHeat = 0;
       const wasTurn = room.turnPlayerId === attacker.id && room.phase === 'roll';
@@ -3205,7 +3216,7 @@ function handleConnection(ws) {
       target.hustleShieldTurn = room.turnCount + solventPlayers(room).length;
       room.hustle = {
         id: ++room.hustleCounter, from: me.id, to: target.id,
-        amount, fine: 0, endsAt: now() + (TEST ? 3000 : HUSTLE_WINDOW_SECS * 1000),
+        amount, fine: hustleFineFor(amount), endsAt: now() + (TEST ? 3000 : HUSTLE_WINDOW_SECS * 1000),
         defended: null, state: 'open', startedAt: now(),
         savedDeadline: room.turnDeadline
       };

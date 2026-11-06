@@ -81,9 +81,28 @@ Bigger dice (2D: 38 to 56 px; 3D: 0.58 units, up from 0.42), bolder pieces
 wears a YOU tag in online rooms (pass and play has no single "you"). The
 tag is static (no animation), so reduced motion needs no change.
 
+## 2b. Hustle 2 summary (Inflation only; full rules in docs/INFLATION-7.md section 3)
+
+- Defence window: **4 seconds** live (3 s in KP_TEST builds), down from 6.
+  The turn clock pauses while it runs.
+- Odds: Guard my money 25%; Leave am 55%; **no answer = uncaught**: a
+  target who does not guard in time is treated as unguarded, so the steal
+  resolves at the same 55% (it is never an automatic defence).
+- Win: 12% of the target's cash (min ₦20,000, cap ₦200,000); one success
+  in five is a Big Grab (up to 2x, max 25% of the target's cash, ₦400,000).
+- **Fail fine** (owner t107u): a caught hustle (guarded or not) pays 25% of
+  the amount at stake, min ₦10,000, max ₦50,000, into the Owambe pot. It is
+  capped at the hustler's cash in hand, so it never opens a debt, never
+  bankrupts and never goes negative. Example: a ₦120,000 stake risks a
+  ₦30,000 fine. The fine is shown on the Hustle sheet before confirming.
+- Heat: every failure adds Heat; at Heat 3 the hustler pays that fine and
+  goes straight to Kirikiri, Heat resets to 0.
+- Caps: 6 attempts per match, 3 on the same target, one round of cover for
+  whoever was just hustled. Server RNG only, settled exactly once.
+
 ## 3. Owambe Rush (all modes)
 
-- The pot fills from fines, taxes, card charges and the missed turn fee,
+- The pot fills from fines (including Hustle fail fines), taxes, card charges and the missed turn fee,
   as before; it shows on the Owambe tile and the centre of the board.
 - Trigger: landing on Owambe Grounds with the pot at ₦50,000 or more
   starts a Rush (below that the lander simply collects the small pot, as

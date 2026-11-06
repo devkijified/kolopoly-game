@@ -2138,7 +2138,8 @@ function renderActionBar(room) {
 // the server publishes in state.inf.hustleCaps; the server recomputes
 // and validates everything when hustle_start lands.
 // ---------------------------------------------------------------------------
-const HUSTLE_FALLBACK = { maxAttempts: 6, cap: 200000, targetMinCash: 50000, pct: 12, minAmount: 20000, pairCap: 3, heatLimit: 3, windowSecs: 6, bigShare: 0.2, bigMaxPct: 25, fine: 0, odds: { open: 0.55, defended: 0.25, timeout: 0.40 } };
+const HUSTLE_FALLBACK = { maxAttempts: 6, cap: 200000, targetMinCash: 50000, pct: 12, minAmount: 20000, pairCap: 3, heatLimit: 3, windowSecs: 4, bigShare: 0.2, bigMaxPct: 25, finePct: 25, fineMin: 10000, fineMax: 50000, odds: { open: 0.55, defended: 0.25, timeout: 0.55 } };
+function hustleFineAt(amount, caps) { return Math.min(caps.fineMax, Math.max(caps.fineMin, Math.floor(amount * caps.finePct / 100))); }
 function hustleCaps(room) {
   return Object.assign({}, HUSTLE_FALLBACK, (room.inf && room.inf.hustleCaps) || {});
 }
@@ -2161,12 +2162,12 @@ function openHustleSheet(room) {
     const amount = hustleGrab(t, caps);
     const big = Math.min(amount * 2, Math.floor(t.cash * caps.bigMaxPct / 100), caps.cap * 2);
     return '<div class="contract-row"><div class="grow"><b>' + esc(t.name) + '</b> <span class="caption">hold ' + fmtN(t.cash) + '</span>' +
-      '<p class="caption" style="margin-top:2px;">Win: <b>' + fmtN(amount) + '</b>. Big Grab: <b>' + fmtN(big) + '</b>. Caught: <b>no money move</b>, Heat +1.</p></div>' +
+      '<p class="caption" style="margin-top:2px;">Win: <b>' + fmtN(amount) + '</b>. Big Grab: <b>' + fmtN(big) + '</b>. Caught: fine <b>' + fmtN(Math.min(hustleFineAt(amount, caps), actor.cash)) + '</b> to the Owambe pot, Heat +1.</p></div>' +
       '<button class="btn small" data-hustle-target="' + t.id + '">Hustle am</button></div>';
   }).join('');
   $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('spark', 18) + ' Hustle</h3>' +
     '<p class="caption" style="margin-top:4px;">Game cash only. Pick a player wey hold cash: you fit collect ' + caps.pct + '% of their cash (min ' + fmtN(caps.minAmount) + ', max ' + fmtN(caps.cap) + '). Some wins na <b>Big Grab</b>: double. Dem get ' + caps.windowSecs + ' seconds to guard.</p>' +
-    '<p class="caption" style="margin-top:6px;">Chance: <b>' + oddsPct(caps.odds.open) + '</b> if dem leave am, <b>' + oddsPct(caps.odds.defended) + '</b> if dem guard, <b>' + oddsPct(caps.odds.timeout) + '</b> if dem no answer. If dem catch you, no fine, but your Heat go up. <b>Heat ' + heat + '/' + caps.heatLimit + '</b>: reach ' + caps.heatLimit + ' and police carry you go Kirikiri.</p>' +
+    '<p class="caption" style="margin-top:6px;">Chance: <b>' + oddsPct(caps.odds.open) + '</b> if dem leave am, <b>' + oddsPct(caps.odds.defended) + '</b> if dem guard, <b>' + oddsPct(caps.odds.timeout) + '</b> if dem no answer (no answer = no guard). If dem catch you, you pay a fine (' + caps.finePct + '% of the stake, ' + fmtN(caps.fineMin) + ' to ' + fmtN(caps.fineMax) + ') into the Owambe pot and your Heat go up. <b>Heat ' + heat + '/' + caps.heatLimit + '</b>: reach ' + caps.heatLimit + ' and police carry you go Kirikiri.</p>' +
     '<p class="caption" style="margin-top:6px;">Attempts left: <b>' + Math.max(0, caps.maxAttempts - attempts) + '</b> of ' + caps.maxAttempts + '. Max ' + caps.pairCap + ' hustles on the same person. Whoever you hustle get one round of cover. Your Lifeline: ' + (actor.lifelineUsed ? 'don use am' : 'still dey') + '.</p>' +
     '<div class="mt8">' + (rows || '<p class="caption">No target dey: nobody hold reach ' + fmtN(caps.targetMinCash) + ' cash outside Kirikiri, or dem still get cover.</p>') + '</div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
@@ -2207,10 +2208,10 @@ function funMoments(room, prev) {
         toast({ html: '<b>Hustle land!</b> ' + nm(hr.from) + ' collect ' + fmtN(hr.amount) + ' from ' + nm(hr.to) + '.', ms: 4500 });
         sfx.credit && mine(hr.from) && sfx.credit(hr.amount);
       } else if (hr.outcome === 'jailed') {
-        toast({ html: '<b>Police don catch am!</b> ' + nm(hr.from) + ' fail ' + caps.heatLimit + ' hustles. Straight to Kirikiri.', ms: 5200 });
+        toast({ html: '<b>Police don catch am!</b> ' + nm(hr.from) + ' fail ' + caps.heatLimit + ' hustles: ' + fmtN(hr.fine || 0) + ' fine and straight to Kirikiri.', ms: 5200 });
       } else {
         toast({ html: (hr.outcome === 'defended' ? '<b>Guarded!</b> ' + nm(hr.to) + ' guard their money.' : '<b>Caught!</b> ' + nm(hr.to) + ' catch ' + nm(hr.from) + '.') +
-          ' No money move. Heat ' + hr.heat + '/' + caps.heatLimit + '.', ms: 4200 });
+          ' ' + nm(hr.from) + ' pay ' + fmtN(hr.fine || 0) + ' fine to the Owambe pot. Heat ' + hr.heat + '/' + caps.heatLimit + '.', ms: 4200 });
       }
     }
   }
@@ -2578,7 +2579,7 @@ function renderTactical(room) {
           '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('alert', 18) + ' Hustle alert</b>' +
           '<span class="turn-timer" data-deadline="' + hustle.endsAt + '">' + Math.max(0, Math.round((hustle.endsAt - Date.now()) / 1000)) + 's</span></div>' +
           '<p style="margin:6px 0 0;"><b>' + esc(from ? from.name : 'A player') + '</b> dey hustle you for <b>' + fmtN(hustle.amount) + '</b> of your cash.</p>' +
-          '<p class="caption" style="margin-top:6px;">Guard am: their chance drop to ' + oddsPct(hustleCaps(room).odds.defended) + '. Leave am: ' + oddsPct(hustleCaps(room).odds.open) + '. No answer: ' + oddsPct(hustleCaps(room).odds.timeout) + '. If dem fail, no money move.</p>' +
+          '<p class="caption" style="margin-top:6px;">Guard am: their chance drop to ' + oddsPct(hustleCaps(room).odds.defended) + '. Leave am: ' + oddsPct(hustleCaps(room).odds.open) + '. No answer na no guard: ' + oddsPct(hustleCaps(room).odds.timeout) + '. If dem fail, dem pay fine to the Owambe pot. Answer fast!</p>' +
           '<div class="btnrow" style="margin-top:9px;"><button class="btn green" id="husGuide">Guard my money</button>' +
           '<button class="btn ghost" id="husLeave">Leave am</button></div></div>';
       } else {

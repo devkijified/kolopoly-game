@@ -141,8 +141,9 @@ moment of the pass.
 
 One short explanation, the way the game shows it: "Game cash only. Pick a
 player wey hold cash: you fit collect 12% of their cash (min ₦20,000, max
-₦200,000). Some wins na Big Grab: double. If dem catch you, no fine, but
-your Heat go up. Reach 3 and police carry you go Kirikiri."
+₦200,000). Some wins na Big Grab: double. If dem catch you, you pay a
+fine (25% of the stake, ₦10,000 to ₦50,000) into the Owambe pot and your
+Heat go up. Reach 3 and police carry you go Kirikiri."
 
 - Inflation only. In-game cash only: no real money, no deposits, no
   staking, no cash-out. A Hustle is a normal game action.
@@ -161,17 +162,21 @@ your Heat go up. Reach 3 and police carry you go Kirikiri."
   a Big Grab: min(2 x amount, 25% of the target's cash, ₦400,000).
 - The exact amount, the Big Grab amount, the odds and the attacker's Heat
   are shown before they confirm; the target sees the amount at stake.
-- Caught costs no cash (`fine: 0`). Instead the attacker's Heat goes up
-  by one (`hustleHeat`, and the match counter `hustleFails`). At Heat 3 the
+- Caught pays a fail fine into the Owambe pot: 25% of the amount at
+  stake, minimum ₦10,000, maximum ₦50,000 (`room.hustle.fine`, shown
+  before confirming), capped at the attacker's cash in hand. The
+  attacker's Heat also goes up by one (`hustleHeat`, and the match counter `hustleFails`). At Heat 3 the
   police carry the attacker straight to Kirikiri (the normal jail, the
   normal ways out), their Heat resets to 0 and, because it is their roll
-  phase, the turn moves to its end. A success never changes Heat. So a
-  Hustle can never create a debt, bankrupt anyone or make cash negative.
-- Defence: the target gets a 6 second window to answer. Two choices:
+  phase, the turn moves to its end. A success never changes Heat. Because
+  the fine is capped at cash in hand, a Hustle can never create a debt,
+  bankrupt anyone or make cash negative.
+- Defence: the target gets a 4 second window to answer. Two choices:
   - Guard my money (defend): the success chance drops to 25%.
   - Leave am (no defence): the success chance is 55%.
-  - No answer in time (AFK, disconnected, or busy): the attempt resolves
-    at 40%. The match never waits longer than the window, and the turn
+  - No answer in time (AFK, disconnected, or busy): the target did not
+    guard, so the attempt is uncaught by default and resolves at the
+    unguarded 55%. The match never waits longer than the window, and the turn
     clock is paused while the window runs.
 - The roll is made on the server at resolution time, once. Resolution is
   guarded by the Hustle's own state and id: defence answers, retries,
@@ -247,15 +252,16 @@ State (`publicRoom`):
   choice is open.
 - `room.hustle`: null or `{ id, from, to, amount, fine, endsAt, defended }`
   where `defended` is null (awaiting), true or false. Present only while a
-  Hustle defence window is open. `fine` is always 0 under Hustle 2.
+  Hustle defence window is open. `fine` is the fail fine at stake.
 - `room.hustleResult`: null or `{ id, from, to, outcome ('win' | 'big' |
-  'caught' | 'defended' | 'jailed'), amount, heat, at }`, the last settled
+  'caught' | 'defended' | 'jailed'), amount, fine, heat, at }`, the last settled
   Hustle (drives the result toast; a client never replays it on join).
 - `room.inf`: `{ phase, phaseName, nextPhaseName (null in phase 7),
   multKind ('none' | 'lower' | 'higher' | 'sum' | 'sumLower' | 'sumHigher'
   | 'sumSq'), phaseEndsAt, deadlineAt, announcedPhase, salary, index,
   preset, hustleCaps: { maxAttempts, cap, targetMinCash, pct, minAmount,
-  pairCap, heatLimit, windowSecs, bigShare, bigMaxPct, fine, odds: { open,
+  pairCap, heatLimit, windowSecs, bigShare, bigMaxPct, fine (min), finePct,
+  fineMin, fineMax, odds: { open,
   defended, timeout } }, ... }` plus the
   pre-existing contract fields.
 - Player rows gain: `lifelineUsed`, `hustleAttempts`, `hustledTimes`,
