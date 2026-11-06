@@ -284,12 +284,12 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .bspace .tile-art { flex: 1 1 0; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding-top: 1px; }
 .bspace .tileart { height: 100%; width: auto; max-width: 94%; }
 .bspace .nm {
-  font-size: 9.5px; font-size: clamp(7.5px, 2.3cqw, 13px);
+  font-size: 11px; font-size: clamp(9.5px, 3.1cqw, 16px); /* board28: 6 tiles per side read bigger */
   font-weight: 800; line-height: 1.06; text-align: center;
   padding: 1px 1px 0; letter-spacing: -0.2px; flex: none;
 }
 .bspace .pr {
-  font-size: 9px; font-size: clamp(7px, 2cqw, 11.5px);
+  font-size: 10px; font-size: clamp(8.5px, 2.7cqw, 14px);
   font-weight: 700; color: var(--ink-soft); padding-bottom: 2px; flex: none;
 }
 .bspace .pr .pr-full { display: none; }
@@ -314,7 +314,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 @keyframes spaceflash { 0%, 100% { filter: none; } 50% { filter: brightness(1.5); } }
 .btokens { position: absolute; inset: 0; pointer-events: none; }
 .btoken {
-  --ts: clamp(26px, 9.2cqw, 42px);
+  --ts: clamp(32px, 11.5cqw, 52px); /* board28: bolder pieces */
   position: absolute; width: var(--ts); height: var(--ts);
   margin: calc(var(--ts) / -2) 0 0 calc(var(--ts) / -2);
   transition: left 0.2s ease, top 0.2s ease; z-index: 5;
@@ -324,7 +324,16 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   width: 76%; height: 30%; border-radius: 50%; opacity: 0.92;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35), inset 0 -2px 3px rgba(0, 0, 0, 0.30), inset 0 2px 2px rgba(255, 255, 255, 0.45);
 }
-.btoken .tok-in { position: absolute; inset: 0; display: block; filter: drop-shadow(0 3px 3px rgba(20, 12, 4, 0.35)); }
+.btoken .tok-in { position: absolute; inset: 0; display: block; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #2b2018) drop-shadow(0 3px 3px rgba(20, 12, 4, 0.45)); }
+.btoken .tok-base { outline: 2px solid rgba(43, 32, 24, 0.75); outline-offset: -1px; }
+.btoken.me { z-index: 7; }
+.btoken.me .tok-base { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--gold-deep, #b8860b), 0 2px 6px rgba(0, 0, 0, 0.4); }
+.btoken .tok-you {
+  position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -2px);
+  font: 900 11px/1 "Figtree", system-ui, sans-serif; letter-spacing: 0.06em; color: #fff;
+  background: var(--own, #2b2018); border: 2px solid #fff; border-radius: 999px; padding: 3px 7px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35); white-space: nowrap; pointer-events: none;
+}
 .btoken .tok-in svg { width: 100%; height: 100%; display: block; }
 .btoken .tok-in.hop { animation: tokenhop 0.23s ease; }
 @keyframes tokenhop {
@@ -367,9 +376,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   clip-path: polygon(0 0, 100% 0, 86% 100%, 14% 100%);
 }
 .pot-bowl span { display: block; height: 5px; background: linear-gradient(90deg, var(--gold-deep), var(--gold), var(--gold-deep)); }
-.dice-row { display: flex; gap: 7px; }
+.dice-row { display: flex; gap: 10px; }
 .die {
-  width: 31px; width: clamp(27px, 8.6cqw, 42px); height: 31px; height: clamp(27px, 8.6cqw, 42px);
+  width: 40px; width: clamp(38px, 12cqw, 56px); height: 40px; height: clamp(38px, 12cqw, 56px); /* board28: bigger dice */
   border-radius: 22%; padding: 13%;
   background: linear-gradient(145deg, #ffffff, #e9e0cb);
   border: 1px solid #c9b992;
@@ -2252,3 +2261,45 @@ body.in-game {
   transform: translate(4px, 5px) rotate(-45deg);
 }
 .swap-deed:active { transform: translateY(1px); }
+
+/* ---------------------------------------------------------------------------
+   board28 fun layer: Owambe Rush, Sapa Deals, Hustle heat, YOU tag.
+   --------------------------------------------------------------------------- */
+.btn.gold { background: linear-gradient(180deg, #ffd45a, var(--gold, #e8a90c)); color: var(--ink, #2b2018); box-shadow: 0 3px 0 var(--gold-deep, #9c7208); }
+.heat-pill { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: #d64545; color: #fff; font-size: 11px; font-weight: 900; }
+.sapa-tag { display: inline-block; padding: 0 5px; border-radius: 6px; background: #d64545; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: 0.04em; animation: sapapulse 1.2s ease-in-out infinite; }
+@keyframes sapapulse { 50% { opacity: 0.55; } }
+.sapa-deeds { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
+.sapa-deed { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 52px; padding: 8px 10px; border-radius: 12px; border: 2px solid var(--line, #d9ccb0); background: #fffdf4; font: inherit; text-align: left; cursor: pointer; }
+.sapa-deed span { font-size: 12px; color: var(--ink-soft, #6b5a48); }
+.sapa-deed.on { border-color: var(--green, #1d9a68); background: #e9fbf2; }
+#owambeRush { display: none; }
+#owambeRush.show {
+  display: flex; position: fixed; inset: 0; z-index: 90; align-items: center; justify-content: center;
+  padding: 16px; background: radial-gradient(circle at 50% 40%, rgba(120, 80, 10, 0.82), rgba(24, 15, 8, 0.92));
+}
+.rush-card { width: min(420px, 100%); text-align: center; color: #fff; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+.rush-kicker { font: 900 clamp(20px, 6vw, 30px)/1.1 "Aeonik Pro", "Figtree", sans-serif; letter-spacing: 0.04em; color: #ffe08a; }
+.rush-pot { font: 900 clamp(40px, 13vw, 72px)/1 "Aeonik Pro", "Figtree", sans-serif; margin-top: 6px; }
+.rush-count { font: 900 clamp(64px, 26vw, 140px)/1 "Aeonik Pro", "Figtree", sans-serif; margin: 6px 0; }
+.rush-card.open .rush-count { color: #ffe08a; }
+.rush-line { font-weight: 800; font-size: 15px; }
+.rush-btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 14px; }
+.rush-grab {
+  min-width: min(260px, 80vw); min-height: 88px; border: 4px solid #fff; border-radius: 22px;
+  background: linear-gradient(180deg, #2bbd84, #11845a); color: #fff; font: 900 38px/1 "Aeonik Pro", "Figtree", sans-serif;
+  box-shadow: 0 8px 0 #0a5c3e, 0 14px 30px rgba(0, 0, 0, 0.4); touch-action: manipulation; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+}
+.rush-btns .rush-grab[data-rush-as]:not([data-rush-as=""]) { min-width: 140px; min-height: 76px; font-size: 26px; border-color: var(--own, #fff); }
+.rush-grab small { font-size: 13px; font-weight: 800; }
+.rush-grab[aria-disabled="true"] { background: linear-gradient(180deg, #8a7a5f, #5c4c3d); box-shadow: 0 6px 0 #3b2f24; opacity: 0.85; }
+.rush-grab.tapped { transform: translateY(5px); box-shadow: 0 3px 0 #0a5c3e; }
+.rush-grab.nope { animation: rushnope 0.25s ease; }
+@keyframes rushnope { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.rush-card.open .rush-grab:not([aria-disabled="true"]) { animation: rushpulse 0.6s ease-in-out infinite; }
+@keyframes rushpulse { 50% { transform: scale(1.05); } }
+#owambeRush.reduced .rush-grab, #owambeRush.reduced .sapa-tag, .reduced .rush-grab.nope { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .rush-card.open .rush-grab, .sapa-tag, .rush-grab.nope { animation: none !important; }
+}

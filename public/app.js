@@ -79,6 +79,8 @@ window.KPesc = esc;
 
 let ws = null;
 let myId = null;
+// Board renderers ask which seat is mine (the YOU tag on my piece).
+window.__kolopolyMe = () => myId;
 let myCode = null;
 let spectator = false;
 let state = null;
@@ -159,6 +161,7 @@ function saveSeat() {
 }
 function clearSeat() {
   myCode = null; myId = null; myToken = null; hasSeat = false; spectator = false;
+  try { musicWanted = false; syncMusic(); } catch (e) { }
   try { sessionStorage.removeItem('kolopolySeat'); localStorage.removeItem('kolopolySeatLS'); } catch (e) { }
   try { releaseWakeLock(); } catch (e) { }
   try { stopHeartbeat(); } catch (e) { }
@@ -247,6 +250,100 @@ function duckAmbient() {
   busAmbient.gain.setValueAtTime(0.22, t);
   busAmbient.gain.linearRampToValueAtTime(0.8, t + 0.7);
 }
+// ---------------------------------------------------------------------------
+// Ambient music bed (docs/BOARD28-HUSTLE-OWAMBE.md, "Ambient music"). One
+// 16s original highlife-feel loop (public/sfx/ambient-highlife.mp3, ~80KB,
+// made by tools/make_ambient.py), fetched only after the first gesture and
+// only once a game is on. It sits on its own quiet bus, ducks under every
+// sound effect and UI tick, fades in (no surprise blast), and is silent
+// whenever the sound button says "Sound off". Level: Off / Low / Medium,
+// stored as kolopolyMusic. Long-press (or right-click) the sound button to
+// change it. Reduced-motion users start at Off until they pick a level.
+// ---------------------------------------------------------------------------
+const MUSIC_URL = '/sfx/ambient-highlife.mp3';
+const MUSIC_LEVELS = { off: 0, low: 0.07, medium: 0.13 };
+let musicLevel = (() => {
+  try {
+    const v = localStorage.getItem('kolopolyMusic');
+    if (v && Object.prototype.hasOwnProperty.call(MUSIC_LEVELS, v)) return v;
+  } catch (e) { }
+  try { if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 'off'; } catch (e) { }
+  return 'low';
+})();
+let musicBus = null, musicSrc = null, musicBuf = null, musicFetch = null, musicWanted = false, musicGestured = false, musicDuckUntil = 0;
+function musicTarget() { return muted || !musicWanted ? 0 : MUSIC_LEVELS[musicLevel] || 0; }
+function duckMusic() {
+  if (!audioCtx || !musicBus || !musicSrc) return;
+  const nowMs = performance.now();
+  if (nowMs < musicDuckUntil - 350) return; // already ducked
+  musicDuckUntil = nowMs + 900;
+  const t = audioCtx.currentTime, lvl = musicTarget();
+  musicBus.gain.cancelScheduledValues(t);
+  musicBus.gain.setValueAtTime(musicBus.gain.value, t);
+  musicBus.gain.linearRampToValueAtTime(lvl * 0.3, t + 0.06);
+  musicBus.gain.setValueAtTime(lvl * 0.3, t + 0.5);
+  musicBus.gain.linearRampToValueAtTime(lvl, t + 1.3);
+}
+function syncMusic() {
+  const lvl = musicTarget();
+  if (!lvl) {
+    if (musicSrc && audioCtx) {
+      const t = audioCtx.currentTime, src = musicSrc;
+      musicBus.gain.cancelScheduledValues(t);
+      musicBus.gain.setValueAtTime(musicBus.gain.value, t);
+      musicBus.gain.linearRampToValueAtTime(0, t + 0.8);
+      musicSrc = null;
+      setTimeout(() => { try { src.stop(); } catch (e) { } }, 900);
+    }
+    return;
+  }
+  if (!musicGestured) return; // never before a user gesture
+  const ctx = audio();
+  if (!ctx) return;
+  if (!musicBus) { musicBus = ctx.createGain(); musicBus.gain.value = 0; musicBus.connect(master); }
+  if (musicSrc) {
+    const t = ctx.currentTime;
+    musicBus.gain.cancelScheduledValues(t);
+    musicBus.gain.setValueAtTime(musicBus.gain.value, t);
+    musicBus.gain.linearRampToValueAtTime(lvl, t + 0.6);
+    return;
+  }
+  if (!musicFetch) {
+    musicFetch = fetch(MUSIC_URL).then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((ab) => (ab ? ctx.decodeAudioData(ab) : null))
+      .then((buf) => { musicBuf = buf; return buf; })
+      .catch(() => null);
+  }
+  musicFetch.then((buf) => {
+    if (!buf || musicSrc || !musicTarget()) return;
+    whenRunning(ctx, () => {
+      if (musicSrc || !musicTarget()) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.loop = true; src.loopStart = 0; src.loopEnd = Math.min(buf.duration, 16);
+      src.connect(musicBus);
+      const t = ctx.currentTime;
+      musicBus.gain.cancelScheduledValues(t);
+      musicBus.gain.setValueAtTime(0, t);
+      musicBus.gain.linearRampToValueAtTime(musicTarget(), t + 4); // slow fade in
+      try { src.start(); } catch (e) { return; }
+      musicSrc = src;
+    });
+  });
+}
+function setMusicLevel(level) {
+  if (!Object.prototype.hasOwnProperty.call(MUSIC_LEVELS, level)) return;
+  musicLevel = level;
+  try { localStorage.setItem('kolopolyMusic', level); } catch (e) { }
+  musicGestured = true;
+  syncMusic();
+}
+window.KPMusic = {
+  get: () => ({ level: musicLevel, playing: !!musicSrc, wanted: musicWanted, gain: musicTarget() }),
+  set: setMusicLevel
+};
+['pointerdown', 'keydown', 'touchend'].forEach((ev) => window.addEventListener(ev, () => {
+  if (!musicGestured) { musicGestured = true; syncMusic(); }
+}, true));
 // Sound stays on unless the player picked mute (state 3). Browsers
 // suspend AudioContext on hide, on silence, and sometimes mid-game.
 // A one-shot unlock used to remove the gesture listeners, so the next
@@ -303,6 +400,7 @@ function toneNow(ctx, o) {
   g.gain.exponentialRampToValueAtTime(heard(o.vol), t + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
   osc.connect(g); g.connect(o.ambient ? busAmbient : busMain);
+  if (!o.ambient) duckMusic();
   osc.start(t); osc.stop(t + o.dur + 0.05);
 }
 function noiseHit(o) {
@@ -327,6 +425,7 @@ function noiseNow(ctx, o) {
   g.gain.exponentialRampToValueAtTime(heard(o.vol == null ? 0.05 : o.vol), t + (o.attack || 0.015));
   g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
   src.connect(f); f.connect(g); g.connect(o.ambient ? busAmbient : busMain);
+  if (!o.ambient) duckMusic();
   src.start(t); src.stop(t + o.dur + 0.05);
 }
 // ---------------------------------------------------------------------------
@@ -380,6 +479,7 @@ function playBuffer(ctx, buf, gain) {
     g.gain.value = gain == null ? 0.85 : gain;
     src.connect(g);
     g.connect(busMain);
+    duckMusic();
     try { src.start(); } catch (e) { /* already started */ }
   });
 }
@@ -533,8 +633,30 @@ $('muteBtn').addEventListener('click', () => {
   renderMuteBtn();
   if (audioState === 3 && window.KPRetention) window.KPRetention.muteFromSound();
   if (audioState !== 3) { unlockAudio(); logSfx('tap', null, 'ui'); sfx.tap(); }
+  syncMusic();
 });
 renderMuteBtn();
+// Long-press or right-click the sound button: the music level sheet.
+(() => {
+  const b = $('muteBtn');
+  let pressT = null;
+  const open = () => { pressT = null; openMusicSheet(); };
+  b.addEventListener('pointerdown', () => { clearTimeout(pressT); pressT = setTimeout(() => { pressT = 'fired'; openMusicSheet(); }, 550); });
+  const cancel = () => { if (pressT && pressT !== 'fired') clearTimeout(pressT); };
+  b.addEventListener('pointerup', cancel); b.addEventListener('pointerleave', cancel);
+  b.addEventListener('click', (e) => { if (pressT === 'fired') { pressT = null; e.stopImmediatePropagation(); } }, true);
+  b.addEventListener('contextmenu', (e) => { e.preventDefault(); open(); });
+})();
+function openMusicSheet() {
+  const lv = (k, label) => '<button class="btn' + (musicLevel === k ? ' green' : ' ghost') + '" data-music="' + k + '">' + label + '</button>';
+  $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('sound', 18) + ' Background music</h3>' +
+    '<p class="caption" style="margin-top:4px;">Soft highlife bed under the game. E dey go quiet anytime sound effect play, and e no go play when sound dey off.' + (muted ? ' Sound dey off now: tap the sound button to hear am.' : '') + '</p>' +
+    '<div class="btnrow" style="margin-top:10px;">' + lv('off', 'Off') + lv('low', 'Low') + lv('medium', 'Medium') + '</div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('listScrim').classList.add('show');
+  wireSheetButtons($('listSheet'), myId);
+  $('listSheet').querySelectorAll('[data-music]').forEach((x) => x.addEventListener('click', () => { setMusicLevel(x.dataset.music); openMusicSheet(); }));
+}
 // KP14 part 1: the Share button in the freed header slot carries the
 // owner's invitation copy: the room form inside a room, the game form
 // on the landing.
@@ -722,6 +844,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     if (!muted) unlockAudio();
     if (state && state.status === 'playing' && !state.paused) requestWakeLock();
+    syncMusic();
   } else if (document.visibilityState === 'hidden') releaseWakeLock();
 });
 
@@ -1265,6 +1388,10 @@ function onState(room) {
   } else mp.classList.add('hidden');
   processFeed(room, prev);
   processPositions(room);
+  funMoments(room, prev);
+  renderOwambe(room);
+  musicWanted = room.status === 'playing' || room.status === 'countdown';
+  syncMusic();
   if (room.status === 'lobby') renderLobby(room);
   if (room.status === 'playing' || room.status === 'ended' || room.status === 'countdown') renderGame(room);
   if (room.status === 'ended') renderEnd(room);
@@ -1797,13 +1924,13 @@ function renderGame(room) {
     const chipTitle = mineChip ? (' title="' + (p.lifelineUsed ? 'Lifeline: don use am this match' : 'Lifeline: still dey. E fit cut one big rent back to the printed price') + '"') : '';
     return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '"' + chipTitle + '>' +
       '<span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 15) + '</span>' +
-      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + '</span> ' +
+      '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + (room.debt && room.debt.playerId === p.id ? ' <span class="sapa-tag" title="Dey raise money: others fit offer a Sapa Deal">SAPA</span>' : '') + '</span> ' +
       '<span class="cash">' + fmtN(p.cash) + '</span><span class="meta"> · ' + p.deeds + ' deeds' + loanMark + '</span></span></div>';
   }).join('');
   // Board legal highlights for build placement
   if (room.buildPlace && room.buildPlace.playerId === actingId()) {
     const set = new Set();
-    for (let i = 0; i < 40; i++) if (window.KPBoard.canBuildHere(room, actingId(), i, room.buildPlace.kind)) set.add(i);
+    for (let i = 0; i < window.KP_DATA.BOARD_SIZE; i++) if (window.KPBoard.canBuildHere(room, actingId(), i, room.buildPlace.kind)) set.add(i);
     window.KPBoard.legalSet = set;
   } else window.KPBoard.legalSet = null;
   window.KPBoard.render(room);
@@ -1901,6 +2028,9 @@ function renderActionBar(room) {
     } else {
       const d = byId(room.debt.playerId);
       html = '<p class="caption" style="align-self:center;">' + esc(d ? d.name : 'A player') + ' dey raise ' + fmtN(room.debt.amount) + ' (' + esc(room.debt.reason) + ').</p>';
+      if (room.mode !== 'pass' && !spectator && me && !me.bankrupt && !room.sapaOffer && d && sapaDeedsOf(room, d.id).length) {
+        html += '<button class="btn gold" id="abSapa">' + window.icon('swapH', 18) + ' Sapa Deal: buy their deed</button>';
+      }
     }
   } else if (room.buildPlace && room.buildPlace.playerId === me.id) {
     html = '<p class="caption" style="align-self:center;">You win the last ' + room.buildPlace.kind + '. Tap a highlighted street to place am.</p>';
@@ -1919,17 +2049,15 @@ function renderActionBar(room) {
       // roll step, never a permanent HUD piece. The server re-validates
       // every limit; this only decides whether the door shows.
       if (room.inf && !room.pendingBill && !room.hustle) {
-        const caps = room.inf.hustleCaps || { maxAttempts: 3, cap: 150000, targetMinCash: 50000 };
+        const caps = hustleCaps(room);
         const attempts = actor.hustleAttempts || 0;
         const targets = hustleTargets(room, actor);
         if (attempts >= caps.maxAttempts) {
           html += '<button class="btn ghost" id="abHustle" disabled title="You don use all your Hustle attempts for this match.">' + window.icon('spark', 18) + ' Hustle ' + attempts + '/' + caps.maxAttempts + '</button>';
-        } else if (actor.cash < 10000) {
-          html += '<button class="btn ghost" id="abHustle" disabled title="You need at least ' + fmtN(10000) + ' cash to cover the fine if dem catch you.">' + window.icon('spark', 18) + ' Hustle</button>';
         } else if (!targets.length) {
           html += '<button class="btn ghost" id="abHustle" disabled title="Nobody hold reach ' + fmtN(caps.targetMinCash) + ' cash wey dem no dey Kirikiri.">' + window.icon('spark', 18) + ' Hustle</button>';
         } else {
-          html += '<button class="btn ghost" id="abHustle">' + window.icon('spark', 18) + ' Hustle</button>';
+          html += '<button class="btn ghost" id="abHustle">' + window.icon('spark', 18) + ' Hustle' + ((actor.hustleHeat || 0) > 0 ? ' <span class="heat-pill">Heat ' + actor.hustleHeat + '/' + (caps.heatLimit || 3) + '</span>' : '') + '</button>';
         }
       }
     } else if (room.phase === 'jail') {
@@ -1954,6 +2082,7 @@ function renderActionBar(room) {
   const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
   wire('abRoll', () => sendAs('roll', {}));
   wire('abHustle', () => openHustleSheet(room));
+  wire('abSapa', () => openSapaOfferSheet(room));
   wire('abJailPay', () => sendAs('jail_pay', {}));
   wire('abJailCard', () => sendAs('jail_card', {}));
   wire('abJailRoll', () => sendAs('jail_roll', {}));
@@ -2009,36 +2138,37 @@ function renderActionBar(room) {
 // the server publishes in state.inf.hustleCaps; the server recomputes
 // and validates everything when hustle_start lands.
 // ---------------------------------------------------------------------------
+const HUSTLE_FALLBACK = { maxAttempts: 6, cap: 200000, targetMinCash: 50000, pct: 12, minAmount: 20000, pairCap: 3, heatLimit: 3, windowSecs: 6, bigShare: 0.2, bigMaxPct: 25, fine: 0, odds: { open: 0.55, defended: 0.25, timeout: 0.40 } };
 function hustleCaps(room) {
-  return (room.inf && room.inf.hustleCaps) || { maxAttempts: 3, cap: 150000, targetMinCash: 50000 };
+  return Object.assign({}, HUSTLE_FALLBACK, (room.inf && room.inf.hustleCaps) || {});
 }
 function hustleGrab(target, caps) {
-  return Math.min(caps.cap, Math.max(10000, Math.floor(target.cash * 0.10)));
-}
-function hustleFineFor(amount) {
-  return Math.max(10000, Math.floor(amount / 2));
+  return Math.min(caps.cap, Math.max(caps.minAmount, Math.floor(target.cash * caps.pct / 100)));
 }
 function hustleTargets(room, actor) {
   const caps = hustleCaps(room);
-  return room.players.filter((p) => p.id !== actor.id && !p.bankrupt && !p.resigned && !p.inJail && p.cash >= caps.targetMinCash);
+  return room.players.filter((p) => p.id !== actor.id && !p.bankrupt && !p.resigned && !p.inJail && !p.hustleShielded && p.cash >= caps.targetMinCash);
 }
+const oddsPct = (x) => Math.round(x * 100) + '%';
 function openHustleSheet(room) {
   const actor = room.mode === 'pass' ? byId(room.turnPlayerId) : byId(myId);
   if (!actor || !room.inf) return;
   const caps = hustleCaps(room);
   const attempts = actor.hustleAttempts || 0;
   const targets = hustleTargets(room, actor);
+  const heat = actor.hustleHeat || 0;
   const rows = targets.map((t) => {
     const amount = hustleGrab(t, caps);
-    const fine = hustleFineFor(amount);
+    const big = Math.min(amount * 2, Math.floor(t.cash * caps.bigMaxPct / 100), caps.cap * 2);
     return '<div class="contract-row"><div class="grow"><b>' + esc(t.name) + '</b> <span class="caption">hold ' + fmtN(t.cash) + '</span>' +
-      '<p class="caption" style="margin-top:2px;">You fit grab <b>' + fmtN(amount) + '</b>. If dem catch you, fine na <b>' + fmtN(fine) + '</b>.</p></div>' +
+      '<p class="caption" style="margin-top:2px;">Win: <b>' + fmtN(amount) + '</b>. Big Grab: <b>' + fmtN(big) + '</b>. Caught: <b>no money move</b>, Heat +1.</p></div>' +
       '<button class="btn small" data-hustle-target="' + t.id + '">Hustle am</button></div>';
   }).join('');
   $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('spark', 18) + ' Hustle</h3>' +
-    '<p class="caption" style="margin-top:4px;">Pick a player wey hold cash. You fit grab 10% of their cash (max ' + fmtN(caps.cap) + '). If dem guide their money, your chance drop and if dem catch you, half your fine reach dem. If dem catch you, you pay fine enter the Owambe pot.</p>' +
-    '<p class="caption" style="margin-top:6px;">Chance: <b>45%</b> if dem leave am, <b>15%</b> if dem guide, <b>30%</b> if dem no answer. Attempts left: <b>' + Math.max(0, caps.maxAttempts - attempts) + '</b> of ' + caps.maxAttempts + '. Your Lifeline: ' + (actor.lifelineUsed ? 'don use am' : 'still dey') + '.</p>' +
-    '<div class="mt8">' + (rows || '<p class="caption">No target dey: nobody hold reach ' + fmtN(caps.targetMinCash) + ' cash outside Kirikiri.</p>') + '</div>' +
+    '<p class="caption" style="margin-top:4px;">Game cash only. Pick a player wey hold cash: you fit collect ' + caps.pct + '% of their cash (min ' + fmtN(caps.minAmount) + ', max ' + fmtN(caps.cap) + '). Some wins na <b>Big Grab</b>: double. Dem get ' + caps.windowSecs + ' seconds to guard.</p>' +
+    '<p class="caption" style="margin-top:6px;">Chance: <b>' + oddsPct(caps.odds.open) + '</b> if dem leave am, <b>' + oddsPct(caps.odds.defended) + '</b> if dem guard, <b>' + oddsPct(caps.odds.timeout) + '</b> if dem no answer. If dem catch you, no fine, but your Heat go up. <b>Heat ' + heat + '/' + caps.heatLimit + '</b>: reach ' + caps.heatLimit + ' and police carry you go Kirikiri.</p>' +
+    '<p class="caption" style="margin-top:6px;">Attempts left: <b>' + Math.max(0, caps.maxAttempts - attempts) + '</b> of ' + caps.maxAttempts + '. Max ' + caps.pairCap + ' hustles on the same person. Whoever you hustle get one round of cover. Your Lifeline: ' + (actor.lifelineUsed ? 'don use am' : 'still dey') + '.</p>' +
+    '<div class="mt8">' + (rows || '<p class="caption">No target dey: nobody hold reach ' + fmtN(caps.targetMinCash) + ' cash outside Kirikiri, or dem still get cover.</p>') + '</div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
   $('listScrim').classList.add('show');
   wireSheetButtons($('listSheet'), myId);
@@ -2046,6 +2176,208 @@ function openHustleSheet(room) {
     sendAs('hustle_start', { targetId: Number(b.dataset.hustleTarget) });
     closeScrim('listScrim');
   }));
+}
+
+// ---------------------------------------------------------------------------
+// board28 fun layer (docs/BOARD28-HUSTLE-OWAMBE.md): Owambe Rush overlay,
+// missed turn toast, Hustle results, Sapa Deals. The server is the only
+// judge; these views only show what state says and send intents.
+// ---------------------------------------------------------------------------
+const funSeen = { hustle: null, owambe: null, missed: null, sapa: null, rushSeen: null };
+let rushLocal = null; // { id, state, opensAt, closesAt } on THIS phone's clock
+function reducedMotion() {
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; }
+}
+function funMoments(room, prev) {
+  if (!room || room.status !== 'playing') return;
+  const first = !prev; // a fresh join or reconnect never replays old news
+  const nm = (id) => { const p = byId(id); return p ? esc(p.name) : 'Somebody'; };
+  const mine = (id) => id === (room.mode === 'pass' ? actingId() : myId);
+  const hr = room.hustleResult;
+  if (hr && funSeen.hustle !== hr.id) {
+    const stale = first || funSeen.hustle == null && Date.now() - hr.at > 8000;
+    funSeen.hustle = hr.id;
+    if (!stale) {
+      const caps = hustleCaps(room);
+      if (hr.outcome === 'big') {
+        toast({ html: '<b>BIG GRAB!</b> ' + nm(hr.from) + ' hustle ' + fmtN(hr.amount) + ' from ' + nm(hr.to) + '. Omo!', ms: 5200 });
+        sfx.cheer && sfx.cheer();
+        if (!reducedMotion()) buzz([40, 40, 80]);
+      } else if (hr.outcome === 'win') {
+        toast({ html: '<b>Hustle land!</b> ' + nm(hr.from) + ' collect ' + fmtN(hr.amount) + ' from ' + nm(hr.to) + '.', ms: 4500 });
+        sfx.credit && mine(hr.from) && sfx.credit(hr.amount);
+      } else if (hr.outcome === 'jailed') {
+        toast({ html: '<b>Police don catch am!</b> ' + nm(hr.from) + ' fail ' + caps.heatLimit + ' hustles. Straight to Kirikiri.', ms: 5200 });
+      } else {
+        toast({ html: (hr.outcome === 'defended' ? '<b>Guarded!</b> ' + nm(hr.to) + ' guard their money.' : '<b>Caught!</b> ' + nm(hr.to) + ' catch ' + nm(hr.from) + '.') +
+          ' No money move. Heat ' + hr.heat + '/' + caps.heatLimit + '.', ms: 4200 });
+      }
+    }
+  }
+  const orz = room.owambeResult;
+  if (orz && funSeen.owambe !== orz.id) {
+    const stale = first;
+    funSeen.owambe = orz.id;
+    if (!stale) {
+      if (orz.winnerId != null) {
+        toast({ html: '<b>' + nm(orz.winnerId) + ' won ' + fmtN(orz.amount) + '!</b> Owambe Rush, ' + Math.round((orz.reactionMs || 0)) + 'ms after GRAB.', ms: 5200 });
+        if (mine(orz.winnerId)) { sfx.cheer && sfx.cheer(); if (!reducedMotion()) buzz([60, 40, 120]); }
+      } else toast('Nobody grab the Owambe pot. E roll over, e dey grow.');
+    }
+  }
+  const mt = room.missedTurn;
+  if (mt && funSeen.missed !== mt.at) {
+    const stale = first;
+    funSeen.missed = mt.at;
+    if (!stale) {
+      toast({ html: mine(mt.playerId)
+        ? '<b>You miss your turn.</b> Time finish: ' + fmtN(mt.fee) + ' fee enter the Owambe pot and the turn pass.'
+        : '<b>' + nm(mt.playerId) + ' miss their turn.</b> ' + fmtN(mt.fee) + ' missed turn fee enter the Owambe pot.', ms: 4500 });
+    }
+  }
+  const sr = room.sapaResult;
+  if (sr && funSeen.sapa !== sr.id + ':' + sr.outcome) {
+    const stale = first;
+    funSeen.sapa = sr.id + ':' + sr.outcome;
+    if (!stale && (mine(sr.from) || mine(sr.to) || sr.outcome === 'accepted')) {
+      toast(sr.outcome === 'accepted' ? '<b>Sapa Deal done.</b> ' + nm(sr.to) + ' take ' + fmtN(sr.cash || 0) + ' from ' + nm(sr.from) + ' for the deed(s).'
+        : sr.outcome === 'declined' ? 'Sapa Deal declined. ' + nm(sr.to) + ' go raise the money another way.'
+        : sr.outcome === 'timeout' ? 'Sapa Deal no get answer in time. E don lapse.' : 'Sapa Deal don close.');
+    }
+  }
+}
+
+// Owambe Rush: a big countdown while the pot is "COMING", then a big GRAB
+// button. First tap the server processes wins; early taps are refused
+// without lockout. Spectators only watch.
+function renderOwambe(room) {
+  let el = $('owambeRush');
+  const r = room && room.status === 'playing' ? room.owambe : null;
+  if (!r) {
+    rushLocal = null;
+    if (el) { el.classList.remove('show'); el.innerHTML = ''; }
+    return;
+  }
+  const rules = room.owambeRules || { comingSecs: 3, openSecs: 8 };
+  const t = Date.now();
+  if (!rushLocal || rushLocal.id !== r.id) rushLocal = { id: r.id, state: null };
+  if (rushLocal.state !== r.state) {
+    rushLocal.state = r.state;
+    if (r.state === 'coming') { rushLocal.opensAt = t + rules.comingSecs * 1000; rushLocal.closesAt = rushLocal.opensAt + rules.openSecs * 1000; }
+    else { rushLocal.closesAt = t + rules.openSecs * 1000; }
+  }
+  if (!el) {
+    el = document.createElement('div'); el.id = 'owambeRush';
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-live', 'assertive');
+    document.body.appendChild(el);
+  }
+  const open = r.state === 'open';
+  const secs = Math.max(0, Math.ceil(((open ? rushLocal.closesAt : rushLocal.opensAt) - t) / 1000));
+  const sig = r.id + '|' + r.state + '|' + room.pot + '|' + (room.mode === 'pass') + '|' + spectator;
+  if (el.dataset.sig !== sig) {
+    el.dataset.sig = sig;
+    let btns = '';
+    if (!spectator) {
+      if (room.mode === 'pass') {
+        btns = '<div class="rush-btns">' + room.players.filter((p) => !p.bankrupt && !p.resigned).map((p) =>
+          '<button class="rush-grab" data-rush-as="' + p.id + '" style="--own:' + p.color + '"' + (open ? '' : ' aria-disabled="true"') + '>GRAB<small>' + esc(p.name) + '</small></button>').join('') + '</div>';
+      } else {
+        const me = byId(myId);
+        if (me && !me.bankrupt && !me.resigned) btns = '<div class="rush-btns"><button class="rush-grab" data-rush-as=""' + (open ? '' : ' aria-disabled="true"') + '>GRAB</button></div>';
+      }
+    }
+    el.innerHTML = '<div class="rush-card' + (open ? ' open' : '') + '">' +
+      '<div class="rush-kicker">' + (open ? 'GRAB AM NOW!' : 'OWAMBE POT DEY COME') + '</div>' +
+      '<div class="rush-pot">' + fmtN(room.pot) + '</div>' +
+      '<div class="rush-count" id="rushCount">' + secs + '</div>' +
+      '<div class="rush-line">' + (open ? 'First tap carry everything. Fight for your life!' : 'Wait for GRAB. Early tap no count.') + '</div>' +
+      btns + '</div>';
+    el.querySelectorAll('[data-rush-as]').forEach((b) => b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (!state || !state.owambe || state.owambe.state !== 'open') { b.classList.add('nope'); setTimeout(() => b.classList.remove('nope'), 250); return; }
+      const o = { rushId: state.owambe.id };
+      if (b.dataset.rushAs) o.as = Number(b.dataset.rushAs);
+      send('owambe_grab', o);
+      b.classList.add('tapped');
+    }));
+    if (open) { sfx.horn && sfx.horn(); if (!reducedMotion()) buzz(60); }
+  } else {
+    const c = $('rushCount'); if (c) c.textContent = String(secs);
+  }
+  el.classList.toggle('reduced', reducedMotion());
+  el.classList.add('show');
+}
+setInterval(() => { if (state && state.owambe) renderOwambe(state); }, 250);
+
+// Sapa Deals: while a player raises money for a debt, the others can offer
+// cash for deeds. One offer at a time; the debtor answers before the timer.
+function sapaDeedsOf(room, pid) {
+  const out = [];
+  for (let i = 0; i < window.KP_DATA.BOARD_SIZE; i++) {
+    const pr = room.props[i];
+    const sp = window.KP_DATA.SPACES[i];
+    if (!pr || pr.o !== pid || pr.pl) continue;
+    if (sp.type === 'street' && room.props.some((q, j) => q && q.b > 0 && window.KP_DATA.SPACES[j].group === sp.group)) continue;
+    out.push(i);
+  }
+  return out;
+}
+function openSapaOfferSheet(room) {
+  const d = room.debt && byId(room.debt.playerId);
+  const me = byId(myId);
+  if (!d || !me) return;
+  const deeds = sapaDeedsOf(room, d.id);
+  const pick = new Set();
+  const draw = () => {
+    const suggested = [...pick].reduce((a, i) => a + Math.floor((window.KP_DATA.SPACES[i].price || 0) * (room.props[i].m ? 0.5 : 0.8)), 0);
+    $('listSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('swapH', 18) + ' Sapa Deal for ' + esc(d.name) + '</h3>' +
+      '<p class="caption" style="margin-top:4px;">' + esc(d.name) + ' dey raise <b>' + fmtN(room.debt.amount) + '</b>. Offer cash for their deed(s). Dem get small time to accept; if dem no answer, the normal raise or bankrupt road continue.</p>' +
+      '<div class="sapa-deeds">' + (deeds.map((i) => {
+        const sp = window.KP_DATA.SPACES[i];
+        return '<button class="sapa-deed' + (pick.has(i) ? ' on' : '') + '" data-sapa-deed="' + i + '"><b>' + esc(sp.name) + '</b><span>' + fmtN(sp.price) + (room.props[i].m ? ' · mortgaged' : '') + '</span></button>';
+      }).join('') || '<p class="caption">No deed wey fit move now (buildings or loan pledge).</p>') + '</div>' +
+      '<label class="caption" style="display:block;margin-top:8px;">Your offer (you hold ' + fmtN(me.cash) + ')</label>' +
+      '<input id="sapaCash" class="input" type="number" inputmode="numeric" min="1000" step="1000" value="' + Math.min(me.cash, suggested || 0) + '">' +
+      '<div class="btnrow"><button class="btn green" id="sapaSend"' + (pick.size ? '' : ' disabled') + '>Send offer</button><button class="btn ghost" data-close="1">Close</button></div>';
+    wireSheetButtons($('listSheet'), myId);
+    $('listSheet').querySelectorAll('[data-sapa-deed]').forEach((b) => b.addEventListener('click', () => {
+      const i = Number(b.dataset.sapaDeed);
+      if (pick.has(i)) pick.delete(i); else pick.add(i);
+      draw();
+    }));
+    const sendBtn = $('sapaSend');
+    if (sendBtn) sendBtn.addEventListener('click', () => {
+      send('sapa_offer', { to: d.id, spaces: [...pick], cash: Math.floor(Number($('sapaCash').value) || 0) });
+      closeScrim('listScrim');
+    });
+  };
+  draw();
+  $('listScrim').classList.add('show');
+}
+function sapaTacticalHTML(room) {
+  const o = room.sapaOffer;
+  if (!o || spectator) return '';
+  const A = room.mode === 'pass' ? actingId() : myId;
+  const from = byId(o.from), to = byId(o.to);
+  const names = o.spaces.map((i) => esc(window.KP_DATA.SPACES[i].name)).join(', ');
+  const clock = '<span class="turn-timer" data-deadline="' + o.endsAt + '">' + Math.max(0, Math.round((o.endsAt - Date.now()) / 1000)) + 's</span>';
+  if (o.to === A || (room.mode === 'pass' && o.to === room.debt?.playerId)) {
+    return '<div class="auction-card tactical-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('swapH', 18) + ' Sapa Deal</b>' + clock + '</div>' +
+      '<p style="margin:6px 0 0;"><b>' + esc(from ? from.name : 'A player') + '</b> offer <b>' + fmtN(o.cash) + '</b> for <b>' + names + '</b>.</p>' +
+      '<div class="btnrow" style="margin-top:9px;"><button class="btn green" id="sapaYes">Accept ' + fmtN(o.cash) + '</button><button class="btn ghost" id="sapaNo">Decline</button></div>' +
+      '<p class="caption" style="margin-top:6px;">No answer = declined. Your debt clock no stop.</p></div>';
+  }
+  if (o.from === A) {
+    return '<div class="auction-card tactical-card"><div style="display:flex;justify-content:space-between;align-items:center;"><b>Sapa Deal sent</b>' + clock + '</div>' +
+      '<p class="caption" style="margin:6px 0 0;">' + esc(to ? to.name : 'They') + ' dey decide on ' + fmtN(o.cash) + ' for ' + names + '.</p></div>';
+  }
+  return '';
+}
+function wireSapaTactical(room) {
+  const o = room.sapaOffer;
+  const y = $('sapaYes'); if (y) y.addEventListener('click', () => { const m = { offerId: o.id, accept: true }; if (room.mode === 'pass') m.as = o.to; send('sapa_answer', m); });
+  const n = $('sapaNo'); if (n) n.addEventListener('click', () => { const m = { offerId: o.id, accept: false }; if (room.mode === 'pass') m.as = o.to; send('sapa_answer', m); });
 }
 
 // ---------------------------------------------------------------------------
@@ -2246,14 +2578,15 @@ function renderTactical(room) {
           '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('alert', 18) + ' Hustle alert</b>' +
           '<span class="turn-timer" data-deadline="' + hustle.endsAt + '">' + Math.max(0, Math.round((hustle.endsAt - Date.now()) / 1000)) + 's</span></div>' +
           '<p style="margin:6px 0 0;"><b>' + esc(from ? from.name : 'A player') + '</b> dey hustle you for <b>' + fmtN(hustle.amount) + '</b> of your cash.</p>' +
-          '<p class="caption" style="margin-top:6px;">Guide your money: their chance drop to 15%, and if dem catch am, half the fine reach you. Leave am: their chance na 45% and the fine go enter the Owambe pot. No answer: 30% chance.</p>' +
-          '<div class="btnrow" style="margin-top:9px;"><button class="btn green" id="husGuide">Guide my money</button>' +
+          '<p class="caption" style="margin-top:6px;">Guard am: their chance drop to ' + oddsPct(hustleCaps(room).odds.defended) + '. Leave am: ' + oddsPct(hustleCaps(room).odds.open) + '. No answer: ' + oddsPct(hustleCaps(room).odds.timeout) + '. If dem fail, no money move.</p>' +
+          '<div class="btnrow" style="margin-top:9px;"><button class="btn green" id="husGuide">Guard my money</button>' +
           '<button class="btn ghost" id="husLeave">Leave am</button></div></div>';
       } else {
         html = '<div class="auction-card tactical-card"><p style="margin:0;">You don answer. Wait for the result.</p></div>';
       }
     }
   }
+  if (!html && room.sapaOffer) html = sapaTacticalHTML(room);
   if (!html) {
     if (overlay.classList.contains('show')) { overlay.classList.remove('show'); overlay.innerHTML = ''; }
     return;
@@ -2268,6 +2601,7 @@ function renderTactical(room) {
   if (guide) guide.addEventListener('click', () => send('hustle_defend', { hustleId: hustle.id, defend: true }));
   const leave = $('husLeave');
   if (leave) leave.addEventListener('click', () => send('hustle_defend', { hustleId: hustle.id, defend: false }));
+  if (room.sapaOffer) wireSapaTactical(room);
 }
 
 // ---------------------------------------------------------------------------
@@ -3090,6 +3424,7 @@ function clockCandidates() {
   }
   if (room.trade && room.trade.expiresAt && (room.mode === 'pass' || room.trade.to === myId)) out.push({ key: 'trade', endsAt: room.trade.expiresAt });
   if (room.debt && room.debt.rescueEndsAt && room.debt.playerId === mine) out.push({ key: 'rescue', endsAt: room.debt.rescueEndsAt });
+  if (room.sapaOffer && room.sapaOffer.to === mine) out.push({ key: 'sapa', endsAt: room.sapaOffer.endsAt });
   return out;
 }
 function runClockBeeps() {

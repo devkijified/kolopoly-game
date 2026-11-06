@@ -207,6 +207,25 @@ class BotBrain {
     if (!me || me.bankrupt || me.resigned) return;
     if (!me.inJail) this.jailAttempts = 0;
 
+    // 0. Owambe Rush: a real bot seat races like a person, with a human
+    // sized reaction delay (never instant), so people can beat it. AFK
+    // takeover seats never grab: the person behind the seat is away.
+    if (st.owambe && st.owambe.state === 'open' && !me.afkTaken && me.bot) {
+      if (this.owambeSeen !== st.owambe.id) {
+        this.owambeSeen = st.owambe.id;
+        this.owambeAt = this._now() + (this.test ? 400 : 900 + Math.floor(Math.random() * 1600));
+      }
+      if (this._now() >= this.owambeAt) { this.owambeAt = Infinity; this.send({ type: 'owambe_grab', rushId: st.owambe.id }); return; }
+      this.kick(true);
+    }
+    // 0b. A Sapa Deal offered to me while I raise money: take it when it
+    // pays at least 60 percent of the printed price of what it asks for.
+    if (st.sapaOffer && st.sapaOffer.to === me.id) {
+      const printed = st.sapaOffer.spaces.reduce((sum, i) => sum + (D.SPACES[i] ? D.SPACES[i].price : 0), 0);
+      this.send({ type: 'sapa_answer', offerId: st.sapaOffer.id, accept: st.sapaOffer.cash >= Math.floor(printed * 0.6) });
+      return;
+    }
+
     // 1. My own debt: raise funds the honest way, promptly.
     if (st.debt && st.debt.playerId === me.id) return this.decideDebt(st, me);
 
@@ -428,7 +447,7 @@ class BotBrain {
     const reserve = reserveFor(st);
     const held = new Set((inf.contracts || []).filter((c) => c.type === 'pass' && c.buyer === me.id).map((c) => c.street));
     for (let d = 2; d <= 11; d++) {
-      const i = (me.position + d) % 40;
+      const i = (me.position + d) % D.BOARD_SIZE;
       const sp = D.SPACES[i];
       if (!sp || sp.type !== 'street') continue;
       const pr = st.props[i];
@@ -501,27 +520,27 @@ class BotBrain {
 
   // ---- my turn ------------------------------------------------------------------------
 
-  // Hustle policy (contract section 3): from phase 2 on, when the richest
-  // legal target holds at least twice my cash (or ₦500,000), I can cover
-  // the catch fine, and a one-in-three chance roll passes. A target the
-  // server refused (already hustled this phase, pair cap) is not retried
-  // this phase, so a refusal can never stall my turn.
+  // Hustle policy (Hustle 2, docs/BOARD28-HUSTLE-OWAMBE.md): from phase 2
+  // on, when the richest legal target holds at least twice my cash (or
+  // ₦500,000), my Heat is below the Kirikiri line minus one, and a
+  // one-in-three chance roll passes. Trying costs no cash, so Heat is the
+  // only brake. A target the server refused (cooling off, pair cap) is not
+  // retried this phase, so a refusal can never stall my turn.
   maybeHustle(st, me) {
     if (!st.inf || st.inf.phase < 2) return false;
-    if ((me.hustleAttempts || 0) >= 3) return false;
+    const caps0 = st.inf.hustleCaps || {};
+    if ((me.hustleAttempts || 0) >= (caps0.maxAttempts || 6)) return false;
+    if ((me.hustleHeat || 0) >= (caps0.heatLimit || 3) - 1) return false;
     if (me.inJail || st.debt || st.auction || st.pendingBill) return false;
     if (!this.hustleTried) this.hustleTried = new Set();
     const caps = st.inf.hustleCaps || { cap: 150000, targetMinCash: 50000 };
     const targets = st.players
-      .filter((p) => p.id !== me.id && !p.bankrupt && !p.inJail && p.cash >= caps.targetMinCash)
+      .filter((p) => p.id !== me.id && !p.bankrupt && !p.inJail && !p.hustleShielded && p.cash >= caps.targetMinCash)
       .filter((p) => !this.hustleTried.has(st.inf.phase + ':' + p.id))
       .sort((a, b) => b.cash - a.cash);
     if (!targets.length) return false;
     const richest = targets[0];
     if (!(richest.cash >= me.cash * 2 || richest.cash >= 500000)) return false;
-    const amount = Math.min(caps.cap, Math.max(10000, Math.floor(richest.cash * 0.10)));
-    const fine = Math.max(10000, Math.floor(amount / 2));
-    if (me.cash < fine) return false;
     if (Math.random() >= 1 / 3) return false;
     this.hustleTried.add(st.inf.phase + ':' + richest.id);
     this.send({ type: 'hustle_start', targetId: richest.id });

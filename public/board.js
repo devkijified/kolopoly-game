@@ -19,13 +19,19 @@ function beat2d(name, data) {
   } catch (e) { /* sound is garnish */ }
 }
 
-const COLW = [1.6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.6];
-const TOTALW = COLW.reduce((a, b) => a + b, 0);
+// Board geometry comes from KP_DATA (board28: 7 steps per side, so an
+// 8 x 8 grid with 6 middle tiles per side). The track keeps the old
+// 12.2 unit footprint, so every middle tile is 1.5 units wide instead of
+// 1.0: the same board on the same phone, with tiles half again as big.
+const BSIDE = D.SIDE, N = D.BOARD_SIZE, G = BSIDE + 1, MID = BSIDE - 1;
+const TOTALW = 12.2;
+const MIDW = (TOTALW - 3.2) / MID;
+const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? 1.6 : MIDW));
 function gridPos(i) {
-  if (i <= 10) return { row: 11, col: 11 - i };
-  if (i <= 20) return { row: 21 - i, col: 1 };
-  if (i <= 30) return { row: 1, col: i - 19 };
-  return { row: i - 29, col: 11 };
+  if (i <= BSIDE) return { row: G, col: G - i };
+  if (i <= 2 * BSIDE) return { row: G + BSIDE - i, col: 1 };
+  if (i <= 3 * BSIDE) return { row: 1, col: i - 2 * BSIDE + 1 };
+  return { row: i - 3 * BSIDE + 1, col: G };
 }
 // KP11: the 2D board obeys the same law as the 3D one: its canvas fills
 // the presentation box and the track spreads over the box's rectangle.
@@ -37,11 +43,11 @@ function trackLayout2D(boxAspect) {
   let TW, TD;
   if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect; }
   else { TD = TOTALW; TW = TOTALW / boxAspect; }
-  const wm = (TW - 3.2) / 9, dm = (TD - 3.2) / 9;
+  const wm = (TW - 3.2) / MID, dm = (TD - 3.2) / MID;
   const colX = [], rowD = [];
-  for (let k = 0; k < 11; k++) {
-    colX.push(k === 0 || k === 10 ? 1.6 : wm);
-    rowD.push(k === 0 || k === 10 ? 1.6 : dm);
+  for (let k = 0; k < G; k++) {
+    colX.push(k === 0 || k === G - 1 ? 1.6 : wm);
+    rowD.push(k === 0 || k === G - 1 ? 1.6 : dm);
   }
   return { TW, TD, colX, rowD };
 }
@@ -69,22 +75,16 @@ function priceLabel(sp) {
 function bandColorFor(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
     : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
-    : i === 0 ? '#e8a90c' : i === 20 ? '#e8a90c' : i === 10 || i === 30 ? '#8c2f2f'
+    : i === 0 ? '#e8a90c' : i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
 // One scene per space identity. Group fallbacks first, hand picks on top.
 const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'house', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', darkblue: 'mansion' };
-const ART_BY_SPACE = {
-  0: 'payday', 1: 'stilts', 3: 'ball', 4: 'taxdoc', 5: 'train', 6: 'stalls', 9: 'bread',
-  12: 'pylon', 13: 'tech', 14: 'stadium', 15: 'plane', 18: 'stalls', 19: 'computer',
-  20: 'party', 24: 'palms', 25: 'crane', 27: 'bank', 28: 'watertower', 29: 'dome',
-  30: 'bars', 32: 'towers', 35: 'interchange', 38: 'taxdoc', 39: 'island'
-};
 function artFor(i, sp) {
-  if (ART_BY_SPACE[i]) return ART_BY_SPACE[i];
+  if (sp.art) return sp.art;
   if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
   if (sp.type === 'station') return 'train';
-  if (sp.type === 'utility') return i === 12 ? 'pylon' : 'watertower';
+  if (sp.type === 'utility') return i === D.NEPA_INDEX ? 'pylon' : 'watertower';
   if (sp.type === 'jail' || sp.type === 'gotojail') return 'bars';
   if (sp.type === 'freeparking') return 'party';
   if (sp.type === 'tax') return 'taxdoc';
@@ -148,11 +148,11 @@ const KPBoard = {
     this.boardEl = boardEl;
     boardEl.innerHTML = '';
     this.els = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < N; i++) {
       const sp = D.SPACES[i];
       const { row, col } = gridPos(i);
       const el = document.createElement('div');
-      const isCorner = (row === 1 || row === 11) && (col === 1 || col === 11);
+      const isCorner = (row === 1 || row === G) && (col === 1 || col === G);
       el.className = 'bspace' + (isCorner ? ' corner' : '');
       el.style.gridRow = row;
       el.style.gridColumn = col;
@@ -164,7 +164,7 @@ const KPBoard = {
         '<div class="tile-art" style="color:' + bandColor + '">' + window.tileArt(artFor(i, sp)) + '</div>' +
         '<div class="nm">' + (sp.short || sp.name) + '</div>' +
         '<div class="pips"></div>' +
-        (i === 20 ? '<div class="potamt"></div>' : '') +
+        (i === D.PARKING_INDEX ? '<div class="potamt"></div>' : '') +
         '<div class="pr">' + priceLabel(sp) + '</div>' +
         '<div class="ownbar"></div>';
       el.addEventListener('click', () => { if (this.onSpaceTap) this.onSpaceTap(i); });
@@ -173,8 +173,8 @@ const KPBoard = {
     }
     const center = document.createElement('div');
     center.className = 'bcenter';
-    center.style.gridRow = '2 / 11';
-    center.style.gridColumn = '2 / 11';
+    center.style.gridRow = '2 / ' + G;
+    center.style.gridColumn = '2 / ' + G;
     center.innerHTML =
       '<div class="skyline">' + SKYLINE_SVG + '</div>' +
       '<div class="logo">KOLO<span class="gold">POLY</span></div>' +
@@ -205,7 +205,7 @@ const KPBoard = {
     this.lastState = state;
     const byId = {};
     for (const p of state.players) byId[p.id] = p;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < N; i++) {
       const el = this.els[i];
       const pr = state.props[i];
       const pips = el.querySelector('.pips');
@@ -231,7 +231,7 @@ const KPBoard = {
         const tag = el.querySelector('.pledgetag');
         if (tag) tag.remove();
       }
-      if (i === 20) {
+      if (i === D.PARKING_INDEX) {
         const potEl = el.querySelector('.potamt');
         if (potEl) potEl.textContent = 'Pot ' + D.fmtN(state.pot);
       }
@@ -290,12 +290,18 @@ const KPBoard = {
         this.tokenEls[p.id] = el;
         layer.appendChild(el);
       }
-      const sig = p.token + '|' + p.color;
+      // The local seat wears a clear YOU tag (online rooms; pass and play
+      // shares one phone, so nobody is "you" there).
+      const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
+      const isMe = state.mode !== 'pass' && meId != null && p.id === meId;
+      const sig = p.token + '|' + p.color + '|' + (isMe ? 'me' : '');
       if (el.dataset.sig !== sig) {
         el.dataset.sig = sig;
-        el.innerHTML = '<span class="tok-base" style="background:' + p.color + '"></span><span class="tok-in">' + window.tokenArt(p.token) + '</span>';
+        el.innerHTML = '<span class="tok-base" style="background:' + p.color + '"></span><span class="tok-in">' + window.tokenArt(p.token) + '</span>' +
+          (isMe ? '<span class="tok-you" style="--own:' + p.color + '">YOU</span>' : '');
       }
-      el.title = p.name;
+      el.classList.toggle('me', isMe);
+      el.title = isMe ? p.name + ' (you)' : p.name;
       const target = p.position;
       const shown = this.displayedPos[p.id];
       if (shown === undefined) {
@@ -326,7 +332,7 @@ const KPBoard = {
     // Teleports (Kirikiri) jump; normal moves hop space by space, in the
     // open, on the full board (KP10: one view only, nothing chases them).
     const el = this.tokenEls[p.id];
-    const fwd = (to - from + 40) % 40;
+    const fwd = (to - from + N) % N;
     if (p.inJail || fwd > 12 || fwd === 0) {
       this.displayedPos[p.id] = to;
       this.placeToken(el, p, to, slotCount);
@@ -338,7 +344,7 @@ const KPBoard = {
     let cur = from;
     const step = () => {
       if (!this.lastState || this.lastState !== state && this.displayedPos[p.id] === to) { this.animating = false; return; }
-      cur = (cur + 1) % 40;
+      cur = (cur + 1) % N;
       this.displayedPos[p.id] = cur;
       this.placeToken(el, p, cur, slotCount);
       if (inner) {
@@ -421,8 +427,8 @@ const KPBoard = {
       if (sp.type === 'start') body = 'Pass START and salary alert enter your account. Classic pays ' + D.fmtN(D.START_PAY) + (state.inf ? '; this room dey Phase ' + state.inf.phase + ', so salary na ' + D.fmtN(state.inf.salary) : '') + '.';
       else if (sp.type === 'jail') body = 'Kirikiri. Just visiting no wahala. If you dey inside: pay bail ' + D.fmtN(D.JAIL_FINE) + ', flash a Get Out card, or roll a double within 3 turns.';
       else if (sp.type === 'gotojail') body = 'Land here and officers bundle you straight to Kirikiri. No salary for the trip.';
-      else if (sp.type === 'freeparking') body = 'Owambe Grounds. The pot holds ' + D.fmtN(state.pot) + ' right now. Land here and you collect everything. The pot only grows from taxes, fines and fees, never from rent.';
-      else if (sp.type === 'tax') body = 'Tax space. Landing here costs ' + D.fmtN(sp.amount) + (i === 4 ? ' flat, or 10 percent of your total worth, your choice' : '') + '. The money enters the Owambe pot.';
+      else if (sp.type === 'freeparking') body = 'Owambe Grounds. The pot holds ' + D.fmtN(state.pot) + ' right now. Land here with ' + D.fmtN((state.owambeRules && state.owambeRules.min) || 50000) + ' or more inside and you ring the bell for an Owambe Rush: a short countdown, then the FIRST player wey tap GRAB carry the whole pot. The pot also calls its own rush at ' + D.fmtN((state.owambeRules && state.owambeRules.auto) || 500000) + '. The pot grows from taxes, fines, bail and missed turn fees, never from rent.';
+      else if (sp.type === 'tax') body = 'Tax space. Landing here costs ' + D.fmtN(sp.amount) + (i === D.INCOME_TAX_INDEX ? ' flat, or 10 percent of your total worth, your choice' : '') + '. The money enters the Owambe pot.';
       else if (sp.type === 'card') body = 'Draw a ' + (sp.deck === 'wahala' ? 'WAHALA' : 'FAMILY MEETING') + ' card and do wetin e talk.';
       return head + '</div></div>' +
         '<div class="deed-body">' +
@@ -449,14 +455,14 @@ const KPBoard = {
       const cur = !pr || pr.o == null ? -1 : pr.b >= 5 ? 6 : pr.b > 0 ? pr.b + 1 : (this.clientRent(state, i) === sp.rent[1] ? 1 : 0);
       html += '<table class="ladder"><tr><th>Rent ladder</th><th>Rent</th></tr>' +
         rows.map((r, idx) => '<tr class="' + (idx === cur ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
-      html += '<p class="caption">Build cost: Classic and Phase 1 pay the printed ' + D.fmtN(sp.duplex) + '. Phase 2 multiplies the printed cost by your lowest die, Phase 3 by your bigger die, same as rent. Cement don reach new price: na why your duplex cost dey multiply, no be malice.</p>';
+      html += '<p class="caption">Build cost: ' + D.fmtN(sp.duplex) + ' per duplex, the printed price in every phase.</p>';
     } else if (sp.type === 'station') {
-      const rows = [['1 station', 25000], ['2 stations', 50000], ['3 stations', 100000], ['4 stations', 200000]];
+      const rows = D.STATION_RENT.map((r, k) => [(k + 1) + (k ? ' stations' : ' station'), r]);
       const n = pr && pr.o != null ? D.STATIONS.filter((s) => state.props[s] && state.props[s].o === pr.o).length : 0;
       html += '<table class="ladder"><tr><th>Stations owned</th><th>Rent</th></tr>' +
         rows.map((r, idx) => '<tr class="' + (idx === n - 1 ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
     } else {
-      html += '<p class="lead" style="margin-top:10px;">Rent na dice total x ₦1,000. Own both utilities and na dice total x ₦10,000. Utilities never carry the Inflation multiplier.</p>';
+      html += '<p class="lead" style="margin-top:10px;">Rent na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[0]) + '. Own both utilities and na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[1]) + '. Utilities never carry the Inflation multiplier.</p>';
     }
     if (state.inf && (sp.type === 'street' || sp.type === 'station')) {
       const base = this.clientRent(state, i);
