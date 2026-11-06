@@ -1812,8 +1812,9 @@ function missTurn(room, player) {
   endTurn(room);
 }
 // ---------------------------------------------------------------------------
-// Board migration: snapshots written by the 40 space build. The old names
-// and printed prices are kept here only to translate a saved table.
+// Board migration: snapshots written by the 40 space build or the 28 space
+// board28 build. The old names and printed prices are kept here only to
+// translate a saved table (room.boardSize says which one; none means 40).
 // Positions and deeds move by name where the space still exists; a deed
 // that left the board is bought back by the bank at its old printed price
 // plus its buildings at the old duplex cost, so nobody loses value.
@@ -1830,13 +1831,23 @@ const LEGACY_40 = [
   ['Go to Kirikiri'], ['Ikoyi', 300000, 200000], ['Osborne, Ikoyi', 300000, 200000], ['Family Meeting'], ['Bourdillon, Ikoyi', 320000, 200000],
   ['Oshodi Transport Interchange', 200000], ['Wahala'], ['Parkview Estate, Ikoyi', 350000, 200000], ['Lagos Consumption Tax'], ['Banana Island', 400000, 200000]
 ];
+const LEGACY_28 = [
+  ['START'], ['Makoko', 90000, 75000], ['Family Meeting'], ['Ajegunle', 100000, 75000], ['FIRS Income Tax'],
+  ['Oshodi Transport Interchange', 300000], ['Mushin', 160000, 100000], ['Kirikiri Prison'], ['Yaba', 180000, 100000], ['NEPA (PHCN)', 225000],
+  ['Ebute Metta', 220000, 150000], ['Surulere', 240000, 150000], ['Lekki Tollgate', 300000], ['Allen Avenue', 280000, 150000], ['Owambe Grounds'],
+  ['Ikeja GRA', 300000, 150000], ['Wahala'], ['Oriental Hotel', 340000, 225000], ['Quilox', 360000, 225000], ['Murtala Muhammed Intl Airport', 300000],
+  ['Victoria Island', 400000, 225000], ['Go to Kirikiri'], ['Eko Hotel', 420000, 225000], ['Water Board', 225000], ['Ikoyi', 460000, 300000],
+  ['Bourdillon, Ikoyi', 480000, 300000], ['Eko Atlantic', 520000, 300000], ['Banana Island', 600000, 300000]
+];
+const LEGACY_BOARDS = { 40: LEGACY_40, 28: LEGACY_28 };
 function migrateBoard(room) {
   const from = room.boardSize || 40;
   if (from === D.BOARD_SIZE) { room.boardSize = D.BOARD_SIZE; return false; }
+  const LEGACY = LEGACY_BOARDS[from] || LEGACY_40;
   const nameToNew = {};
   D.SPACES.forEach((sp, i) => { if (nameToNew[sp.name] == null) nameToNew[sp.name] = i; });
   const mapIdx = (old) => {
-    const L = LEGACY_40[old];
+    const L = LEGACY[old];
     if (L && nameToNew[L[0]] != null) return nameToNew[L[0]];
     return null;
   };
@@ -1851,7 +1862,7 @@ function migrateBoard(room) {
     if (ni != null && props[ni] && D.SPACES[ni].price) { props[ni] = Object.assign({}, pr); continue; }
     vanished.add(old);
     const owner = (room.players || []).find((p) => p.id === pr.owner);
-    const L = LEGACY_40[old] || [];
+    const L = LEGACY[old] || [];
     if (owner && !owner.bankrupt) {
       const b = pr.buildings >= 5 ? 5 : (pr.buildings || 0);
       const refund = (pr.mortgaged ? Math.floor((L[1] || 0) / 2) : (L[1] || 0)) + b * (L[2] || 0);
@@ -1875,7 +1886,11 @@ function migrateBoard(room) {
   for (const p of room.players || []) {
     const ni = mapIdx(p.position || 0);
     if (p.inJail) p.position = D.JAIL_INDEX;
-    else p.position = ni != null ? ni : Math.min(D.BOARD_SIZE - 1, Math.floor((p.position || 0) * D.BOARD_SIZE / from));
+    else {
+      p.position = ni != null ? ni : Math.min(D.BOARD_SIZE - 1, Math.floor((p.position || 0) * D.BOARD_SIZE / from));
+      // A free player never rests on the Go to Kirikiri corner.
+      if (p.position === D.GOTOJAIL_INDEX) p.position = (D.GOTOJAIL_INDEX + 1) % D.BOARD_SIZE;
+    }
   }
   for (const c of room.contracts || []) {
     for (const key of ['street', 'pledgedSpace']) {

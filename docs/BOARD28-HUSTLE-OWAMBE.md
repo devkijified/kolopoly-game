@@ -1,85 +1,17 @@
-# board28: the Lagos board, Hustle 2, Owambe Rush, missed turns, Sapa Deals, music
+# board28 fun layer: Hustle 2, Owambe Rush, missed turns, Sapa Deals, music (board: docs/BOARD20.md)
 
 This is the contract for the board28 upgrade. The server (`game-host.js`,
 shared by the Node host and the Cloudflare Durable Object host) is the only
 judge of every rule below; clients only show state and send intents.
 Hustle 2 (Inflation only) is specified in `docs/INFLATION-7.md` section 3.
 
-## 1. The board: 28 spaces, all Lagos
+## 1. The board and pieces
 
-7 steps a side counting corners: 4 corners plus 6 middle tiles per side.
-Corners: START (0), Kirikiri Prison (7, jail / just visiting), Owambe
-Grounds (14, the pot), Go to Kirikiri (21). Eight two-street colour sets,
-three stations, two utilities, one tax square, one card square per deck.
-Salary for passing START stays ₦200,000 in Classic (Inflation phase
-salaries are unchanged). Bail ₦50,000. Mortgage is half the price,
-unmortgage is the mortgage plus 10%.
-
-Rent ladder reads: site / full set / 1 duplex / 2 / 3 / 4 / mansion.
-
-| # | Space | Set / type | Price | Duplex | Rent |
-|---|---|---|---|---|---|
-| 0 | START | start |  |  |  |
-| 1 | Makoko | brown | ₦90,000 | ₦75,000 | ₦3,000 / ₦6,000 / ₦15,000 / ₦45,000 / ₦135,000 / ₦240,000 / ₦375,000 |
-| 2 | Family Meeting | card |  |  |  |
-| 3 | Ajegunle | brown | ₦100,000 | ₦75,000 | ₦6,000 / ₦12,000 / ₦30,000 / ₦90,000 / ₦270,000 / ₦480,000 / ₦675,000 |
-| 4 | FIRS Income Tax | tax |  |  | ₦200,000 or 10% of net worth |
-| 5 | Oshodi Transport Interchange | station | ₦300,000 |  | ₦50,000 / ₦100,000 / ₦200,000 by stations owned |
-| 6 | Mushin | lightblue | ₦160,000 | ₦100,000 | ₦9,000 / ₦18,000 / ₦45,000 / ₦135,000 / ₦405,000 / ₦600,000 / ₦825,000 |
-| 7 | Kirikiri Prison | jail |  |  |  |
-| 8 | Yaba | lightblue | ₦180,000 | ₦100,000 | ₦12,000 / ₦24,000 / ₦60,000 / ₦150,000 / ₦450,000 / ₦675,000 / ₦900,000 |
-| 9 | NEPA (PHCN) | utility | ₦225,000 |  | dice x ₦6,000 (one) or x ₦15,000 (both) |
-| 10 | Ebute Metta | pink | ₦220,000 | ₦150,000 | ₦15,000 / ₦30,000 / ₦75,000 / ₦225,000 / ₦675,000 / ₦940,000 / ₦1,125,000 |
-| 11 | Surulere | pink | ₦240,000 | ₦150,000 | ₦18,000 / ₦36,000 / ₦90,000 / ₦270,000 / ₦750,000 / ₦1,050,000 / ₦1,350,000 |
-| 12 | Lekki Tollgate | station | ₦300,000 |  | ₦50,000 / ₦100,000 / ₦200,000 by stations owned |
-| 13 | Allen Avenue | orange | ₦280,000 | ₦150,000 | ₦21,000 / ₦42,000 / ₦105,000 / ₦300,000 / ₦825,000 / ₦1,125,000 / ₦1,425,000 |
-| 14 | Owambe Grounds | freeparking |  |  |  |
-| 15 | Ikeja GRA | orange | ₦300,000 | ₦150,000 | ₦24,000 / ₦48,000 / ₦120,000 / ₦330,000 / ₦900,000 / ₦1,200,000 / ₦1,500,000 |
-| 16 | Wahala | card |  |  |  |
-| 17 | Oriental Hotel | red | ₦340,000 | ₦225,000 | ₦27,000 / ₦54,000 / ₦135,000 / ₦375,000 / ₦1,050,000 / ₦1,315,000 / ₦1,575,000 |
-| 18 | Quilox | red | ₦360,000 | ₦225,000 | ₦30,000 / ₦60,000 / ₦150,000 / ₦450,000 / ₦1,125,000 / ₦1,390,000 / ₦1,650,000 |
-| 19 | Murtala Muhammed Intl Airport | station | ₦300,000 |  | ₦50,000 / ₦100,000 / ₦200,000 by stations owned |
-| 20 | Victoria Island | yellow | ₦400,000 | ₦225,000 | ₦33,000 / ₦66,000 / ₦165,000 / ₦495,000 / ₦1,200,000 / ₦1,465,000 / ₦1,725,000 |
-| 21 | Go to Kirikiri | gotojail |  |  |  |
-| 22 | Eko Hotel | yellow | ₦420,000 | ₦225,000 | ₦36,000 / ₦72,000 / ₦180,000 / ₦540,000 / ₦1,275,000 / ₦1,540,000 / ₦1,800,000 |
-| 23 | Water Board | utility | ₦225,000 |  | dice x ₦6,000 (one) or x ₦15,000 (both) |
-| 24 | Ikoyi | green | ₦460,000 | ₦300,000 | ₦39,000 / ₦78,000 / ₦195,000 / ₦585,000 / ₦1,350,000 / ₦1,650,000 / ₦1,915,000 |
-| 25 | Bourdillon, Ikoyi | green | ₦480,000 | ₦300,000 | ₦42,000 / ₦84,000 / ₦225,000 / ₦675,000 / ₦1,500,000 / ₦1,800,000 / ₦2,100,000 |
-| 26 | Eko Atlantic | darkblue | ₦520,000 | ₦300,000 | ₦53,000 / ₦105,000 / ₦263,000 / ₦750,000 / ₦1,650,000 / ₦1,950,000 / ₦2,250,000 |
-| 27 | Banana Island | darkblue | ₦600,000 | ₦300,000 | ₦75,000 / ₦150,000 / ₦300,000 / ₦900,000 / ₦2,100,000 / ₦2,550,000 / ₦3,000,000 |
-
-Supplies: 24 duplexes, 9 mansions (scaled down from the 40 space bank).
-Station rent: ₦50,000 / ₦100,000 / ₦200,000 for 1 / 2 / 3 stations owned.
-Inflation rent multipliers apply to these printed numbers exactly as
-`docs/INFLATION-7.md` describes; nothing in the phase table changed.
-
-Renderers: `public/board.js` (2D grid, 8 x 8 cells) and `public/board3d.js`
-(Three.js ring) both read `KP_DATA.SIDE`, `BOARD_SIZE`, `JAIL_INDEX`,
-`PARKING_INDEX`, `GOTOJAIL_INDEX` and each space's `art` key; no index is
-hard coded. The ring keeps its 12.2 unit footprint, so a middle tile is 1.5
-units wide instead of 1.0 (50% larger names and art on phones) with the
-same camera framing. 2D tile text, dice and pieces are larger at 360 to 430
-px wide.
-
-### Saved rooms from the 40 space board
-
-`importState` runs `migrateBoard`: deeds move by name to their new index
-(Makoko, Ajegunle, Mushin, Ebute Metta, Yaba, Surulere, Victoria Island,
-Ikoyi, Bourdillon, Banana Island, the utilities, MMIA and Oshodi). A deed
-whose space is gone is refunded to its owner at the old printed price
-(half if mortgaged) plus its buildings at the old duplex price. Buildings
-on a street whose new set the owner no longer holds whole are refunded at
-the new duplex price. Positions map by name (jailed players stay in
-Kirikiri; anything else scales onto the ring). Contracts on vanished
-spaces are voided. Open auctions, buy prompts, bills, rushes and offers
-are cleared, and supplies are capped.
-
-## 2. Pieces and dice
-
-Bigger dice (2D: 38 to 56 px; 3D: 0.58 units, up from 0.42), bolder pieces
-(wider pedestal with a dark rim, 2D outline), and the local player's piece
-wears a YOU tag in online rooms (pass and play has no single "you"). The
-tag is static (no animation), so reduced motion needs no change.
+Superseded by board20: the board is now 20 spaces with long bold tiles and
+a name tag on every piece. See `docs/BOARD20.md` for the board table,
+prices, tile geometry, name tags and the 40 / 28 space snapshot
+migration. Everything below (Hustle summary, Owambe Rush, missed turn fee,
+Sapa Deals, music) applies unchanged on the 20 space board.
 
 ## 2b. Hustle 2 summary (Inflation only; full rules in docs/INFLATION-7.md section 3)
 

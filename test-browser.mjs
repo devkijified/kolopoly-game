@@ -159,7 +159,7 @@ try {
   tp = await turnPage();
   await front(tp);
   const tpId = (await S(tp)).turnPlayerId;
-  await send(tp, 'test_set_position', { playerId: tpId, space: 26 });
+  await send(tp, 'test_set_position', { playerId: tpId, space: 18 });
   await send(tp, 'test_dice', { rolls: [[2, 3]] });
   await clickId(tp, 'abRoll');
   await tp.waitForFunction(() => {
@@ -215,10 +215,10 @@ try {
   check('board shot taken with the pot on Owambe Grounds', (await S(tp)).pot === 200000);
 
   // Deed sheet for Banana Island, with its area meaning line.
-  await tp.evaluate(() => { document.querySelectorAll('.bspace')[27].click(); });
+  await tp.evaluate(() => { document.querySelectorAll('.bspace')[19].click(); });
   await tp.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 15000 });
   const deedText = await tp.evaluate(() => document.querySelector('#deedSheet').textContent);
-  check('deed sheet shows price, ladder and the area meaning', /Banana Island/.test(deedText) && /₦600,000/.test(deedText) && /Final boss\. If you get house here/.test(deedText), deedText.slice(0, 120));
+  check('deed sheet shows price, ladder and the area meaning', /Banana Island/.test(deedText) && /₦800,000/.test(deedText) && /Final boss\. If you get house here/.test(deedText), deedText.slice(0, 120));
   await tp.screenshot({ path: SHOTS + 'kp-deed.png' });
   await tp.evaluate(() => document.querySelector('#deedScrim').classList.remove('show'));
 
@@ -263,9 +263,9 @@ try {
   const tp2 = [C, Dp][ids2.indexOf(st2.turnPlayerId)];
   const other2 = tp2 === C ? Dp : C;
   await front(tp2);
-  await send(tp2, 'test_dice', { rolls: [[2, 3]] });
+  await send(tp2, 'test_dice', { rolls: [[3, 4]] });
   await clickId(tp2, 'abRoll');
-  await waitState(tp2, (s) => s.phase === 'buy' && s.buySpace === 5, 'Oshodi offered');
+  await waitState(tp2, (s) => s.phase === 'buy' && s.buySpace === 7, 'Lekki Tollgate offered');
   // Test auctions run a 4s clock (KP_TEST) and this rig is slow, so the bid
   // button wait is registered BEFORE the decline and the bidder's page is
   // fronted (background pages get their timers throttled): the click then
@@ -278,9 +278,9 @@ try {
   await other2.evaluate(() => { const bs = document.querySelectorAll('#auctionOverlay [data-bid]'); bs[bs.length - 1].click(); });
   await waitState(other2, (s) => !!s.auction && s.auction.highBid > 0, 'bid registered', 6000);
   await tp2.evaluate(() => { const p = document.querySelector('#bidPass'); if (p) p.click(); });
-  await waitState(C, (s) => !s.auction && !!s.props[5].o, 'auction settled', 12000);
-  const winnerId = (await S(C)).props[5].o;
-  check('the bidder owns Oshodi Transport Interchange after the clock', winnerId === ids2[[C, Dp].indexOf(other2)]);
+  await waitState(C, (s) => !s.auction && !!s.props[7].o, 'auction settled', 12000);
+  const winnerId = (await S(C)).props[7].o;
+  check('the bidder owns Lekki Tollgate after the clock', winnerId === ids2[[C, Dp].indexOf(other2)]);
   await C.close(); await Dp.close();
 
   // ---------------------------------------------------------- scenario 3
@@ -317,13 +317,13 @@ try {
   await payerPage.waitForFunction(() => {
     const el = document.querySelector('.alert-card.debit');
     // KP14 count-up: wait for the settled figure, not the first frame.
-    return el && /x 2/.test(el.textContent) && /₦24,000/.test(el.textContent);
+    return el && /x 2/.test(el.textContent) && /₦48,000/.test(el.textContent);
   }, { timeout: 15000 }).catch(() => {});
   const rentAlert = await payerPage.evaluate(() => {
     const el = document.querySelector('.alert-card.debit');
     return el ? el.textContent : '';
   });
-  check('Phase 2 rent alert shows the multiplied ₦24,000 (printed x lowest die)', /₦24,000/.test(rentAlert), rentAlert.slice(0, 90));
+  check('Phase 2 rent alert shows the multiplied ₦48,000 (printed x lowest die)', /₦48,000/.test(rentAlert), rentAlert.slice(0, 90));
   // KP20: the strip's water chip is a droplet plus the price now; the
   // full "Pure water ₦70" wording is the chip's accessible name, so
   // the check reads the aria-label, not the bar's textContent.
@@ -369,12 +369,12 @@ try {
   const ids4 = (await S(G)).players.map((p) => p.id);
   const page4 = (id) => [G, H][ids4.indexOf(id)];
 
-  // Stage a no-decision landing: sit on 25, roll 1+2, wrap onto START.
+  // Stage a no-decision landing: sit on 17, roll 1+2, wrap onto START.
   // Nothing to buy, no card, no build (no deeds owned): the turn is idle.
   let turnId4 = (await S(G)).turnPlayerId;
   let tp4 = page4(turnId4);
   await front(tp4);
-  await send(tp4, 'test_set_position', { playerId: turnId4, space: 25 });
+  await send(tp4, 'test_set_position', { playerId: turnId4, space: 17 });
   await send(tp4, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp4, 'abRoll');
   await waitState(tp4, (s) => s.phase === 'end', 'idle end phase reached');
@@ -392,12 +392,12 @@ try {
   turnId4 = (await S(G)).turnPlayerId;
   tp4 = page4(turnId4);
   await front(tp4);
-  await send(tp4, 'test_set_position', { playerId: turnId4, space: 25 });
+  await send(tp4, 'test_set_position', { playerId: turnId4, space: 17 });
   await send(tp4, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp4, 'abRoll');
   await waitState(tp4, (s) => s.phase === 'end', 'second idle end phase reached');
   await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 10000, polling: 150 });
-  await tp4.evaluate(() => { document.querySelectorAll('.bspace')[27].click(); });
+  await tp4.evaluate(() => { document.querySelectorAll('.bspace')[19].click(); });
   await tp4.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 15000 });
   await sleep(7500); // longer than the 6s countdown
   check('open deed sheet cancelled the auto-end (turn held)', (await S(G)).turnPlayerId === turnId4);
@@ -882,9 +882,9 @@ try {
     }
     const stageBefore = await AU.evaluate(() => Math.round(document.querySelector('.game-stage').getBoundingClientRect().height));
     await send(AU, 'test_set_position', { playerId: me.id, space: 0 });
-    await send(AU, 'test_dice', { rolls: [[2, 3]] });
+    await send(AU, 'test_dice', { rolls: [[3, 4]] });
     await clickId(AU, 'abRoll');
-    await waitState(AU, (s) => s.phase === 'buy' && s.buySpace === 5, 'Oshodi offered');
+    await waitState(AU, (s) => s.phase === 'buy' && s.buySpace === 7, 'Lekki Tollgate offered');
     await clickId(AU, 'abDecline');
     await waitState(AU, (s) => !!s.auction, 'auction open');
     await sleep(300);
@@ -1309,7 +1309,7 @@ try {
   const mTurnId = (await S(M1)).turnPlayerId;
   const mTp = mPages[mIds.indexOf(mTurnId)];
   await front(mTp);
-  await send(mTp, 'test_set_position', { playerId: mTurnId, space: 26 });
+  await send(mTp, 'test_set_position', { playerId: mTurnId, space: 18 });
   await send(mTp, 'test_dice', { rolls: [[2, 3]] });
   await clickId(mTp, 'abRoll');
   // The rig renders in software at a few frames a second, so the move
@@ -1809,12 +1809,12 @@ try {
   const botId = seat.players.find((p) => p.bot).id;
   await send(UI, 'test_bot_hold', { playerId: botId, hold: true });
   await UI.evaluate((me, bot) => {
-    for (const s of [5, 6, 9, 13, 18, 19, 23, 26]) window.__kolopolySend('test_give', { playerId: me, space: s });
-    for (const s of [8, 11, 12, 15, 20, 24, 25]) window.__kolopolySend('test_give', { playerId: bot, space: s });
+    for (const s of [7, 8, 9, 14, 18, 19]) window.__kolopolySend('test_give', { playerId: me, space: s });
+    for (const s of [6, 11, 13, 16, 17]) window.__kolopolySend('test_give', { playerId: bot, space: s });
   }, meId, botId);
   await UI.waitForFunction((bot, me) => {
     const s = window.__kolopolyState();
-    return !!(s && s.props[8].o === bot && s.props[9].o === me);
+    return !!(s && s.props[6].o === bot && s.props[9].o === me);
   }, { timeout: 12000 }, botId, meId);
   const locked = await UI.evaluate(() => {
     const game = document.getElementById('view-game').getBoundingClientRect();
@@ -1823,8 +1823,14 @@ try {
     return { gh: Math.round(game.height), top: Math.round(top.height), app, ih: window.innerHeight, inGame: document.body.classList.contains('in-game') };
   });
   check('the playing column is the locked shell', locked.inGame && Math.abs(locked.gh - (locked.app - locked.top)) <= 2, JSON.stringify(locked));
-  await UI.waitForFunction(() => document.querySelectorAll('.bspace').length >= 28, { timeout: 8000 });
-  await UI.evaluate(() => document.querySelectorAll('.bspace')[8].click());
+  await UI.waitForFunction(() => document.querySelectorAll('.bspace').length >= 20, { timeout: 8000 });
+  // board20 (owner t115u): every piece wears its player's name; mine says YOU.
+  const tags = await UI.waitForFunction(() => {
+    const t = [...document.querySelectorAll('.btoken .tok-tag')].map((e) => e.textContent);
+    return t.length === 2 ? t : null;
+  }, { timeout: 8000, polling: 200 }).then((h) => h.jsonValue()).catch(() => []);
+  check('every piece wears a name tag: YOU on mine, the bot name on theirs', tags.length === 2 && tags.includes('YOU') && tags.some((t) => /^BOT /.test(t)), JSON.stringify(tags));
+  await UI.evaluate(() => document.querySelectorAll('.bspace')[6].click());
   await UI.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show') && document.querySelector('.deed-deals'), { timeout: 8000 });
   const deedUi = await UI.evaluate(() => {
     const deals = document.querySelector('.deed-deals');

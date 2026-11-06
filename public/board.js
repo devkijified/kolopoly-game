@@ -19,14 +19,18 @@ function beat2d(name, data) {
   } catch (e) { /* sound is garnish */ }
 }
 
-// Board geometry comes from KP_DATA (board28: 7 steps per side, so an
-// 8 x 8 grid with 6 middle tiles per side). The track keeps the old
-// 12.2 unit footprint, so every middle tile is 1.5 units wide instead of
-// 1.0: the same board on the same phone, with tiles half again as big.
+// Board geometry comes from KP_DATA (board20: 5 steps per side, so a
+// 6 x 6 grid with 4 middle tiles per side). The track keeps the old
+// 12.2 unit footprint, so every middle tile is 1.8 units wide (2.5 deep) (1.5 on
+// board28, 1.0 on the 40 board): the same board on the same phone, with
+// tiles more than twice the original width.
+// board20 (owner t114u): long rectangular tiles. Ring depth CORNER is 2.5
+// units (was 1.6), so a middle tile is 1.8 wide by 2.5 deep. Same as 3D.
 const BSIDE = D.SIDE, N = D.BOARD_SIZE, G = BSIDE + 1, MID = BSIDE - 1;
 const TOTALW = 12.2;
-const MIDW = (TOTALW - 3.2) / MID;
-const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? 1.6 : MIDW));
+const CORNER = 2.5, RING2 = 2 * CORNER;
+const MIDW = (TOTALW - RING2) / MID;
+const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? CORNER : MIDW));
 function gridPos(i) {
   if (i <= BSIDE) return { row: G, col: G - i };
   if (i <= 2 * BSIDE) return { row: G + BSIDE - i, col: 1 };
@@ -35,7 +39,7 @@ function gridPos(i) {
 }
 // KP11: the 2D board obeys the same law as the 3D one: its canvas fills
 // the presentation box and the track spreads over the box's rectangle.
-// Corners stay 1.6 x 1.6; a tall box pours extra depth into the middle
+// Corners stay CORNER x CORNER; a tall box pours extra depth into the middle
 // rows, a wide box pours extra width into the middle columns. The DOM
 // fills its box exactly, so no camera correction applies here.
 let L2D = { TW: TOTALW, TD: TOTALW, colX: COLW.slice(), rowD: COLW.slice() };
@@ -43,11 +47,11 @@ function trackLayout2D(boxAspect) {
   let TW, TD;
   if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect; }
   else { TD = TOTALW; TW = TOTALW / boxAspect; }
-  const wm = (TW - 3.2) / MID, dm = (TD - 3.2) / MID;
+  const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
   for (let k = 0; k < G; k++) {
-    colX.push(k === 0 || k === G - 1 ? 1.6 : wm);
-    rowD.push(k === 0 || k === G - 1 ? 1.6 : dm);
+    colX.push(k === 0 || k === G - 1 ? CORNER : wm);
+    rowD.push(k === 0 || k === G - 1 ? CORNER : dm);
   }
   return { TW, TD, colX, rowD };
 }
@@ -71,6 +75,13 @@ function priceLabel(sp) {
   if (!v) return '';
   return '<span class="pr-full">' + D.fmtN(v) + '</span><span class="pr-compact">' + fmtK(v) + '</span>';
 }
+
+// Piece name tags: short enough to sit over a piece on a phone.
+function pieceTag(name) {
+  const n = String(name || '').trim() || 'Player';
+  return n.length > 9 ? n.slice(0, 8) + '\u2026' : n;
+}
+function escTag(t) { return String(t).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
 function bandColorFor(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
@@ -290,15 +301,17 @@ const KPBoard = {
         this.tokenEls[p.id] = el;
         layer.appendChild(el);
       }
-      // The local seat wears a clear YOU tag (online rooms; pass and play
-      // shares one phone, so nobody is "you" there).
+      // Every piece wears a bold name tag (owner t115u). The local seat
+      // reads YOU (online rooms; pass and play shares one phone, so every
+      // piece shows its player's name there).
       const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
       const isMe = state.mode !== 'pass' && meId != null && p.id === meId;
-      const sig = p.token + '|' + p.color + '|' + (isMe ? 'me' : '');
+      const tag = isMe ? 'YOU' : pieceTag(p.name);
+      const sig = p.token + '|' + p.color + '|' + (isMe ? 'me' : '') + '|' + tag;
       if (el.dataset.sig !== sig) {
         el.dataset.sig = sig;
         el.innerHTML = '<span class="tok-base" style="background:' + p.color + '"></span><span class="tok-in">' + window.tokenArt(p.token) + '</span>' +
-          (isMe ? '<span class="tok-you" style="--own:' + p.color + '">YOU</span>' : '');
+          '<span class="' + (isMe ? 'tok-you tok-tag' : 'tok-name tok-tag') + '" style="--own:' + p.color + '">' + escTag(tag) + '</span>';
       }
       el.classList.toggle('me', isMe);
       el.title = isMe ? p.name + ' (you)' : p.name;
@@ -462,7 +475,7 @@ const KPBoard = {
       html += '<table class="ladder"><tr><th>Stations owned</th><th>Rent</th></tr>' +
         rows.map((r, idx) => '<tr class="' + (idx === n - 1 ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
     } else {
-      html += '<p class="lead" style="margin-top:10px;">Rent na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[0]) + '. Own both utilities and na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[1]) + '. Utilities never carry the Inflation multiplier.</p>';
+      html += '<p class="lead" style="margin-top:10px;">Rent na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[0]) + '.' + (D.UTILITIES.length > 1 ? ' Own both utilities and na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[1]) + '.' : ' NEPA na the only utility on this board.') + ' Utilities never carry the Inflation multiplier.</p>';
     }
     if (state.inf && (sp.type === 'street' || sp.type === 'station')) {
       const base = this.clientRent(state, i);
