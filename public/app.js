@@ -309,10 +309,14 @@ function syncMusic() {
     return;
   }
   if (!musicFetch) {
+    // A failed first try must not be cached for the whole session: a
+    // cold server can answer 503 while it wakes, and a decode can
+    // hiccup. Clear musicFetch on any failure so the next sync
+    // retries the fetch instead of reusing a dead promise.
     musicFetch = fetch(MUSIC_URL).then((r) => (r.ok ? r.arrayBuffer() : null))
       .then((ab) => (ab ? ctx.decodeAudioData(ab) : null))
-      .then((buf) => { musicBuf = buf; return buf; })
-      .catch(() => null);
+      .then((buf) => { musicBuf = buf; if (!buf) musicFetch = null; return buf; })
+      .catch(() => { musicFetch = null; return null; });
   }
   musicFetch.then((buf) => {
     if (!buf || musicSrc || !musicTarget()) return;
