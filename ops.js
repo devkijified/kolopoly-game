@@ -17,7 +17,7 @@ const OPS_DIR = path.join(__dirname, 'ops');
 const DESK_HTML = fs.readFileSync(path.join(OPS_DIR, 'desk.html'), 'utf8');
 const DESK_CSS = fs.readFileSync(path.join(OPS_DIR, 'desk.css'));
 const DESK_JS = fs.readFileSync(path.join(OPS_DIR, 'desk.js'));
-const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/unlock', '/ops/lock']);
+const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/unlock', '/ops/lock']);
 const QUERY_KEYS = ['token', 'key', 'password', 'secret', 'kp_admin_token'];
 const STRIP_KEYS = new Set([
   'clientId', 'reconnectToken', 'reconnect', 'privateKey', 'publicKey',
@@ -45,6 +45,7 @@ function createOps(opts) {
   opts = opts || {};
   const rooms = opts.rooms;
   const retention = opts.retention;
+  const competition = opts.competition;
   const bootAt = Date.now();
   const buckets = new Map();
   const globalBucket = { n: 0, windowEnd: 0, lockedUntil: 0 };
@@ -465,6 +466,83 @@ function createOps(opts) {
     sendJson(res, 200, scrub(snapshotBody(), currentToken()));
   }
 
+  function competitionView(req, res) {
+    const key = clientKey(req);
+    if (rateLimited(key) && bearerValue(req) && !sessionValid(bearerValue(req)) && !readCookie(req, 'kp_ops')) {
+      tokenMatches(bearerValue(req));
+      sendJson(res, 429, { ok: false, error: 'locked', message: 'Too many tries. The desk is quiet for a while.' });
+      return;
+    }
+    const auth = authenticate(req);
+    if (!auth.ok) {
+      if (auth.guess) recordFail(key);
+      const status = rateLimited(key) && auth.guess ? 429 : 401;
+      const message = status === 429
+        ? 'Too many tries. The desk is quiet for a while.'
+        : 'That key no open this desk.';
+      sendJson(res, status, { ok: false, error: status === 429 ? 'locked' : 'unauthorized', message });
+      return;
+    }
+    if (!competition) {
+      sendJson(res, 503, { ok: false, error: 'locked', message: 'Competition settings are not wired on this host.' });
+      return;
+    }
+    sendJson(res, 200, scrub(competition.view(), currentToken()));
+  }
+
+  function readJsonBody(req, limit) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > limit) {
+          reject(Object.assign(new Error('too big'), { code: 'too big' }));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', reject);
+    });
+  }
+
+  async function competitionSave(req, res) {
+    if (!originOk(req)) {
+      sendJson(res, 403, { ok: false, error: 'origin', message: 'That request did not come from this desk.' });
+      return;
+    }
+    const key = clientKey(req);
+    const auth = authenticate(req);
+    if (!auth.ok) {
+      if (auth.guess) recordFail(key);
+      const status = rateLimited(key) && auth.guess ? 429 : 401;
+      const message = status === 429
+        ? 'Too many tries. The desk is quiet for a while.'
+        : 'That key no open this desk.';
+      sendJson(res, status, { ok: false, error: status === 429 ? 'locked' : 'unauthorized', message });
+      return;
+    }
+    if (!competition) {
+      sendJson(res, 503, { ok: false, error: 'locked', message: 'Competition settings are not wired on this host.' });
+      return;
+    }
+    let raw = '';
+    try { raw = await readJsonBody(req, 16384); }
+    catch (e) {
+      sendJson(res, 400, { ok: false, error: 'bad', message: 'The ladder did not arrive in one piece. Nothing was saved.' });
+      return;
+    }
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) {
+      sendJson(res, 400, { ok: false, error: 'bad', message: 'The ladder did not arrive in one piece. Nothing was saved.' });
+      return;
+    }
+    const out = competition.replace(parsed);
+    sendJson(res, out.status, scrub(out.body, currentToken()));
+  }
+
   async function dispatch(req, res, route) {
     if (leakedQuery(req)) {
       const message = 'The key does not travel in the address.';
@@ -499,6 +577,14 @@ function createOps(opts) {
     }
     if (req.method === 'GET' && route === '/ops/snapshot') {
       snapshot(req, res);
+      return;
+    }
+    if (req.method === 'GET' && route === '/ops/competition') {
+      competitionView(req, res);
+      return;
+    }
+    if (req.method === 'POST' && route === '/ops/competition') {
+      await competitionSave(req, res);
       return;
     }
     if (req.method === 'POST' && route === '/ops/unlock') {

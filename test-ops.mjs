@@ -18,8 +18,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function spawnServer(port, token) {
   const file = '/tmp/kolopoly-ops-' + port + '.json';
+  const compFile = '/tmp/kolopoly-ops-' + port + '-competition.json';
   try { fs.unlinkSync(file); } catch (e) { /* fresh */ }
-  const env = { ...process.env, PORT: String(port), KP_TEST: '1', KP_RETENTION_FILE: file };
+  try { fs.unlinkSync(compFile); } catch (e) { /* fresh */ }
+  const env = { ...process.env, PORT: String(port), KP_TEST: '1', KP_RETENTION_FILE: file, KP_COMPETITION_FILE: compFile };
   delete env.KP_ADMIN_TOKEN;
   if (token) env.KP_ADMIN_TOKEN = token;
   let logs = '';
@@ -36,7 +38,7 @@ function spawnServer(port, token) {
       if (String(d).includes('Kolopoly listening')) { clearTimeout(timer); resolve(); }
     });
   });
-  return { child, ready, logs: () => logs, file };
+  return { child, ready, logs: () => logs, file, compFile };
 }
 
 async function request(base, method, urlPath, opts) {
@@ -269,9 +271,97 @@ async function waitState(bag, pred, label) {
   throw new Error('timeout: ' + label);
 }
 
+async function competitionDesk() {
+  console.log('OPS competition: the paid city ladder');
+  const port = 4279;
+  const server = spawnServer(port, TOKEN);
+  await server.ready;
+  const base = 'http://127.0.0.1:' + port;
+  const bearer = { Authorization: 'Bearer ' + TOKEN };
+  const cityOf = (view, id) => (view.table || []).find((row) => row.id === id);
+  const sizeOf = (view, id, players) => {
+    const row = cityOf(view, id);
+    return row ? row.sizes.find((s) => s.players === players) : null;
+  };
+  try {
+    const bare = await request(base, 'GET', '/ops/competition');
+    check('competition without a session is 401', bare.status === 401 && bare.json && bare.json.ok === false);
+    const leaked = await request(base, 'GET', '/ops/competition?token=' + encodeURIComponent(TOKEN), { headers: bearer });
+    check('competition refuses a key in the query string', leaked.status === 400 && leaked.json && leaked.json.error === 'query');
+
+    const first = await request(base, 'GET', '/ops/competition', { headers: bearer });
+    check('competition opens with the house key', first.status === 200 && first.json && first.json.ok === true);
+    check('the seeded ladder is served before any save', first.json.saved === false && first.json.settings.cities.length === 6);
+    const ibadan = first.json.settings.cities.find((c) => c.id === 'ibadan');
+    const summit = first.json.settings.cities.find((c) => c.flagship);
+    check('seeded fees match the settled ladder', ibadan && ibadan.fee === 200 && ibadan.venue === 'The Brown Roof'
+      && summit && summit.city === 'Aso Rock, Abuja' && summit.fee === 25000 && summit.venue === 'The Summit');
+    check('seeded shares step down by table size', first.json.settings.splits['2'] === 80 && first.json.settings.splits['3'] === 75
+      && first.json.settings.splits['4'] === 70 && first.json.settings.splits['5'] === 65 && first.json.settings.splits['6'] === 60);
+    const lagos6 = sizeOf(first.json, 'lagos', 6);
+    check('money table: Lagos at 6 players', !!lagos6 && lagos6.pot === 30000 && lagos6.winner === 18000 && lagos6.house === 12000, JSON.stringify(lagos6));
+    const ibadan2 = sizeOf(first.json, 'ibadan', 2);
+    check('money table: Ibadan at 2 players', !!ibadan2 && ibadan2.pot === 400 && ibadan2.winner === 320 && ibadan2.house === 80, JSON.stringify(ibadan2));
+
+    const defaults = JSON.parse(JSON.stringify(first.json.settings));
+    const noAuth = await request(base, 'POST', '/ops/competition', { json: defaults });
+    check('a save without a session is 401', noAuth.status === 401 && noAuth.json && noAuth.json.ok === false);
+    const foreign = await request(base, 'POST', '/ops/competition', { json: defaults, headers: { ...bearer, Origin: 'http://evil.example' } });
+    check('a save from a foreign origin is refused', foreign.status === 403 && foreign.json && foreign.json.error === 'origin');
+
+    const badFee = JSON.parse(JSON.stringify(defaults));
+    badFee.cities.find((c) => c.id === 'lagos').fee = 0;
+    const badFeeRes = await request(base, 'POST', '/ops/competition', { json: badFee, headers: bearer });
+    check('a zero entry fee is refused with a reason', badFeeRes.status === 400 && badFeeRes.json && !!badFeeRes.json.message);
+    const fracFee = JSON.parse(JSON.stringify(defaults));
+    fracFee.cities.find((c) => c.id === 'kano').fee = 1000.5;
+    const fracFeeRes = await request(base, 'POST', '/ops/competition', { json: fracFee, headers: bearer });
+    check('a fractional entry fee is refused', fracFeeRes.status === 400);
+    const badShare = JSON.parse(JSON.stringify(defaults));
+    badShare.splits['2'] = 101;
+    const badShareRes = await request(base, 'POST', '/ops/competition', { json: badShare, headers: bearer });
+    check('a winner share above 100 is refused', badShareRes.status === 400);
+    const zeroShare = JSON.parse(JSON.stringify(defaults));
+    zeroShare.splits['6'] = 0;
+    const zeroShareRes = await request(base, 'POST', '/ops/competition', { json: zeroShare, headers: bearer });
+    check('a winner share of zero is refused', zeroShareRes.status === 400);
+    const rising = JSON.parse(JSON.stringify(defaults));
+    rising.splits['2'] = 60;
+    const risingRes = await request(base, 'POST', '/ops/competition', { json: rising, headers: bearer });
+    check('a winner share that grows with table size is refused', risingRes.status === 400);
+    const blankCity = JSON.parse(JSON.stringify(defaults));
+    blankCity.cities[0].city = '   ';
+    const blankRes = await request(base, 'POST', '/ops/competition', { json: blankCity, headers: bearer });
+    check('a blank city name is refused', blankRes.status === 400);
+
+    const afterBad = await request(base, 'GET', '/ops/competition', { headers: bearer });
+    check('refused saves leave the ladder untouched', afterBad.json.saved === false
+      && afterBad.json.settings.cities.find((c) => c.id === 'lagos').fee === 5000);
+
+    const edited = JSON.parse(JSON.stringify(defaults));
+    edited.cities.find((c) => c.id === 'lagos').fee = 6000;
+    edited.splits['6'] = 55;
+    const saved = await request(base, 'POST', '/ops/competition', { json: edited, headers: bearer });
+    check('a clean save lands', saved.status === 200 && saved.json && saved.json.ok === true && saved.json.saved === true);
+    const editedLagos6 = sizeOf(saved.json, 'lagos', 6);
+    check('money table follows the saved numbers', !!editedLagos6 && editedLagos6.pot === 36000 && editedLagos6.winner === 19800 && editedLagos6.house === 16200, JSON.stringify(editedLagos6));
+    const reread = await request(base, 'GET', '/ops/competition', { headers: bearer });
+    check('the saved ladder reads back', reread.json.saved === true
+      && reread.json.settings.cities.find((c) => c.id === 'lagos').fee === 6000
+      && reread.json.settings.splits['6'] === 55);
+    let onDisk = null;
+    try { onDisk = JSON.parse(fs.readFileSync(server.compFile, 'utf8')); } catch (e) { onDisk = null; }
+    check('the saved ladder is on disk beside the shelf', !!onDisk && onDisk.cities.find((c) => c.id === 'lagos').fee === 6000);
+    check('competition answers carry no house key', !JSON.stringify(reread.json).includes(TOKEN));
+  } finally {
+    server.child.kill();
+  }
+}
+
 try {
   await closedDoor();
   await openDoor();
+  await competitionDesk();
 } catch (err) {
   failures += 1;
   console.log('SUITE ERROR: ' + (err && err.stack || err));
