@@ -32,6 +32,7 @@ const noopRetention = {
   onSeatWaiting() {},
   onPot() {},
   noteDay() {},
+  markPlayed() {},
   sweepDrops() { return Promise.resolve(0); }
 };
 const noopRecords = {
@@ -1350,6 +1351,13 @@ function endGame(room, winner, why) {
   pushFeed(room, 'gameEnd', winner.name + ' wins Kolopoly with net worth ' + D.fmtN(netWorth(room, winner)) + '.', { playerId: winner.id, amount: netWorth(room, winner) });
   if (finishing) {
     try { retention.noteDay('tablesFinished'); } catch (e) { /* the ledger never blocks the close */ }
+    // Shelf v2: every seated human played a match today. The Day 7
+    // kolo chest checks this mark; the records store cannot answer
+    // per player and day, so the shelf keeps the mark itself.
+    try {
+      const playedIds = [...new Set(room.players.filter((p) => p && !p.bot && p.clientId).map((p) => p.clientId))];
+      if (playedIds.length && retention.markPlayed) retention.markPlayed(playedIds);
+    } catch (e) { /* the played mark never blocks the close */ }
     // Save the finished game to the records store, exactly once per game.
     // Fire and forget: the write never delays or breaks the close, and
     // the guard keeps a re-ended room from writing the same game twice.
@@ -2909,6 +2917,14 @@ function handleConnection(ws) {
       if (room.status !== 'playing') return fail('Spend the shelf when the table dey play.');
       if (room.paused) return fail('The game is paused, waiting for players.');
       const good = String(msg.good || '');
+      // Shelf v2 second-chance goods (Rent Shield, Bail Card) are
+      // free-table goods only, by shape. Paid rooms do not exist yet,
+      // so room.paid is never set today; the refusal is wired ahead
+      // of the flag, and retention.spendV2 carries the same guard
+      // for the day the v2 spend path lands.
+      if ((good === 'rentShield' || good === 'bailCard') && room.paid) {
+        return fail('That good na for free table only. E no dey work for paid table.');
+      }
       const shelfId = room.mode === 'pass' ? (ctx.player && ctx.player.clientId) : me.clientId;
       if (!shelfId) return fail('This phone no get a market shelf yet. Claim the drop first.');
       if (good === 'kola' && me.shelfRent) return fail('You already hold a kola rent cover. Land on a rent first.');

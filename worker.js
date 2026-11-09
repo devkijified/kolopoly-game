@@ -335,7 +335,8 @@ export class RoomDO {
           }
           if (ids.length) self.shelf.ops.push({ op: 'pot', players: ids });
         },
-        noteDay(kind) { self.shelf.ops.push({ op: 'note', kind }); }
+        noteDay(kind) { self.shelf.ops.push({ op: 'note', kind }); },
+        markPlayed(ids) { self.shelf.ops.push({ op: 'played', clientIds: ids }); }
       },
       records: {
         enabled: () => records.enabled(),
