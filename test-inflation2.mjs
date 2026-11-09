@@ -757,6 +757,44 @@ try {
   }
 
   // ------------------------------------------------------ X9 SNAPSHOT NOTE ---
+  // ------------------------------------------------- X11 KIRIKIRI OWNER ---
+  console.log('X11: a Kirikiri owner collects nothing in Inflation: no multiplied rent, no frozen bill, no Lifeline window');
+  {
+    const g = await makeGame(INF, ['Tenant', 'Owner']);
+    const t = g.turn();
+    const o = g.clients.find((c) => c !== t);
+    g.hook('test_give', { playerId: o.playerId, space: 8 }); // Surulere, printed rent 24000
+    g.hook('test_phase', { phase: 3 }); // Heat: a [2,5] landing would freeze a bill of 24000 x 5 = 120000
+    await g.host.waitFor((s) => s.inf.phase === 3, 'heat phase set');
+    await ensureRollTurn(g, o, 'owner roll turn');
+    g.hook('test_set_position', { playerId: o.playerId, space: 13 });
+    g.hook('test_dice', { rolls: [[1, 1]] });
+    o.send('roll', {});
+    await o.waitFor((s) => s.players.find((p) => p.id === o.playerId).inJail, 'owner in Kirikiri');
+    check('the owner sits inside Kirikiri before the landing', g.player(o.playerId).inJail === true);
+    o.send('end_turn', {});
+    // Pure wait, not ensureRollTurn: walking turns with nullTurn here can
+    // overshoot onto the jailed owner turn, which nullTurn refuses.
+    await t.waitFor((s) => s.turnPlayerId === t.playerId && s.phase === 'roll', 'tenant roll turn');
+    const t0 = g.player(t.playerId).cash;
+    const o0 = g.player(o.playerId).cash;
+    const pot0 = g.S().pot;
+    let billSeen = false;
+    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_dice', { rolls: [[2, 5]] });
+    t.send('roll', {});
+    await t.waitFor((s) => {
+      if (s.pendingBill) billSeen = true;
+      return s.phase === 'end' && s.turnPlayerId === t.playerId;
+    }, 'tenant landing on the jailed owner resolves', 12000);
+    check('no frozen bill and no Lifeline window opens for a jailed owner', billSeen === false && !g.S().pendingBill, 'billSeen=' + billSeen);
+    check('no rent moves in Inflation either: tenant keeps cash, owner collects nothing, pot untouched',
+      g.player(t.playerId).cash === t0 && g.player(o.playerId).cash === o0 && g.S().pot === pot0,
+      'tenant=' + g.player(t.playerId).cash + ' owner=' + g.player(o.playerId).cash + ' pot=' + g.S().pot);
+    check('the landing message names the jail block', /dey Kirikiri: no rent dey collect/.test(g.S().message || ''), g.S().message);
+    for (const c of g.clients) c.ws.close();
+  }
+
   console.log('X9: old snapshot compatibility lives in test/worker/game.test.mjs (the Worker Durable Object owns importState; the Node host keeps rooms in memory only)');
 
   // ---------------------------------------------------------- X10 CLASSIC ---

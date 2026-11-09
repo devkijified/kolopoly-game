@@ -850,7 +850,15 @@ function resolveLanding(room, player, opts) {
     }
     if (p.owner !== player.id && !p.mortgaged) {
       const owner = room.players.find((x) => x.id === p.owner);
-      const jailShelter = room.settings.noRentInJail && owner && owner.inJail;
+      // Owner rule (2026-11-09): a player inside Kirikiri collects no
+      // rent, in Classic and Inflation alike, always. The rent is simply
+      // not paid: no cash moves, no frozen bill, no Lifeline window.
+      // This supersedes the old noRentInJail house-rule toggle, so the
+      // setting is no longer read here. The block sits at the dice
+      // arrival rent call site only: rentFor itself stays untouched
+      // because the Sapa meter and the end of game lesson lines read
+      // it as an estimate, never as a payment.
+      const jailShelter = owner && owner.inJail;
       if (owner && !owner.bankrupt && !jailShelter) {
         let rent = rentFor(room, i, opts.diceSum, opts.rentMult);
         // Inflation multiplier (INFLATION-7 section 1): streets and stations
@@ -917,6 +925,8 @@ function resolveLanding(room, player, opts) {
           finishRent(room, player, owner, i, rent, printedRent, phaseMult, opts.after || 'endPhase');
           return;
         }
+      } else if (jailShelter && owner && !owner.bankrupt) {
+        setMessage(room, player.name + ' land for ' + sp.name + '. ' + owner.name + ' dey Kirikiri: no rent dey collect from jail.');
       }
     }
     afterCharge(room, opts.after || 'endPhase', player);
@@ -1241,7 +1251,10 @@ function updatePause(room) {
 // ---------------------------------------------------------------------------
 function startAuction(room, a) {
   a.passed = [];
-  a.eligible = solventPlayers(room).map((p) => p.id);
+  // Owner rule (2026-11-09): a player inside Kirikiri cannot take part
+  // in an auction at all, so eligible means solvent AND free. If every
+  // other player is jailed or passes, the no-bid finish below stands.
+  a.eligible = solventPlayers(room).filter((p) => !p.inJail).map((p) => p.id);
   a.highBid = 0;
   a.highBidder = null;
   a.endsAt = now() + AUCTION_MS;
@@ -2942,6 +2955,7 @@ function handleConnection(ws) {
       const a = room.auction;
       if (!a) return fail('No auction dey run.');
       if (!me || me.bankrupt) return fail('You no fit bid.');
+      if (me.inJail) return fail('You dey Kirikiri. You no fit bid.');
       if (!a.eligible.includes(me.id) || a.passed.includes(me.id)) return fail('You don comot for this auction.');
       if (a.barred && a.barred === me.id) return fail('You dey barred from this re auction after your failed bid.');
       const amount = Math.floor(Number(msg.amount));

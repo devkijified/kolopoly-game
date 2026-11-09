@@ -386,6 +386,10 @@ const KPBoard = {
     const sp = D.SPACES[i];
     const pr = state.props[i];
     if (!pr || pr.o == null || pr.m) return 0;
+    // Owner rule mirror: an owner inside Kirikiri collects no rent, so
+    // the deed sheet shows the rent paused at 0, utilities included.
+    const ow = state.players.find((p) => p.id === pr.o);
+    if (ow && ow.inJail) return 0;
     if (sp.type === 'station') {
       const n = D.STATIONS.filter((s) => state.props[s] && state.props[s].o === pr.o).length;
       return 25000 * Math.pow(2, n - 1);
@@ -465,7 +469,7 @@ const KPBoard = {
     html += '<div class="kv"><span>Lift mortgage for</span><b>' + D.fmtN(D.unmortgageCost(sp.price)) + '</b></div>';
     if (sp.type === 'street') {
       const rows = [['Site only', sp.rent[0]], ['Full set (site x2)', sp.rent[1]], ['1 duplex', sp.rent[2]], ['2 duplexes', sp.rent[3]], ['3 duplexes', sp.rent[4]], ['4 duplexes', sp.rent[5]], ['MANSION', sp.rent[6]]];
-      const cur = !pr || pr.o == null ? -1 : pr.b >= 5 ? 6 : pr.b > 0 ? pr.b + 1 : (this.clientRent(state, i) === sp.rent[1] ? 1 : 0);
+      const cur = owner && owner.inJail ? -1 : !pr || pr.o == null ? -1 : pr.b >= 5 ? 6 : pr.b > 0 ? pr.b + 1 : (this.clientRent(state, i) === sp.rent[1] ? 1 : 0);
       html += '<table class="ladder"><tr><th>Rent ladder</th><th>Rent</th></tr>' +
         rows.map((r, idx) => '<tr class="' + (idx === cur ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
       html += '<p class="caption">Build cost: ' + D.fmtN(sp.duplex) + ' per duplex, the printed price in every phase.</p>';
@@ -473,9 +477,12 @@ const KPBoard = {
       const rows = D.STATION_RENT.map((r, k) => [(k + 1) + (k ? ' stations' : ' station'), r]);
       const n = pr && pr.o != null ? D.STATIONS.filter((s) => state.props[s] && state.props[s].o === pr.o).length : 0;
       html += '<table class="ladder"><tr><th>Stations owned</th><th>Rent</th></tr>' +
-        rows.map((r, idx) => '<tr class="' + (idx === n - 1 ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
+        rows.map((r, idx) => '<tr class="' + (idx === n - 1 && !(owner && owner.inJail) ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
     } else {
       html += '<p class="lead" style="margin-top:10px;">Rent na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[0]) + '.' + (D.UTILITIES.length > 1 ? ' Own both utilities and na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[1]) + '.' : ' NEPA na the only utility on this board.') + ' Utilities never carry the Inflation multiplier.</p>';
+    }
+    if (owner && owner.inJail) {
+      html += '<div class="meaning">RENT DON PAUSE: owner dey Kirikiri. No rent dey collect.</div>';
     }
     if (state.inf && (sp.type === 'street' || sp.type === 'station')) {
       const base = this.clientRent(state, i);

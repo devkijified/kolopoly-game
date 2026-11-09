@@ -99,6 +99,41 @@ async function passAuction(g) {
   }
   await g.host.waitFor((s) => !s.auction, 'auction closed', 9000);
 }
+// Walk harmless turns until the given client holds a roll phase, then send
+// them to Kirikiri the honest way (stand on 13, roll 2 onto Go To Kirikiri)
+// and end their turn with them inside.
+async function jailOnOwnTurn(g, client) {
+  for (let step = 0; step < 4; step++) {
+    const s = g.S();
+    if (s.turnPlayerId === client.playerId && s.phase === 'roll') break;
+    await nullTurn(g);
+  }
+  g.hook('test_set_position', { playerId: client.playerId, space: 13 });
+  g.hook('test_dice', { rolls: [[1, 1]] });
+  client.send('roll', {});
+  await client.waitFor((s) => s.players.find((p) => p.id === client.playerId).inJail, client.name + ' in Kirikiri');
+  client.send('end_turn', {});
+  await g.host.waitFor((s) => s.turnPlayerId !== client.playerId, 'turn leaves ' + client.name);
+}
+// Walk turns until the given client holds a roll phase, closing out the
+// turns of jailed players with a failed jail roll (nullTurn refuses them).
+async function walkToRollTurn(g, client, jailedIds) {
+  for (let step = 0; step < 6; step++) {
+    const s = g.S();
+    if (s.turnPlayerId === client.playerId && s.phase === 'roll') return;
+    const cur = g.turn();
+    if (jailedIds && jailedIds.includes(cur.playerId)) {
+      g.hook('test_dice', { rolls: [[1, 2]] });
+      cur.send('jail_roll', {});
+      await cur.waitFor((x) => x.phase === 'end' && x.turnPlayerId === cur.playerId, 'jailed turn resolves');
+      cur.send('end_turn', {});
+      await g.host.waitFor((x) => x.turnPlayerId !== cur.playerId, 'turn moves on');
+    } else {
+      await nullTurn(g);
+    }
+  }
+  throw new Error('walkToRollTurn: roll turn never reached ' + client.name);
+}
 
 // ---- Bot helpers -----------------------------------------------------------
 // A room whose only human is the host; bots fill the other seats.
@@ -693,6 +728,166 @@ try {
       JSON.stringify({ r: g.S().owambeResult, oGain, tGain }));
     check('jackpot feed entry carries the ₦200,000', g.S().feed.some((e) => e.kind === 'jackpot' && e.amount === 200000));
     for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('K1: a Kirikiri owner collects no street rent; rent resumes the moment they leave');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const t = g.turn();
+    const o = g.clients.find((c) => c !== t);
+    g.hook('test_give', { playerId: o.playerId, space: 8 }); // Surulere, printed rent 24000
+    await jailOnOwnTurn(g, o);
+    check('the owner sits inside Kirikiri', g.player(o.playerId).inJail === true);
+    const t0 = g.player(t.playerId).cash;
+    const o0 = g.player(o.playerId).cash;
+    const pot0 = g.S().pot;
+    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_dice', { rolls: [[2, 5]] });
+    t.send('roll', {});
+    await t.waitFor((s) => s.phase === 'end' && s.turnPlayerId === t.playerId, 'landing on the jailed owner street resolves');
+    check('the tenant pays nothing when the street owner is in Kirikiri', g.player(t.playerId).cash === t0, 'tenant=' + g.player(t.playerId).cash);
+    check('the jailed owner collects nothing and the rent does not fall into the pot', g.player(o.playerId).cash === o0 && g.S().pot === pot0, 'owner=' + g.player(o.playerId).cash + ' pot=' + g.S().pot);
+    check('the landing message names the jail block', /dey Kirikiri: no rent dey collect/.test(g.S().message || ''), g.S().message);
+    t.send('end_turn', {});
+    await o.waitFor((s) => s.turnPlayerId === o.playerId && s.phase === 'jail', 'owner jail turn arrives');
+    o.send('jail_pay', {});
+    await o.waitFor((s) => !s.players.find((p) => p.id === o.playerId).inJail && s.phase === 'roll', 'owner bails out');
+    g.hook('test_set_position', { playerId: o.playerId, space: 2 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    o.send('roll', {});
+    await o.waitFor((s) => s.phase === 'end' && s.turnPlayerId === o.playerId, 'owner free turn resolves');
+    o.send('end_turn', {});
+    await t.waitFor((s) => s.turnPlayerId === t.playerId && s.phase === 'roll', 'tenant turn again');
+    const t1 = g.player(t.playerId).cash;
+    const o1 = g.player(o.playerId).cash;
+    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_dice', { rolls: [[2, 5]] });
+    t.send('roll', {});
+    await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === o1 + 24000, 'rent moves again after release');
+    check('rent resumes the moment the owner leaves Kirikiri: the printed 24000 moves', g.player(t.playerId).cash === t1 - 24000 && g.player(o.playerId).cash === o1 + 24000, 'tenant=' + g.player(t.playerId).cash + ' owner=' + g.player(o.playerId).cash);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('K2: a Kirikiri owner collects no station rent and no utility rent');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
+    const t = g.turn();
+    const o = g.clients.find((c) => c !== t);
+    g.hook('test_give', { playerId: o.playerId, space: 14 }); // MMIA Airport: one station rent 75000
+    g.hook('test_give', { playerId: o.playerId, space: 9 }); // NEPA: dice total x 10000
+    await jailOnOwnTurn(g, o);
+    const t0 = g.player(t.playerId).cash;
+    const o0 = g.player(o.playerId).cash;
+    const pot0 = g.S().pot;
+    g.hook('test_set_position', { playerId: t.playerId, space: 7 });
+    g.hook('test_dice', { rolls: [[2, 5]] });
+    t.send('roll', {});
+    await t.waitFor((s) => s.phase === 'end' && s.turnPlayerId === t.playerId, 'station landing on a jailed owner resolves');
+    check('station rent to a jailed owner: no cash moves on either side and the pot gets nothing',
+      g.player(t.playerId).cash === t0 && g.player(o.playerId).cash === o0 && g.S().pot === pot0,
+      'tenant=' + g.player(t.playerId).cash + ' owner=' + g.player(o.playerId).cash + ' pot=' + g.S().pot);
+    t.send('end_turn', {});
+    await o.waitFor((s) => s.turnPlayerId === o.playerId && s.phase === 'jail', 'owner jail turn arrives');
+    // stay inside: a failed double roll keeps the owner in Kirikiri and ends the turn
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    o.send('jail_roll', {});
+    await o.waitFor((s) => s.phase === 'end' && s.players.find((p) => p.id === o.playerId).inJail, 'owner stays inside');
+    o.send('end_turn', {});
+    await t.waitFor((s) => s.turnPlayerId === t.playerId && s.phase === 'roll', 'tenant turn again');
+    const t1 = g.player(t.playerId).cash;
+    const o1 = g.player(o.playerId).cash;
+    g.hook('test_set_position', { playerId: t.playerId, space: 6 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    t.send('roll', {});
+    await t.waitFor((s) => s.phase === 'end' && s.turnPlayerId === t.playerId, 'utility landing on a jailed owner resolves');
+    check('utility rent to a jailed owner: the dice total x 10000 never moves',
+      g.player(t.playerId).cash === t1 && g.player(o.playerId).cash === o1,
+      'tenant=' + g.player(t.playerId).cash + ' owner=' + g.player(o.playerId).cash);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('K3: a player inside Kirikiri cannot bid; a free player bids the same amount and wins');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
+    const host = g.host;
+    const jailed = g.clients[1]; // g.clients[0] is the host
+    const free = g.clients[2];
+    await jailOnOwnTurn(g, jailed);
+    check('one guest sits inside Kirikiri', g.player(jailed.playerId).inJail === true);
+    await walkToRollTurn(g, host, [jailed.playerId]);
+    g.hook('test_set_position', { playerId: host.playerId, space: 4 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    host.send('roll', {});
+    await host.waitFor((s) => s.phase === 'buy' && s.buySpace === 7, 'Ikoyi offered to the host');
+    host.send('decline', {});
+    await host.waitFor((s) => !!s.auction, 'auction opened');
+    check('the jailed player is not on the auction eligible list', !g.S().auction.eligible.includes(jailed.playerId), JSON.stringify(g.S().auction.eligible));
+    const errMark = jailed.errors.length;
+    jailed.send('bid', { amount: 80000 });
+    await sleep(400);
+    check('the jailed bid is refused in the game voice', jailed.errors.slice(errMark).some((e) => /You dey Kirikiri\. You no fit bid\./.test(e)), JSON.stringify(jailed.errors));
+    check('the refused bid never became the high bid', !!g.S().auction && g.S().auction.highBid === 0 && g.S().auction.highBidder == null, JSON.stringify(g.S().auction));
+    free.send('bid', { amount: 80000 });
+    await free.waitFor((s) => s.auction && s.auction.highBid === 80000, 'free player bid registered');
+    check('a free player bids the same 80000 and it lands', g.S().auction.highBid === 80000 && g.S().auction.highBidder === free.playerId);
+    host.send('pass_bid', {});
+    await host.waitFor((s) => !s.auction && s.props[7].o === free.playerId, 'auction settles to the free bidder');
+    check('the free bidder wins Ikoyi at 80000 and pays exactly that', g.player(free.playerId).cash === 1420000, 'cash=' + g.player(free.playerId).cash);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('K4: an auction where every other player is in Kirikiri resolves by the no-bid path');
+  {
+    const g = await makeGame({ timed: false, turnTimerSec: 0 }, ['Ada', 'Bola', 'Chidi']);
+    const host = g.host;
+    const j1 = g.clients[1]; // g.clients[0] is the host
+    const j2 = g.clients[2];
+    await jailOnOwnTurn(g, j1);
+    await jailOnOwnTurn(g, j2);
+    check('both guests sit inside Kirikiri', g.player(j1.playerId).inJail === true && g.player(j2.playerId).inJail === true);
+    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'host roll turn');
+    g.hook('test_set_position', { playerId: host.playerId, space: 4 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    host.send('roll', {});
+    await host.waitFor((s) => s.phase === 'buy' && s.buySpace === 7, 'Ikoyi offered to the host');
+    host.send('decline', {});
+    await host.waitFor((s) => !!s.auction, 'auction opened');
+    check('the eligible list holds only the free host', JSON.stringify(g.S().auction.eligible) === JSON.stringify([host.playerId]), JSON.stringify(g.S().auction.eligible));
+    const errMark = j1.errors.length;
+    j1.send('bid', { amount: 50000 });
+    await sleep(350);
+    check('a jailed guest bid is refused even with nobody else free to bid', j1.errors.slice(errMark).some((e) => /You dey Kirikiri\. You no fit bid\./.test(e)), JSON.stringify(j1.errors));
+    host.send('pass_bid', {});
+    await host.waitFor((s) => !s.auction, 'auction closes');
+    check('nobody bid: Ikoyi stays with the bank', g.S().props[7].o == null, 'owner=' + g.S().props[7].o);
+    check('the close line is the nobody bid line', /Nobody bid/.test(g.S().message || ''), g.S().message);
+    for (const c of g.clients) c.ws.close();
+  }
+
+  console.log('K5: a jailed bot passes the auction instead of bidding into refusals');
+  {
+    const g = await botRoom({ timed: false, turnTimerSec: 0 }, 2);
+    const jailedBot = g.bots()[0];
+    g.host.send('start_game', {});
+    await g.host.waitFor((s) => s.status === 'playing', 'bot game started');
+    const inJail = (s) => { const b = s.players.find((p) => p.id === jailedBot.id); return b && b.inJail; };
+    await scriptBotTurn(g, { botId: jailedBot.id, pos: 13, dice: [[1, 1]] }, inJail, 'bot enters Kirikiri');
+    check('the bot sits inside Kirikiri', g.botRow(jailedBot.id).inJail === true);
+    await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'roll', 'host roll turn after the jailing');
+    g.hook('test_set_position', { playerId: g.host.playerId, space: 4 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.host.send('roll', {});
+    await g.host.waitFor((s) => s.phase === 'buy' && s.buySpace === 7, 'Ikoyi offered to the host');
+    g.host.send('decline', {});
+    await g.host.waitFor((s) => !!s.auction, 'auction opened');
+    check('the jailed bot is not on the auction eligible list', !g.S().auction.eligible.includes(jailedBot.id), JSON.stringify(g.S().auction.eligible));
+    await g.host.waitFor((s) => s.auction && s.auction.passed.includes(jailedBot.id), 'jailed bot passes the auction', 3500);
+    check('the jailed bot passed the auction instead of bidding', g.S().auction.passed.includes(jailedBot.id));
+    check('the jailed bot never held the high bid', g.S().auction.highBidder !== jailedBot.id);
+    g.host.send('pass_bid', {});
+    await g.host.waitFor((s) => !s.auction, 'auction closes', 9000);
+    check('the deed never went to the jailed bot', g.S().props[7].o !== jailedBot.id, 'owner=' + g.S().props[7].o);
+    g.host.ws.close();
   }
 
   console.log('C7: bankruptcy hands everything to the creditor; last solvent wins the game');

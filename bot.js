@@ -364,6 +364,11 @@ class BotBrain {
 
   decideAuction(st, me) {
     const a = st.auction;
+    // Owner rule: a player inside Kirikiri cannot bid. The server keeps
+    // jailed players out of eligible and refuses their bids anyway; the
+    // brain passes once so the auction leaves it behind at once instead
+    // of the seat eating a refused bid every think tick.
+    if (me.inJail) { if (!a.passed.includes(me.id)) this.send({ type: 'pass_bid' }); return; }
     if (!a.eligible.includes(me.id) || a.passed.includes(me.id)) return;
     if (a.highBidder === me.id) return; // winning: sit tight
     let cap;
