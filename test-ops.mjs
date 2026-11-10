@@ -111,7 +111,7 @@ async function openDoor() {
   const httpBase = base;
   try {
     const home = await request(base, 'GET', '/');
-    check('landing still serves', home.status === 200 && home.text.includes('Kolopoly'));
+    check('landing still serves', home.status === 200 && home.text.includes('KOLO'));
     check('landing does not link the desk', !home.text.includes('href="/ops"') && !home.text.includes("href='/ops'"));
     const robots = await request(base, 'GET', '/robots.txt');
     check('robots.txt hides /ops', robots.status === 200 && /Disallow:\s*\/ops/.test(robots.text));
