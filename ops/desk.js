@@ -31,6 +31,7 @@
     gate.hidden = next !== 'gate';
     desk.hidden = next !== 'desk';
     if (next !== 'desk') stopPoll();
+    if (next === 'desk') loadCompetition();
     if (next === 'gate' && window.matchMedia('(min-width: 800px)').matches) input.focus();
   }
   function setGateError(text) {
@@ -286,6 +287,7 @@
   });
   $('lock-btn').addEventListener('click', async () => {
     stopPoll();
+    compLoaded = false;
     try {
       await fetch('/ops/lock', {
         method: 'POST',
@@ -303,6 +305,237 @@
       pull();
     }
   });
+
+  // Paid competitions: the city ladder panel. The desk reads the saved
+  // ladder (or the seeded one), edits it in place, recomputes the money
+  // table as the admin types, and saves through the same house key.
+  const COMP_SIZES = [2, 3, 4, 5, 6];
+  let comp = null;
+  let compLoaded = false;
+  let compLoading = false;
+
+  function naira(n) {
+    return '₦' + num(n);
+  }
+  function compNote(text, kind) {
+    const el = $('comp-note');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.remove('ok', 'bad');
+    if (kind) el.classList.add(kind);
+  }
+  function field(labelText, inputEl) {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    wrap.append(label, inputEl);
+    return wrap;
+  }
+  function textInput(value) {
+    const el = document.createElement('input');
+    el.type = 'text';
+    el.value = value == null ? '' : String(value);
+    return el;
+  }
+  function numberInput(value) {
+    const el = document.createElement('input');
+    el.type = 'number';
+    el.min = '0';
+    el.step = '1';
+    el.inputMode = 'numeric';
+    el.value = value == null ? '' : String(value);
+    return el;
+  }
+
+  function renderCompEditors() {
+    const citiesEl = $('comp-cities');
+    const splitsEl = $('comp-splits');
+    if (!citiesEl || !splitsEl || !comp) return;
+    citiesEl.replaceChildren();
+    (comp.cities || []).forEach((row, i) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'comp-row';
+      wrap.dataset.idx = String(i);
+      const city = textInput(row.city);
+      city.dataset.field = 'city';
+      const venue = textInput(row.venue);
+      venue.dataset.field = 'venue';
+      const fee = numberInput(row.fee);
+      fee.dataset.field = 'fee';
+      const flagWrap = document.createElement('label');
+      flagWrap.className = 'flagship';
+      const flag = document.createElement('input');
+      flag.type = 'checkbox';
+      flag.dataset.field = 'flagship';
+      flag.checked = !!row.flagship;
+      flagWrap.append(flag, document.createTextNode('Flagship'));
+      wrap.append(field('City', city), field('Venue', venue), field('Entry fee (₦)', fee), flagWrap);
+      citiesEl.append(wrap);
+    });
+    splitsEl.replaceChildren();
+    for (const size of COMP_SIZES) {
+      const wrap = document.createElement('div');
+      wrap.className = 'comp-split';
+      const share = numberInput(comp.splits ? comp.splits[size] : '');
+      share.dataset.size = String(size);
+      wrap.append(field(size + ' players, winner %', share));
+      splitsEl.append(wrap);
+    }
+  }
+
+  function readCompForm() {
+    const cities = [];
+    document.querySelectorAll('#comp-cities .comp-row').forEach((wrap, i) => {
+      const get = (name) => wrap.querySelector('[data-field="' + name + '"]');
+      const feeRaw = get('fee').value;
+      cities.push({
+        id: comp && comp.cities && comp.cities[i] ? comp.cities[i].id : undefined,
+        city: get('city').value,
+        venue: get('venue').value,
+        fee: feeRaw === '' ? NaN : Number(feeRaw),
+        flagship: get('flagship').checked
+      });
+    });
+    const splits = {};
+    document.querySelectorAll('#comp-splits [data-size]').forEach((el) => {
+      splits[el.dataset.size] = el.value === '' ? NaN : Number(el.value);
+    });
+    return { cities, splits };
+  }
+
+  function compFormProblem(form) {
+    for (const row of form.cities) {
+      if (!String(row.city || '').trim()) return 'Every city needs a name.';
+      if (!String(row.venue || '').trim()) return row.city + ' needs a venue name.';
+      if (!Number.isInteger(row.fee) || row.fee < 1) return 'The entry fee for ' + row.city + ' must be a whole number of naira, at least 1.';
+    }
+    let prev = Infinity;
+    for (const size of COMP_SIZES) {
+      const share = form.splits[size];
+      if (!Number.isInteger(share) || share < 1 || share > 100) {
+        return 'The winner share for ' + size + ' players must be a whole percent between 1 and 100.';
+      }
+      if (share > prev) return 'The winner share cannot grow as the table gets bigger.';
+      prev = share;
+    }
+    if (form.cities.filter((row) => row.flagship).length > 1) return 'Only one table can be the flagship.';
+    return '';
+  }
+
+  function renderCompTable(form) {
+    const tableEl = $('comp-table');
+    const noteEl = $('comp-table-note');
+    if (!tableEl) return;
+    tableEl.replaceChildren();
+    const problem = compFormProblem(form);
+    if (noteEl) noteEl.textContent = problem ? 'Fix the ladder to see the money table: ' + problem : '';
+    if (problem) return;
+    for (const row of form.cities) {
+      const block = document.createElement('div');
+      block.className = 'comp-city';
+      const head = document.createElement('p');
+      head.className = 'comp-city-head';
+      head.textContent = row.city + ' · ' + row.venue + ' · entry ' + naira(row.fee) + ' ';
+      if (row.flagship) {
+        const flag = document.createElement('span');
+        flag.className = 'flag';
+        flag.textContent = 'Flagship';
+        head.append(flag);
+      }
+      const sizes = document.createElement('div');
+      sizes.className = 'comp-sizes';
+      for (const players of COMP_SIZES) {
+        const pot = row.fee * players;
+        const winner = Math.round(pot * form.splits[players] / 100);
+        const cell = document.createElement('div');
+        cell.className = 'comp-cell';
+        const title = document.createElement('b');
+        title.textContent = players + ' players';
+        const potLine = document.createElement('span');
+        potLine.textContent = 'Pot ' + naira(pot);
+        const winLine = document.createElement('span');
+        winLine.className = 'win';
+        winLine.textContent = 'Winner ' + naira(winner);
+        const houseLine = document.createElement('span');
+        houseLine.textContent = 'House ' + naira(pot - winner);
+        cell.append(title, potLine, document.createElement('br'), winLine, document.createElement('br'), houseLine);
+        sizes.append(cell);
+      }
+      block.append(head, sizes);
+      tableEl.append(block);
+    }
+  }
+
+  function compEdited() {
+    compLoaded = true;
+    renderCompTable(readCompForm());
+    compNote('Unsaved changes. The money table above already follows your typing.', '');
+  }
+
+  async function loadCompetition() {
+    if (compLoaded || compLoading) return;
+    compLoading = true;
+    try {
+      const res = await fetch('/ops/competition', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' }
+      });
+      if (!res.ok) throw new Error('status');
+      const data = await res.json();
+      comp = data.settings;
+      compLoaded = true;
+      renderCompEditors();
+      renderCompTable(readCompForm());
+      compNote(data.saved
+        ? 'This ladder is saved in the house settings.'
+        : 'This is the seeded ladder. Save it to make it the house settings.', '');
+    } catch (e) {
+      compNote('The ladder no gree load. Lock the desk and open it again.', 'bad');
+    } finally {
+      compLoading = false;
+    }
+  }
+
+  async function saveCompetition() {
+    const btn = $('comp-save-btn');
+    const form = readCompForm();
+    const problem = compFormProblem(form);
+    if (problem) {
+      compNote(problem + ' Nothing was saved.', 'bad');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await fetch('/ops/competition', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        compNote(data.message || 'The save was refused. Nothing was saved.', 'bad');
+        return;
+      }
+      comp = data.settings;
+      renderCompEditors();
+      renderCompTable(readCompForm());
+      compNote('Saved. The ladder is now the house settings.', 'ok');
+    } catch (e) {
+      compNote('The line drop. The save did not land.', 'bad');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  const compCitiesEl = $('comp-cities');
+  const compSplitsEl = $('comp-splits');
+  if (compCitiesEl) compCitiesEl.addEventListener('input', compEdited);
+  if (compCitiesEl) compCitiesEl.addEventListener('change', compEdited);
+  if (compSplitsEl) compSplitsEl.addEventListener('input', compEdited);
+  const compSaveBtn = $('comp-save-btn');
+  if (compSaveBtn) compSaveBtn.addEventListener('click', saveCompetition);
 
   const preset = document.body.dataset.error || '';
   if (preset) setGateError(preset);

@@ -307,6 +307,77 @@ describe('worker table', () => {
   });
 });
 
+describe('worker ops competition ladder', () => {
+  const bearer = { Authorization: 'Bearer test-house-key' };
+  async function readLadder() {
+    const res = await SELF.fetch('http://kolopoly.test/ops/competition', { headers: bearer });
+    return { status: res.status, body: await res.json() };
+  }
+
+  it('serves the seeded ladder and the exact money table behind the house key', async () => {
+    const locked = await SELF.fetch('http://kolopoly.test/ops/competition');
+    expect(locked.status).toBe(401);
+    const { status, body } = await readLadder();
+    expect(status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.settings.cities).toHaveLength(6);
+    const summit = body.settings.cities.find((c) => c.flagship);
+    expect(summit.city).toBe('Aso Rock, Abuja');
+    expect(summit.fee).toBe(25000);
+    expect(body.settings.splits['2']).toBe(80);
+    expect(body.settings.splits['6']).toBe(60);
+    const lagos = body.table.find((row) => row.id === 'lagos');
+    const six = lagos.sizes.find((s) => s.players === 6);
+    expect(six.pot).toBe(30000);
+    expect(six.winner).toBe(18000);
+    expect(six.house).toBe(12000);
+    const ibadan = body.table.find((row) => row.id === 'ibadan');
+    const two = ibadan.sizes.find((s) => s.players === 2);
+    expect(two.pot).toBe(400);
+    expect(two.winner).toBe(320);
+    expect(two.house).toBe(80);
+    expect(JSON.stringify(body)).not.toContain('test-house-key');
+  });
+
+  it('refuses a bad save and keeps a clean one', async () => {
+    const { body } = await readLadder();
+    const edited = JSON.parse(JSON.stringify(body.settings));
+    edited.cities.find((c) => c.id === 'kano').fee = 1500;
+    const bad = JSON.parse(JSON.stringify(edited));
+    bad.splits['3'] = 95;
+    const badRes = await SELF.fetch('http://kolopoly.test/ops/competition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...bearer },
+      body: JSON.stringify(bad)
+    });
+    expect(badRes.status).toBe(400);
+    const badFee = JSON.parse(JSON.stringify(edited));
+    badFee.cities.find((c) => c.id === 'kano').fee = -5;
+    const badFeeRes = await SELF.fetch('http://kolopoly.test/ops/competition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...bearer },
+      body: JSON.stringify(badFee)
+    });
+    expect(badFeeRes.status).toBe(400);
+    const saved = await SELF.fetch('http://kolopoly.test/ops/competition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...bearer },
+      body: JSON.stringify(edited)
+    });
+    expect(saved.status).toBe(200);
+    const savedBody = await saved.json();
+    expect(savedBody.saved).toBe(true);
+    const reread = await readLadder();
+    expect(reread.body.saved).toBe(true);
+    expect(reread.body.settings.cities.find((c) => c.id === 'kano').fee).toBe(1500);
+    const kano = reread.body.table.find((row) => row.id === 'kano');
+    const kanoFour = kano.sizes.find((s) => s.players === 4);
+    expect(kanoFour.pot).toBe(6000);
+    expect(kanoFour.winner).toBe(4200);
+    expect(kanoFour.house).toBe(1800);
+  });
+});
+
 describe('worker inflation: seven phases, lifeline and snapshots', () => {
   it('opens an Inflation room on Standard with a deadline, and test hooks move the phase', async () => {
     const ada = await enter('create_room', {

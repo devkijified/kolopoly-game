@@ -10,6 +10,7 @@ const { WebSocketServer } = require('ws');
 const { createGameHost } = require('./game-host');
 const { createRetention } = require('./retention');
 const { createOps } = require('./ops');
+const { createCompetition } = require('./competition');
 const records = require('./server-records.js');
 
 const PORT = process.env.PORT || 4173;
@@ -80,7 +81,10 @@ const host = createGameHost({
 });
 const rooms = host.rooms;
 
-const ops = createOps({ rooms, retention });
+const competition = createCompetition({
+  file: process.env.KP_COMPETITION_FILE || path.join(__dirname, 'data', 'competition.json')
+});
+const ops = createOps({ rooms, retention, competition });
 const server = http.createServer((req, res) => {
   if (ops.accepts(req)) { ops.handle(req, res); return; }
   if (retention.accepts(req)) { retention.handle(req, res); return; }

@@ -7,6 +7,7 @@
 import hostMod from './game-host.js';
 import retentionMod from './retention.js';
 import recordsMod from './server-records.js';
+import competitionMod from './competition.js';
 import push from './push-webcrypto.js';
 import deskHtml from './ops/desk.html';
 import deskCss from './ops/desk.css';
@@ -15,6 +16,7 @@ import deskJs from './ops/desk.js';
 const { createGameHost } = hostMod;
 const { createRetention } = retentionMod;
 const { createRecords } = recordsMod;
+const { validateCompetition, normalizeCompetition, defaultSettings, competitionTable } = competitionMod;
 
 const BUILD_FILES = [
   'public/index.html',
@@ -36,7 +38,7 @@ const SESSION_MS = 4 * 60 * 60 * 1000;
 const FAIL_WINDOW_MS = 15 * 60 * 1000;
 const FAIL_LIMIT = 5;
 const GLOBAL_LIMIT = 20;
-const OPS_ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/unlock', '/ops/lock']);
+const OPS_ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/unlock', '/ops/lock']);
 
 let cachedBuild = '';
 
@@ -781,6 +783,24 @@ export class LobbyDO {
       const shelf = await shelfRes.json();
       const rows = Object.values(reg.rooms || {}).filter((r) => r && r.code && !r.opening);
       return json(scrub(assembleSnapshot(rows, shelf, reg.bootAt), token), 200, headers);
+    }
+    if (request.method === 'GET' && route === '/ops/competition') {
+      if (!(await authed())) return json({ ok: false, error: 'unauthorized', message: 'That key no open this desk.' }, 401, headers);
+      const stored = await this.state.storage.get('competition');
+      const kept = normalizeCompetition(stored);
+      const settings = kept || defaultSettings();
+      return json({ ok: true, saved: !!kept, settings, table: competitionTable(settings) }, 200, headers);
+    }
+    if (request.method === 'POST' && route === '/ops/competition') {
+      if (!(await authed())) return json({ ok: false, error: 'unauthorized', message: 'That key no open this desk.' }, 401, headers);
+      let parsed;
+      try { parsed = await request.json(); } catch (e) {
+        return json({ ok: false, error: 'bad', message: 'The ladder did not arrive in one piece. Nothing was saved.' }, 400, headers);
+      }
+      const out = validateCompetition(parsed);
+      if (!out.ok) return json({ ok: false, error: out.error, message: out.message }, 400, headers);
+      await this.state.storage.put('competition', out.settings);
+      return json({ ok: true, saved: true, settings: out.settings, table: competitionTable(out.settings) }, 200, headers);
     }
     return json({ ok: false, error: 'method' }, 405, headers);
   }

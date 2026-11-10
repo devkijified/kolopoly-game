@@ -324,3 +324,78 @@ button.ghost {
 @media (prefers-reduced-motion: reduce) {
   .dot { animation: none; }
 }
+
+.comp-panel { margin-top: 12px; padding-bottom: 16px; }
+.comp-sub {
+  margin: 16px 0 8px;
+  font-family: 'Aeonik Pro', Figtree, sans-serif;
+  font-size: 15px;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.comp-cities { display: grid; gap: 8px; padding-bottom: 4px; }
+.comp-row {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 120px auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffdf8;
+}
+.comp-row .flagship {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px;
+  font-size: 13px; font-weight: 750; color: var(--ink);
+  margin: 0;
+}
+.comp-row .flagship input { width: 18px; height: 18px; padding: 0; }
+.comp-row input[type="text"], .comp-row input[type="number"], .comp-split input {
+  height: 40px;
+  font-size: 15px;
+  border-radius: 10px;
+}
+.comp-row label, .comp-split label { font-size: 12px; margin-bottom: 4px; color: var(--ink-soft); }
+.comp-splits {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.comp-split {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffdf8;
+}
+.comp-table { display: grid; gap: 12px; padding-bottom: 4px; }
+.comp-city { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.comp-city:last-child { border-bottom: 0; }
+.comp-city-head { margin: 0 0 6px; font-weight: 750; font-size: 14px; }
+.comp-city-head .flag { color: var(--gold-deep); font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.comp-sizes {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.comp-cell {
+  background: #f6efe2;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.comp-cell b { display: block; font-size: 13px; }
+.comp-cell .win { color: var(--green); font-weight: 750; }
+.comp-save { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+button.gold.auto { width: auto; margin-top: 0; padding: 0 22px; }
+.comp-note { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
+.comp-note.ok { color: var(--green); }
+.comp-note.bad { color: var(--red); }
+
+@media (max-width: 860px) {
+  .comp-row { grid-template-columns: 1fr 1fr; }
+  .comp-splits { grid-template-columns: repeat(2, 1fr); }
+  .comp-sizes { grid-template-columns: repeat(2, 1fr); }
+}
