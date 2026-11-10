@@ -63,7 +63,7 @@ if (!String(process.env.KP_ADMIN_TOKEN || '').trim()) {
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2', '.woff': 'font/woff',
   '.txt': 'text/plain',
   '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg'
 };
@@ -134,7 +134,7 @@ const server = http.createServer((req, res) => {
     if (cleanUrl === '/' || cleanUrl === '/index.html' || cleanUrl === '/sw.js') data = stampAsset(cleanUrl, data);
     const type = MIME[path.extname(filePath)] || 'application/octet-stream';
     const headers = { 'Content-Type': type };
-    const cacheable = cleanUrl.startsWith('/vendor/') || cleanUrl.startsWith('/fonts/');
+    const cacheable = cleanUrl.startsWith('/vendor/') || cleanUrl.startsWith('/fonts/') || cleanUrl.startsWith('/assets/');
     headers['Cache-Control'] = cleanUrl === '/sw.js' ? 'no-store' : (cacheable ? 'public, max-age=604800' : 'no-cache');
     const compressible = /^(text\/|application\/json|image\/svg)/.test(type);
     if (compressible && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
