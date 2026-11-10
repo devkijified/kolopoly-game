@@ -494,13 +494,19 @@ const KPBoard = {
       }
     }
     if (owner && viewerId === owner.id) {
+      // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri.
+      // The buttons render disabled and the caption carries the refusal;
+      // the server refuses the intents in the same words regardless.
+      const dis = owner.inJail ? ' disabled' : '';
       html += '<div class="btnrow">' +
-        (sp.type === 'street' ? '<button class="btn small green" data-act="build-duplex" data-space="' + i + '">Build duplex</button>' +
-          '<button class="btn small green" data-act="build-mansion" data-space="' + i + '">Build mansion</button>' +
-          '<button class="btn small ghost" data-act="sell-building" data-space="' + i + '">Sell building</button>' : '') +
-        (pr && !pr.m ? '<button class="btn small ghost" data-act="mortgage" data-space="' + i + '">Mortgage for ' + D.fmtN(D.mortgageOf(sp.price)) + '</button>'
-          : '<button class="btn small ghost" data-act="unmortgage" data-space="' + i + '">Lift mortgage ' + D.fmtN(D.unmortgageCost(sp.price)) + '</button>') +
-        '</div><p class="caption mt8">You fit build anytime, even when no be your turn. The server checks the live state when your action land. Even building, full sets and pledges still apply.</p>';
+        (sp.type === 'street' ? '<button class="btn small green" data-act="build-duplex" data-space="' + i + '"' + dis + '>Build duplex</button>' +
+          '<button class="btn small green" data-act="build-mansion" data-space="' + i + '"' + dis + '>Build mansion</button>' +
+          '<button class="btn small ghost" data-act="sell-building" data-space="' + i + '"' + dis + '>Sell building</button>' : '') +
+        (pr && !pr.m ? '<button class="btn small ghost" data-act="mortgage" data-space="' + i + '"' + dis + '>Mortgage for ' + D.fmtN(D.mortgageOf(sp.price)) + '</button>'
+          : '<button class="btn small ghost" data-act="unmortgage" data-space="' + i + '"' + dis + '>Lift mortgage ' + D.fmtN(D.unmortgageCost(sp.price)) + '</button>') +
+        '</div><p class="caption mt8">' + (owner.inJail
+          ? 'You dey Kirikiri. You no fit build, sell building, mortgage or redeem till you comot.'
+          : 'You fit build anytime, even when no be your turn. The server checks the live state when your action land. Even building, full sets and pledges still apply.') + '</p>';
     }
     const dealActorId = state.mode === 'pass' ? state.turnPlayerId : viewerId;
     const meDeal = byId[dealActorId];
@@ -508,7 +514,8 @@ const KPBoard = {
     if (meDeal && pr && pr.o != null && dealOthers) {
       const mine = pr.o === meDeal.id;
       html += '<div class="deed-deals"><div class="deed-deals-k">Deals</div><div class="btnrow">';
-      html += '<button type="button" class="btn" data-act="deal-swap" data-space="' + i + '">' + (mine ? 'Offer in a swap' : 'Swap for this') + '</button>';
+      // Owner rule (2026-11-09): a jailed player cannot propose a trade.
+      html += '<button type="button" class="btn" data-act="deal-swap" data-space="' + i + '"' + (meDeal.inJail ? ' disabled' : '') + '>' + (mine ? 'Offer in a swap' : 'Swap for this') + '</button>';
       if (state.inf && sp.type === 'street' && !mine && state.inf.phase < 4) {
         html += '<button type="button" class="btn" data-act="deal-pass" data-space="' + i + '">Buy a Pass</button>';
       }
@@ -516,7 +523,7 @@ const KPBoard = {
         html += '<button type="button" class="btn" data-act="deal-loan" data-space="' + i + '">Pledge a loan</button>';
       }
       if (state.inf) html += '<button type="button" class="btn ghost" data-act="deal-break" data-space="' + i + '">Deal Break</button>';
-      html += '</div><p class="caption">Deals for this deed. If e no dey for contract board, e no happen.</p></div>';
+      html += '</div><p class="caption">Deals for this deed. If e no dey for contract board, e no happen.' + (meDeal.inJail ? ' You dey Kirikiri: swaps don freeze till you comot.' : '') + '</p></div>';
     }
     html += '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
     html += '</div></div>';
