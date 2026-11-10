@@ -850,7 +850,15 @@ function resolveLanding(room, player, opts) {
     }
     if (p.owner !== player.id && !p.mortgaged) {
       const owner = room.players.find((x) => x.id === p.owner);
-      const jailShelter = room.settings.noRentInJail && owner && owner.inJail;
+      // Owner rule (2026-11-09): a player inside Kirikiri collects no
+      // rent, in Classic and Inflation alike, always. The rent is simply
+      // not paid: no cash moves, no frozen bill, no Lifeline window.
+      // This supersedes the old noRentInJail house-rule toggle, so the
+      // setting is no longer read here. The block sits at the dice
+      // arrival rent call site only: rentFor itself stays untouched
+      // because the Sapa meter and the end of game lesson lines read
+      // it as an estimate, never as a payment.
+      const jailShelter = owner && owner.inJail;
       if (owner && !owner.bankrupt && !jailShelter) {
         let rent = rentFor(room, i, opts.diceSum, opts.rentMult);
         // Inflation multiplier (INFLATION-7 section 1): streets and stations
@@ -917,6 +925,8 @@ function resolveLanding(room, player, opts) {
           finishRent(room, player, owner, i, rent, printedRent, phaseMult, opts.after || 'endPhase');
           return;
         }
+      } else if (jailShelter && owner && !owner.bankrupt) {
+        setMessage(room, player.name + ' land for ' + sp.name + '. ' + owner.name + ' dey Kirikiri: no rent dey collect from jail.');
       }
     }
     afterCharge(room, opts.after || 'endPhase', player);
@@ -1241,7 +1251,10 @@ function updatePause(room) {
 // ---------------------------------------------------------------------------
 function startAuction(room, a) {
   a.passed = [];
-  a.eligible = solventPlayers(room).map((p) => p.id);
+  // Owner rule (2026-11-09): a player inside Kirikiri cannot take part
+  // in an auction at all, so eligible means solvent AND free. If every
+  // other player is jailed or passes, the no-bid finish below stands.
+  a.eligible = solventPlayers(room).filter((p) => !p.inJail).map((p) => p.id);
   a.highBid = 0;
   a.highBidder = null;
   a.endsAt = now() + AUCTION_MS;
@@ -2140,6 +2153,10 @@ function failFactory(send) { return (t) => send({ type: 'error', message: t }); 
 
 function doBuild(room, player, i, kind, fail) {
   const sp = D.SPACES[i];
+  // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri. A
+  // jailed player cannot build, and management is not turn-locked, so the
+  // guard sits here at the choke point: it covers duplex and mansion.
+  if (player.inJail) { fail('You dey Kirikiri. You no fit build.'); return false; }
   if (!canBuildOn(room, player.id, i, kind)) { fail('You cannot build a ' + kind + ' on ' + (sp ? sp.name : 'that space') + ' now. You need the full set, even building, and no mortgage in the set.'); return false; }
   const cost0 = sp.duplex;
   if (kind === 'duplex') {
@@ -2192,6 +2209,8 @@ function placeBuilding(room, player, i, kind) {
 function doSellBuilding(room, player, i, fail) {
   const sp = D.SPACES[i];
   const p = room.props[i];
+  // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri.
+  if (player.inJail) { fail('You dey Kirikiri. You no fit sell building.'); return false; }
   if (!p || p.owner !== player.id || p.buildings <= 0) { fail('No building to sell on ' + (sp ? sp.name : 'that space') + '.'); return false; }
   if (sp.type === 'street' && D.GROUP_SPACES[sp.group].some((g) => room.props[g].pledged)) { fail('This set get a pledged deed. Buildings for the set don freeze.'); return false; }
   const bs = D.GROUP_SPACES[sp.group].map((g) => room.props[g].buildings);
@@ -2215,6 +2234,8 @@ function doSellBuilding(room, player, i, fail) {
 function doMortgage(room, player, i, fail) {
   const sp = D.SPACES[i];
   const p = room.props[i];
+  // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri.
+  if (player.inJail) { fail('You dey Kirikiri. You no fit mortgage.'); return false; }
   if (!p || p.owner !== player.id) { fail('That deed no be your own.'); return false; }
   if (p.mortgaged) { fail(sp.name + ' don already mortgage.'); return false; }
   if (p.pledged) { fail(sp.name + ' dey pledged as loan security. E no fit mortgage until the loan clear.'); return false; }
@@ -2233,6 +2254,10 @@ function doMortgage(room, player, i, fail) {
 function doUnmortgage(room, player, i, fail) {
   const sp = D.SPACES[i];
   const p = room.props[i];
+  // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri, the
+  // whole mortgage function, lifting one included. Redeem carries its own
+  // verb, like every other frozen action.
+  if (player.inJail) { fail('You dey Kirikiri. You no fit redeem.'); return false; }
   if (!p || p.owner !== player.id || !p.mortgaged) { fail('That deed no dey mortgaged by you.'); return false; }
   const cost = D.unmortgageCost(sp.price);
   if (player.cash < cost) { fail('You need ' + D.fmtN(cost) + ' to lift this mortgage.'); return false; }
@@ -2942,6 +2967,7 @@ function handleConnection(ws) {
       const a = room.auction;
       if (!a) return fail('No auction dey run.');
       if (!me || me.bankrupt) return fail('You no fit bid.');
+      if (me.inJail) return fail('You dey Kirikiri. You no fit bid.');
       if (!a.eligible.includes(me.id) || a.passed.includes(me.id)) return fail('You don comot for this auction.');
       if (a.barred && a.barred === me.id) return fail('You dey barred from this re auction after your failed bid.');
       const amount = Math.floor(Number(msg.amount));
@@ -2975,6 +3001,12 @@ function handleConnection(ws) {
     // ---- Build placement after a building auction ---------------------------
     if (msg.type === 'build_place') {
       if (!room.buildPlace || room.buildPlace.playerId !== me.id) return fail('No building dey wait for placement by you.');
+      // Owner rule (2026-11-09): placing a won building is building, and
+      // the desk is frozen inside Kirikiri. In today's flow the winner is
+      // necessarily free (a jailed player cannot bid, and placement waits
+      // only through the winner's own debt, where no jail entry can
+      // happen), so this guard stands for the law's completeness.
+      if (me.inJail) return fail('You dey Kirikiri. You no fit build.');
       const i = Number(msg.space);
       if (!canBuildOn(room, me.id, i, room.buildPlace.kind)) return fail('That building no fit land there. Pick a legal space in the set.');
       const kind = room.buildPlace.kind;
@@ -3315,6 +3347,8 @@ function handleConnection(ws) {
     // ---- Trades ---------------------------------------------------------------
     if (msg.type === 'trade_propose') {
       if (room.status !== 'playing') return fail('Trades open when the game starts.');
+      // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri.
+      if (me.inJail) return fail('You dey Kirikiri. You no fit trade.');
       if (room.trade) return fail('One trade dey table already. Finish that one first.');
       if (isInf(room) && !contractWindowOpen(room, me)) return fail('For Inflation Mode, swaps na contracts: the window close only during auctions, another player debt, or a pause. Otherwise propose anytime. If e no dey for contract board, e no happen.');
       const to = room.players.find((p) => p.id === Number(msg.to));
@@ -3353,6 +3387,10 @@ function handleConnection(ws) {
     if (msg.type === 'trade_respond') {
       const t = room.trade;
       if (!t || t.to !== me.id) return fail('No trade dey wait for your answer.');
+      // Owner rule (2026-11-09): a jailed player cannot answer a trade
+      // either. The offer itself stays on the table (the free sender can
+      // cancel it, or it waits until the player comot); nothing seals.
+      if (me.inJail) return fail('You dey Kirikiri. You no fit trade.');
       if (!msg.accept) {
         room.trade = null;
         setMessage(room, me.name + ' reject the trade.');
@@ -3438,7 +3476,7 @@ function handleConnection(ws) {
       const a = needTurn(msg);
       if (!a) return;
       if (room.phase !== 'jail' || !a.inJail) return fail('You no dey Kirikiri.');
-      if (a.cash < D.JAIL_FINE) return fail('Bail na ' + D.fmtN(D.JAIL_FINE) + '. Raise the money first (mortgage or trade).');
+      if (a.cash < D.JAIL_FINE) return fail('Bail na ' + D.fmtN(D.JAIL_FINE) + '. Cash no reach, and Kirikiri don freeze your desk: roll for double make you free.');
       payNow(room, a, D.JAIL_FINE, null, 'Kirikiri bail', { toPot: true, stat: 'fine' });
       a.inJail = false;
       a.jailTurns = 0;

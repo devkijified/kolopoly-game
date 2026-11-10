@@ -2663,6 +2663,17 @@ function maybeShowModals(room) {
   const t = room.trade;
   if (t && !spectator && (room.mode === 'pass' || t.to === myId) && t.id !== shownTradeId) {
     shownTradeId = t.id;
+    const target = byId(t.to);
+    if (target && target.inJail) {
+      // Owner rule (2026-11-09): a jailed player cannot answer a trade.
+      // The modal only explains; its buttons just close, nothing sends,
+      // and the offer waits on the table for the sender to cancel or for
+      // the player to comot.
+      showProposalModal(tradeSummaryHTML(t, room) +
+        '<p class="lead" style="margin-top:8px;">You dey Kirikiri. You no fit trade. This offer go wait till you comot, or the sender fit cancel am.</p>',
+        null, null, null, t);
+      return;
+    }
     showProposalModal(tradeSummaryHTML(t, room),
       (honour) => {
         const o = { accept: true };
@@ -2827,6 +2838,10 @@ function openTrade(presetTo, presetSpace) {
   const room = state;
   const me = focusPlayer();
   if (!me || spectator) return;
+  // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri, so
+  // the trade composer never opens for a jailed player. Every trade entry
+  // (deed sheet swap, HUD trade, player list) funnels through here.
+  if (me.inJail) { toast('You dey Kirikiri. You no fit trade.'); return; }
   const others = room.players.filter((p) => p.id !== me.id && !p.bankrupt);
   if (!others.length) { toast('No living player to trade with.'); return; }
   let partner = presetTo;

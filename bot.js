@@ -296,6 +296,10 @@ class BotBrain {
   // ---- debts ---------------------------------------------------------------
 
   decideDebt(st, me) {
+    // Owner rule (2026-11-09): no desk actions from inside Kirikiri. (A
+    // jailed debtor should not occur: forced bail frees the player before
+    // the debt settles. The gate keeps the brain honest regardless.)
+    if (me.inJail) return;
     if (me.cash >= st.debt.amount) return; // settles itself on the next raise action; nothing owed in practice
     const m = this.mortgageCandidates(st, me)[0];
     if (m != null) { this.send({ type: 'mortgage', space: m }); return; }
@@ -315,10 +319,14 @@ class BotBrain {
     if (me.cash - liftCost >= reserve) { this.send({ type: 'mortgage_choice', choice: 'lift' }); return; }
     if (me.cash >= interest) { this.send({ type: 'mortgage_choice', choice: 'interest' }); return; }
     // Cannot even cover the interest yet: raise on another deed first.
-    const raise = this.mortgageCandidates(st, me).find((x) => x !== i);
-    if (raise != null) { this.send({ type: 'mortgage', space: raise }); return; }
-    const s = this.sellCandidates(st, me)[0];
-    if (s != null) { this.send({ type: 'sell_building', space: s }); return; }
+    // Inside Kirikiri the desk is frozen (owner rule, 2026-11-09), so a
+    // jailed bot answers the choice directly instead of raising.
+    if (!me.inJail) {
+      const raise = this.mortgageCandidates(st, me).find((x) => x !== i);
+      if (raise != null) { this.send({ type: 'mortgage', space: raise }); return; }
+      const s = this.sellCandidates(st, me)[0];
+      if (s != null) { this.send({ type: 'sell_building', space: s }); return; }
+    }
     this.send({ type: 'mortgage_choice', choice: 'interest' }); // server forces the default anyway
   }
 
@@ -364,6 +372,11 @@ class BotBrain {
 
   decideAuction(st, me) {
     const a = st.auction;
+    // Owner rule: a player inside Kirikiri cannot bid. The server keeps
+    // jailed players out of eligible and refuses their bids anyway; the
+    // brain passes once so the auction leaves it behind at once instead
+    // of the seat eating a refused bid every think tick.
+    if (me.inJail) { if (!a.passed.includes(me.id)) this.send({ type: 'pass_bid' }); return; }
     if (!a.eligible.includes(me.id) || a.passed.includes(me.id)) return;
     if (a.highBidder === me.id) return; // winning: sit tight
     let cap;
@@ -406,6 +419,9 @@ class BotBrain {
   }
 
   decideTrade(st, me) {
+    // Owner rule (2026-11-09): a jailed bot never answers a trade. The
+    // offer waits, or the sender cancels; no response, no refusal loop.
+    if (me.inJail) return;
     const t = st.trade;
     const gain = this.sideValue(st, me.id, t.offer);
     const loss = this.sideValue(st, me.id, t.request);
@@ -471,6 +487,10 @@ class BotBrain {
   // Returns true when it sent something. Builds evenly on completed sets,
   // mansions last on the richest street, lifts a mortgage when rich.
   decideManage(st, me) {
+    // Owner rule (2026-11-09): the deed desk is frozen inside Kirikiri, so
+    // the brain never sends a manage action from inside: no build, no
+    // redeem, nothing for the server refusal to loop on.
+    if (me.inJail) return false;
     if (st.auction || st.buildPlace || st.debt) return false;
     const reserve = reserveFor(st);
     const myTurn = st.turnPlayerId === me.id;
@@ -557,16 +577,11 @@ class BotBrain {
     }
     if (phase === 'jail') {
       if (me.goojf > 0 && this.jailAttempts >= 2) { this.send({ type: 'jail_card' }); return; }
-      if (this.jailAttempts >= 2) {
-        if (me.cash >= JAIL_FINE) { this.send({ type: 'jail_pay' }); return; }
-        const m = this.mortgageCandidates(st, me)[0];
-        if (m != null) { this.send({ type: 'mortgage', space: m }); return; }
-        const s = this.sellCandidates(st, me)[0];
-        if (s != null) { this.send({ type: 'sell_building', space: s }); return; }
-        this.jailAttempts += 1;
-        this.send({ type: 'jail_roll' }); // forced bail flow takes over from here
-        return;
-      }
+      if (this.jailAttempts >= 2 && me.cash >= JAIL_FINE) { this.send({ type: 'jail_pay' }); return; }
+      // Owner rule (2026-11-09): the desk is frozen inside Kirikiri, so
+      // no mortgage or sell to raise bail. Rolling is the way out: the
+      // third failed roll charges bail by force and frees the player,
+      // and any shortfall lands as a debt to settle once free.
       this.jailAttempts += 1;
       this.send({ type: 'jail_roll' });
       return;
