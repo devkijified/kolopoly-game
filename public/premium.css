@@ -16,7 +16,7 @@
   --g-bevel: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -2px 0 rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   --g-drop: 0 18px 40px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(0, 0, 0, 0.6);
   --g-ease-pop: cubic-bezier(0.2, 1.4, 0.4, 1);
-  --fs-meta: 12px; --fs-caption: 12.5px; --fs-body: 14px;
+  --fs-meta: 12px; --fs-caption: 12px; --fs-body: 14px;
 }
 /* No browser chrome anywhere in the game. */
 * { scrollbar-width: none; }
@@ -169,7 +169,6 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 .token-pick.sel, .mode-pick.sel {
   background: linear-gradient(180deg, #3b3220, #241e12) !important;
   box-shadow: 0 4px 0 #0b0d10, inset 0 0 0 2px var(--g-gold), 0 0 18px rgba(255, 200, 87, 0.25) !important;
-  animation: kpSelPop 0.3s var(--g-ease-pop);
 }
 .mode-pick .t { color: #fff; text-transform: uppercase; }
 .mode-pick .d { color: var(--g-soft); }
@@ -219,7 +218,7 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 /* Owambe Rush: an arcade moment. */
 #owambeRush.show { animation: kpFade 0.2s ease; }
 .rush-card { animation: kpPopIn 0.4s var(--g-ease-pop); }
-.rush-count { animation: kpBeat 1s ease-in-out infinite; text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45), 0 0 40px rgba(255, 200, 87, 0.6); }
+.rush-count { animation: kpBeat 1s ease-in-out infinite; text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45); will-change: transform; }
 .rush-pot { text-shadow: 0 5px 0 rgba(0, 0, 0, 0.45); }
 .rush-grab { border-radius: 14px !important; text-transform: uppercase; letter-spacing: 0.06em; }
 .rush-card.open .rush-grab:not([aria-disabled="true"]) { animation: kpGrabPulse 0.7s ease-in-out infinite; }
@@ -246,7 +245,7 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 @keyframes kpSelPop { 0% { transform: scale(0.94); } 60% { transform: scale(1.05); } 100% { transform: none; } }
 @keyframes kpFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes kpBeat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-@keyframes kpGrabPulse { 0%, 100% { filter: brightness(1); transform: scale(1); } 50% { filter: brightness(1.15); transform: scale(1.04); } }
+@keyframes kpGrabPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
 @keyframes kpCardFlip { 0% { transform: perspective(700px) rotateY(80deg) scale(0.9); opacity: 0; } 60% { transform: perspective(700px) rotateY(-8deg) scale(1.02); opacity: 1; } 100% { transform: none; } }
 @keyframes kpCashPulse { 0% { transform: scale(1); } 40% { transform: scale(1.12); color: var(--g-gold); } 100% { transform: scale(1); } }
 @keyframes kpRipple { to { transform: scale(2.6); opacity: 0; } }
@@ -275,3 +274,15 @@ body.gl-on .join-card { background: var(--g-panel) !important; }
 
 .sheet .btn, .modal-card .btn { min-height: 44px; }
 .deed-deals button { min-height: 44px; }
+
+/* Sapa Deal deed picks and the HUD icon pills: game tiles, not cards. */
+.sapa-deed { background: linear-gradient(180deg, #262b35, #1a1e26) !important; color: var(--g-text) !important; border-color: rgba(255, 255, 255, 0.10) !important; box-shadow: 0 4px 0 #0b0d10, inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+.sapa-deed * { color: inherit; }
+.sapa-deed.sel, .sapa-deed[aria-pressed="true"], .sapa-deed.on { border-color: var(--g-gold) !important; box-shadow: 0 4px 0 #0b0d10, 0 0 16px rgba(255, 200, 87, 0.3); }
+.hud-ico, .hud-cash {
+  background: linear-gradient(180deg, #353b47, #1d2129) !important; color: var(--g-text) !important;
+  box-shadow: 0 4px 0 #0b0d10, inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
+  border-radius: 10px !important;
+}
+.hud-ico[aria-pressed="true"] { background: linear-gradient(180deg, #ffe08c, #f0a90e) !important; color: #1d1408 !important; }
+.slot.empty { color: rgba(244, 236, 220, 0.55); }
