@@ -328,3 +328,76 @@ body:has(#view-game.active) { background: radial-gradient(120% 60% at 50% 100%, 
   #modePill:not(.hidden) { font-size: 12px !important; }
   body:has(#view-game.active) #roomChip { font-size: 12px !important; }
 }
+
+/* ---------------------------------------------------------------------
+   Fixed board stage: the dock and rail reserve a constant height, so
+   Buy / Auction / End turn, the timer, a Sapa warning or a wrapping
+   jail row can never resize, rescale or jump the board. Extra dock
+   content overlays upward; sheets, toasts and bank alerts were already
+   fixed overlays.
+   --------------------------------------------------------------------- */
+@media (max-width: 699px) {
+  #view-game.active {
+    --dock-reserve: calc(122px + env(safe-area-inset-bottom, 0px));
+    --rail-reserve: 100px;
+  }
+  #view-game.active .rail-top {
+    flex: 0 0 var(--rail-reserve) !important;
+    height: var(--rail-reserve) !important;
+    min-height: var(--rail-reserve) !important;
+    max-height: var(--rail-reserve) !important;
+    overflow: hidden;
+  }
+  #view-game.active .walletbar {
+    flex: 0 0 var(--dock-reserve) !important;
+    height: var(--dock-reserve) !important;
+    min-height: var(--dock-reserve) !important;
+    max-height: var(--dock-reserve) !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    box-sizing: border-box;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+  #view-game.active .wallet-inner { width: 100%; }
+  #view-game.active .game-stage { flex: 1 1 0% !important; min-height: 0; }
+}
+
+/* 2D Owambe pot: a live fill gauge and a pile that grows with the pot. */
+.pot-visual { position: relative; }
+.pot-bowl { position: relative; overflow: hidden; }
+.pot-bowl .pot-level {
+  position: absolute; left: 8%; right: 8%; bottom: 0; height: 0%;
+  background: linear-gradient(180deg, #ffe08a 0%, #c98922 55%, #8a5a10 100%);
+  border-radius: 2px 2px 6px 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: height 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pot-visual[data-flourish] .pot-bowl { animation: potWobble 0.55s ease; }
+.pot-visual.pot-drain .pot-bowl .pot-level { height: 0% !important; transition: height 0.45s ease-in; }
+@keyframes potWobble {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-8deg) scale(1.08); }
+  50% { transform: rotate(7deg) scale(1.04); }
+  75% { transform: rotate(-4deg) scale(1.06); }
+}
+.pot-fly {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe9a8, #d4a017 60%, #8a5a10);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  pointer-events: none; z-index: 8;
+  animation: potFly 0.6s ease-in forwards;
+}
+.pot-fly.note {
+  width: 22px; height: 12px; border-radius: 2px;
+  background: linear-gradient(180deg, #7dcf8a, #2f8a4a);
+}
+@keyframes potFly {
+  0% { transform: translate(var(--fx), var(--fy)) scale(0.6); opacity: 0; }
+  15% { opacity: 1; }
+  60% { transform: translate(calc(var(--fx) * 0.4), calc(var(--fy) * 0.35 - 36px)) scale(1); }
+  100% { transform: translate(0, 0) scale(0.8); opacity: 0.15; }
+}
+.bcenter .pot { font-variant-numeric: tabular-nums; }

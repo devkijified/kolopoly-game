@@ -224,7 +224,7 @@ function tileRect(i, L) {
 // columns (side tiles keep their width, near/far tiles gain breadth).
 // Tile local depth (lz) is CORNER in every layout, so only local width (lx)
 // varies, and tile face textures are generated for the tile's own lx.
-const CINE_EL_P = 56 * Math.PI / 180, CINE_EL_L = 50 * Math.PI / 180;
+const CINE_EL_P = 46 * Math.PI / 180, CINE_EL_L = 42 * Math.PI / 180;
 const CINE_SIN_P = Math.sin(CINE_EL_P), CINE_SIN_L = Math.sin(CINE_EL_L);
 function trackLayout(boxAspect, forceTall) {
   const camAspect = 1 / boxAspect;
@@ -233,10 +233,10 @@ function trackLayout(boxAspect, forceTall) {
   // own aspect), even when the stage box itself is squat: the board
   // then fills its stage exactly at true proportions, the KP11 law at
   // every portrait size. Landscape windows keep the two-branch rule.
-  // Premium pass: the cinematic tilt. The view drops from the old 87 degree
-  // near plan to 56 degrees (portrait) and 50 degrees (landscape), so pieces,
-  // buildings and dice read as objects with sides. The KP11 fit law holds:
-  // the depth factor below is the same sine the camera uses.
+  // Premium pass: a true perspective camera at a low cinematic tilt
+  // (46 deg portrait, 42 deg landscape, 50 deg on the lite tier). The
+  // physical ring still uses this sine so a tall stage stays filled;
+  // _applyCam then fits a perspective frustum around that ring.
   const sinEl = (forceTall || camAspect < 1.2) ? CINE_SIN_P : CINE_SIN_L;
   let TW, TD;
   if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
@@ -536,7 +536,7 @@ function tileTexture(i, mortgaged, wPx) {
   // Premium pass: painted concrete, not paper. A cool warm-grey slab with
   // deterministic grain and a worn darker frame; the ink stays legible.
   const g = x.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#cdc7ba'); g.addColorStop(1, '#a8a090');
+  g.addColorStop(0, '#6e695f'); g.addColorStop(1, '#4a463e');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
   concreteGrain(x, W, H, i * 7919 + 13);
   x.strokeStyle = 'rgba(20,16,12,0.55)'; x.lineWidth = 4; x.strokeRect(3, 3, W - 6, H - 6);
@@ -575,15 +575,16 @@ function tileTexture(i, mortgaged, wPx) {
     if (lines.length === 1) x.fillText(lines[0].toUpperCase(), W / 2, H * 0.185);
     else lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.135 + k * H * 0.115));
     emblem(x, art, W / 2, H * 0.58, 96, band);
-    x.fillStyle = INK;
+    x.fillStyle = '#f3ead6';
     fitFont(x, D.fmtN(sp.price), W - 16, 44, '900', '"Aeonik Pro", sans-serif');
     x.fillText(D.fmtN(sp.price), W / 2, H * 0.94);
   } else {
     x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.13);
-    x.fillStyle = INK;
+    x.fillStyle = '#f3ead6';
     fitFont(x, name.toUpperCase(), W - 16, 40, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.25);
     emblem(x, art, W / 2, H * 0.56, 104, band);
+    x.fillStyle = '#f3ead6';
     if (sp.price) { fitFont(x, D.fmtN(sp.price), W - 16, 42, '900', '"Aeonik Pro", sans-serif'); x.fillText(D.fmtN(sp.price), W / 2, H * 0.94); }
     else if (sp.amount) { fitFont(x, 'Pay ' + D.fmtN(sp.amount), W - 16, 36, '800', '"Aeonik Pro", sans-serif'); x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.94); }
   }
@@ -1272,18 +1273,26 @@ class GameScene {
     // sits entirely inside the clear range; the fog remains only as the
     // phase-tinted void past the board's edge.
     s.fog = new THREE.Fog(0x2a1a0e, 60, 140);
-    // KP11: the game camera is ORTHOGRAPHIC, fitted to the board. This
-    // is the honest route to the owner's 100/100 law: a perspective
-    // camera at any finite distance projects the near edge larger than
-    // the far edge (measured: width binds at 100 percent only by
-    // leaving height at 98.2), so both axes can never coincide with
-    // the box at once. Under parallel projection the layout's own
-    // proportions are the projection's proportions: the ring spans
-    // exactly the frustum, which is the box, on both axes. The view
-    // stays the near-plan 87 degree read the game already had.
-    this.camera = new THREE.OrthographicCamera(-6.1, 6.1, 6.1, -6.1, 0.1, 120);
-    this.camDir = new THREE.Vector3(0, Math.sin(CINE_EL_P), Math.cos(CINE_EL_P));
-    this.zoomK = 1; // frustum scale: 1 = fitted to the board; <1 = tighter (countdown or Follow)
+    // Premium pass: a true perspective camera. The old KP11 100/100
+    // law was an orthographic fit (near and far edges the same size),
+    // which is why the board still read as a flat map. The new law is:
+    // every corner of the ring stays on stage, the idle view fills as
+    // much of the box as a 42-46 degree tilt allows, and names on the
+    // far edge get billboard labels so they stay legible at 360px.
+    // Lite keeps perspective but sits a little higher for sharpness.
+    const lite = TIER && (TIER.shadowSize || 0) < 512;
+    this.camFov = lite ? 36 : 38;
+    this.camera = new THREE.PerspectiveCamera(this.camFov, 1, 0.15, 220);
+    this.camDir = new THREE.Vector3(0, Math.sin(lite ? 50 * Math.PI / 180 : CINE_EL_P), Math.cos(lite ? 50 * Math.PI / 180 : CINE_EL_P));
+    this.zoomK = 1; // 1 = fitted full board; <1 = tighter (follow, cine, countdown)
+    this.camDist = 22;
+    this.autoFollowT = 0;
+    this.autoFollowId = null;
+    this.coinFlyers = [];
+    this.potFill = 0; this.potFillWant = 0;
+    this.potCount = 0; this.potCountWant = 0;
+    this.potLast = -1; this.potWobble = 0;
+    this.potSpark = 0;
     this.look = new THREE.Vector3();
     this.lookWant = new THREE.Vector3();
     this.viewFollow = false;
@@ -1371,6 +1380,19 @@ class GameScene {
       pick.userData.space = i;
       grp.add(pick); this.pickables.push(pick);
       s.add(grp);
+      // Far-edge (north) tiles: a slight world-X counter-tilt plus a
+      // camera-facing name/price chip, so perspective does not shrink
+      // the printed type past a readable size at 360px.
+      if (i >= 2 * SIDE && i <= 3 * SIDE) {
+        grp.updateMatrixWorld(true);
+        top.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), -0.28);
+        const sp = D.SPACES[i];
+        const lb = (sp.short || sp.name) + (sp.price ? '  ' + D.fmtN(sp.price) : (sp.amount ? '  ' + D.fmtN(sp.amount) : ''));
+        const spr = textSprite(lb, { size: 56, bg: 'rgba(18,14,10,0.9)', fg: '#fff6e0', rim: 'rgba(255,200,87,0.7)' });
+        spr.scale.set(2.6, 0.62, 1); spr.position.set(0, 0.92, 0);
+        spr.material.depthTest = false; spr.renderOrder = 25;
+        grp.add(spr);
+      }
       const t = { i, grp, topMat, slabMat, frame, frameMat: fm, bld, pledge, sig: '', bSig: -1, rect, th, lx, lz, slab, top, pick, bars };
       this.tiles.push(t);
       topMat.map = tileTexture(i, false, this.texW(t));
@@ -1483,23 +1505,25 @@ class GameScene {
     // Owambe pot
     const potPts = [];
     [[0.03, 0], [0.30, 0.01], [0.44, 0.10], [0.50, 0.26], [0.47, 0.38], [0.50, 0.42]].forEach((p) => potPts.push(new THREE.Vector2(p[0], p[1])));
+    const potGrp = new THREE.Group(); potGrp.position.set(0, 0, 2.35); s.add(potGrp); this.potGrp = potGrp;
     const pot = new THREE.Mesh(new THREE.LatheGeometry(potPts, 22), new THREE.MeshStandardMaterial({ color: 0x9a6a24, roughness: 0.38, metalness: 0.5, side: THREE.DoubleSide }));
-    pot.position.set(0, 0.02, 2.35); pot.castShadow = true; s.add(pot);
-    // Cheap bloom (high tiers only): an additive halo sprite on the pot,
-    // no post pass, no extra render target.
+    pot.position.set(0, 0.02, 0); pot.castShadow = true; potGrp.add(pot); this.potMesh = pot;
+    // Live fill: a coin-pile cylinder that grows with the pot amount.
+    const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 1, 12), new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.45, metalness: 0.55, emissive: 0x4a3000, emissiveIntensity: 0.15 }));
+    pile.position.set(0, 0.06, 0); pile.scale.y = 0.08; potGrp.add(pile); this.potPile = pile;
     if ((TIER && TIER.shadowSize || 0) >= 1024) {
       const gc = document.createElement('canvas'); gc.width = gc.height = 128;
       const gx = gc.getContext('2d'); const gr = gx.createRadialGradient(64, 64, 0, 64, 64, 64);
       gr.addColorStop(0, 'rgba(255,214,120,0.85)'); gr.addColorStop(0.35, 'rgba(255,170,60,0.35)'); gr.addColorStop(1, 'rgba(255,140,40,0)');
       gx.fillStyle = gr; gx.fillRect(0, 0, 128, 128);
       const gt = new THREE.CanvasTexture(gc); gt.colorSpace = THREE.SRGBColorSpace;
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: gt, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
-      halo.scale.set(1.9, 1.9, 1); halo.position.set(0, 0.35, 2.35); s.add(halo); this.potHalo = halo;
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: gt, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.35 }));
+      halo.scale.set(1.9, 1.9, 1); halo.position.set(0, 0.35, 0); potGrp.add(halo); this.potHalo = halo;
     }
-    this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.30, 2.35); s.add(this.potNotes);
+    this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.30, 0); potGrp.add(this.potNotes);
     this.potTier = -1;
     this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 0.42, 2.95); s.add(this.potLabel);
-    this.potLabelHome = this.potLabel.position.clone(); // anchor for the stage clamp in update()
+    this.potLabelHome = this.potLabel.position.clone();
     // decks and discards
     this.deckPos = { wahala: new THREE.Vector3(-2.95, 0.02, -0.9), family: new THREE.Vector3(2.95, 0.02, -0.9) };
     this.discardPos = { wahala: new THREE.Vector3(-1.90, 0.02, -0.9), family: new THREE.Vector3(1.90, 0.02, -0.9) };
@@ -1546,24 +1570,102 @@ class GameScene {
     }
   }
 
-  setPot(pot) {
+  setPot(pot, state) {
+    pot = Math.max(0, Math.round(pot || 0));
+    const max = (state && state.owambeRules && state.owambeRules.auto) || 500000;
+    this.potMax = max;
+    this.potFillWant = Math.min(1.25, pot / max);
+    this.potCountWant = pot;
+    const prev = this.potLast < 0 ? pot : this.potLast;
+    if (pot > prev) this._potDrop(pot - prev, state);
+    else if (pot < prev) this._potDrain(state);
+    // Threshold flourishes at 25 / 50 / 75 / 100 percent.
+    if (prev >= 0 && pot > prev) {
+      const steps = [0.25, 0.5, 0.75, 1];
+      for (const t of steps) {
+        if (prev / max < t && pot / max >= t) { this.potWobble = 0.7; this.potSpark = (TIER.shadowSize || 0) >= 512 ? 0.9 : 0; beat('potFlourish', { t }); }
+      }
+    }
+    this.potLast = pot;
     const tier = pot <= 0 ? 0 : pot < 100000 ? 1 : pot < 300000 ? 2 : pot < 600000 ? 3 : pot < 1000000 ? 4 : 5;
     if (tier !== this.potTier) {
       this.potTier = tier;
       this.potNotes.clear();
-      const n = tier * 3;
+      const n = ((TIER.shadowSize || 0) < 512) ? Math.min(4, tier) : tier * 3;
       for (let k = 0; k < n; k++) {
         const note = bx(0.36, 0.018, 0.18, new THREE.MeshStandardMaterial({ map: noteTexture(), roughness: 0.7 }), (Math.random() - 0.5) * 0.4, 0.04 + k * 0.02, (Math.random() - 0.5) * 0.3);
         note.rotation.y = Math.random() * 1.2 - 0.6;
         this.potNotes.add(note);
       }
     }
-    const label = 'Owambe Pot ' + D.fmtN(pot);
-    if (this.potLabelText !== label) {
-      this.potLabelText = label;
-      const nl = textSprite(label); nl.position.copy(this.potLabelHome || this.potLabel.position);
-      this.scene.remove(this.potLabel); this.potLabel = nl; this.scene.add(nl);
+    if (this.potLastLabel == null) this._setPotLabel('Owambe Pot ' + D.fmtN(pot));
+    this._potPrevPlayers = (state && state.players || []).map((p) => ({ id: p.id, cash: p.cash }));
+  }
+  _setPotLabel(text) {
+    if (this.potLabelText === text) return;
+    this.potLabelText = text;
+    const nl = textSprite(text); nl.position.copy(this.potLabelHome || (this.potLabel && this.potLabel.position) || new THREE.Vector3());
+    if (this.potLabel) this.scene.remove(this.potLabel);
+    this.potLabel = nl; this.scene.add(nl);
+  }
+  _payerWorld(state) {
+    const prev = this._potPrevPlayers;
+    if (prev && state && state.players) {
+      for (const p of state.players) {
+        const o = prev.find((x) => x.id === p.id);
+        if (o && p.cash < o.cash - 1) {
+          const tok = this.tokens.get(p.id);
+          if (tok) return tok.grp.position.clone().add(new THREE.Vector3(0, 0.45, 0));
+        }
+      }
     }
+    return new THREE.Vector3((Math.random() - 0.5) * 4, 0.6, 5);
+  }
+  _makeCoin(note) {
+    if (note) {
+      const m = bx(0.36, 0.016, 0.18, new THREE.MeshStandardMaterial({ map: noteTexture(), roughness: 0.65 }), 0, 0, 0);
+      m.rotation.y = Math.random() * 1.2; return m;
+    }
+    const mat = new THREE.MeshStandardMaterial({ color: 0xe0b422, roughness: 0.35, metalness: 0.7 });
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.018, 12), mat);
+    m.rotation.x = Math.PI / 2; m.castShadow = (TIER.shadowSize || 0) >= 512;
+    return m;
+  }
+  _potDrop(amount, state) {
+    const cheap = (TIER.shadowSize || 0) < 512;
+    const n = cheap ? Math.min(2, 1 + Math.floor(amount / 150000)) : Math.min(8, 2 + Math.floor(amount / 50000));
+    const from = this._payerWorld(state);
+    const dest = (this.potGrp && this.potGrp.position.clone()) || new THREE.Vector3(0, 0, 2.35);
+    dest.y = 0.35 + this.potFillWant * 0.35;
+    for (let k = 0; k < n; k++) {
+      const isNote = !cheap && k % 3 === 0;
+      const mesh = this._makeCoin(isNote);
+      mesh.position.copy(from);
+      this.scene.add(mesh);
+      const to = dest.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.28, 0, (Math.random() - 0.5) * 0.22));
+      this.coinFlyers.push({ mesh, t: -k * 0.07, dur: 0.55 + Math.random() * 0.1, from: from.clone(), to, arc: 1.1 + Math.random() * 0.7, landed: false, kind: 'in' });
+    }
+    motion(1.1);
+    if (amount >= 40000) this.cineAt(dest);
+  }
+  _potDrain(state) {
+    const cheap = (TIER.shadowSize || 0) < 512;
+    const n = cheap ? 3 : 10;
+    const destId = state && state.owambeResult && state.owambeResult.winnerId;
+    const tok = destId && this.tokens.get(destId);
+    const to = tok ? tok.grp.position.clone().add(new THREE.Vector3(0, 0.5, 0)) : new THREE.Vector3(0, 1.2, 5);
+    const from = (this.potGrp && this.potGrp.position.clone().add(new THREE.Vector3(0, 0.4, 0))) || new THREE.Vector3(0, 0.4, 2.35);
+    for (let k = 0; k < n; k++) {
+      const mesh = this._makeCoin(!cheap && k % 2 === 0);
+      mesh.position.copy(from);
+      this.scene.add(mesh);
+      const tgt = to.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0, (Math.random() - 0.5) * 0.3));
+      this.coinFlyers.push({ mesh, t: -k * 0.04, dur: 0.55, from: from.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.2, 0, (Math.random() - 0.5) * 0.2)), to: tgt, arc: 0.9 + Math.random() * 0.6, landed: false, kind: 'out' });
+    }
+    this.potFillWant = 0;
+    this.potWobble = 0.5;
+    motion(1.3);
+    beat('potDrain', {});
   }
 
   worldFor(i, slotIdx) {
@@ -1637,7 +1739,7 @@ class GameScene {
         }
       }
     }
-    this.setPot(state.pot || 0);
+    this.setPot(state.pot || 0, state);
     // legal build highlights
     const legal = B.legalSet;
     for (const t of this.tiles) {
@@ -1743,6 +1845,8 @@ class GameScene {
           let cur = from;
           while (cur !== p.position) { cur = (cur + 1) % NSP; path.push(cur); }
           o.anim = { path, t: 0, step: 0.235, cur: from };
+          this.autoFollowT = Math.max(this.autoFollowT || 0, path.length * 0.235 + 0.9);
+          this.autoFollowId = p.id;
         }
       } else if (!o.anim) {
         o.grp.position.copy(this.worldFor(p.position, slot));
@@ -1870,8 +1974,40 @@ class GameScene {
     motion(2.2);
   }
   fullDir(aspect) {
-    if (aspect < 1.2) return new THREE.Vector3(0, Math.sin(CINE_EL_P), Math.cos(CINE_EL_P));
-    return new THREE.Vector3(0, Math.sin(CINE_EL_L), Math.cos(CINE_EL_L));
+    const lite = TIER && (TIER.shadowSize || 0) < 512;
+    const elP = lite ? 50 * Math.PI / 180 : CINE_EL_P;
+    const elL = lite ? 46 * Math.PI / 180 : CINE_EL_L;
+    if (aspect < 1.2) return new THREE.Vector3(0, Math.sin(elP), Math.cos(elP));
+    return new THREE.Vector3(0, Math.sin(elL), Math.cos(elL));
+  }
+  // Distance that keeps every corner of the ring (and a little slab
+  // height) just inside the perspective frustum, then scaled by zoomK.
+  _fitPerspDist(cam, dir, look, L, zoomK) {
+    const corners = [];
+    for (const x of [-L.TW / 2, L.TW / 2]) for (const z of [-L.TD / 2, L.TD / 2]) for (const y of [0, 0.45]) corners.push(new THREE.Vector3(x, y, z));
+    const target = 0.96 / Math.max(0.22, zoomK);
+    const measure = (dist) => {
+      cam.position.copy(dir).multiplyScalar(dist).add(look);
+      cam.lookAt(look);
+      cam.updateMatrixWorld(true);
+      cam.updateProjectionMatrix();
+      let maxC = 0;
+      for (let k = 0; k < corners.length; k++) {
+        const v = corners[k].clone().project(cam);
+        if (!isFinite(v.x) || !isFinite(v.y) || v.z < 0 || v.z > 1) { maxC = 8; break; }
+        maxC = Math.max(maxC, Math.abs(v.x), Math.abs(v.y));
+      }
+      return maxC;
+    };
+    // Binary search: a larger distance shrinks the projection. Find the
+    // smallest dist whose projected corners sit inside the target NDC.
+    let lo = 4, hi = 120;
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      if (measure(mid) > target) lo = mid; else hi = mid;
+    }
+    this.camDist = hi;
+    return hi;
   }
   // KP11 fit: set the orthographic frustum to the board itself. The
   // frustum's width span is the track width; its height span is the
@@ -1887,16 +2023,87 @@ class GameScene {
     const cam = this.camera;
     const L = this.layout || trackLayout(1);
     const d = this.camDir;
-    const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
-    const halfW = (L.TW / 2) * this.zoomK;
-    const halfH = (L.TD * f / 2) * this.zoomK;
-    cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
     const look = this.look || _zeroLook;
-    cam.position.copy(d).multiplyScalar(30).add(look);
-    cam.lookAt(look);
-    cam.updateProjectionMatrix();
+    const host = this.host && this.host();
+    const el = (renderer && renderer.domElement) || host;
+    const aspect = el && el.clientWidth && el.clientHeight ? el.clientWidth / el.clientHeight : (L.TW / Math.max(0.1, L.TD));
+    if (cam.isPerspectiveCamera) {
+      cam.aspect = aspect;
+      cam.fov = this.camFov || 38;
+      cam.updateProjectionMatrix();
+      const dist = this._fitPerspDist(cam, d, look, L, this.zoomK);
+      cam.position.copy(d).multiplyScalar(dist).add(look);
+      cam.lookAt(look);
+      cam.updateProjectionMatrix();
+    } else {
+      const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
+      const halfW = (L.TW / 2) * this.zoomK;
+      const halfH = (L.TD * f / 2) * this.zoomK;
+      cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
+      cam.position.copy(d).multiplyScalar(30).add(look);
+      cam.lookAt(look);
+      cam.updateProjectionMatrix();
+    }
   }
 
+  _tickPot(dt, tNow) {
+    const k = 1 - Math.exp(-dt * 5);
+    this.potFill += (this.potFillWant - this.potFill) * k;
+    if (this.potPile) {
+      const h = 0.1 + this.potFill * 0.85;
+      this.potPile.scale.y = h;
+      this.potPile.position.y = 0.04 + h * 0.5;
+      this.potPile.material.emissiveIntensity = 0.12 + this.potFill * 0.55;
+      this.potPile.visible = this.potFill > 0.02;
+    }
+    if (this.potHalo) this.potHalo.material.opacity = 0.22 + this.potFill * 0.55 + (this.potSpark > 0 ? 0.25 : 0);
+    if (this.potGrp) {
+      if (this.potWobble > 0) {
+        this.potWobble = Math.max(0, this.potWobble - dt);
+        const w = this.potWobble;
+        this.potGrp.rotation.z = Math.sin(tNow * 22) * 0.12 * w;
+        this.potGrp.rotation.x = Math.cos(tNow * 18) * 0.08 * w;
+        this.potGrp.position.y = Math.abs(Math.sin(tNow * 16)) * 0.06 * w;
+      } else {
+        this.potGrp.rotation.z = 0; this.potGrp.rotation.x = 0; this.potGrp.position.y = 0;
+      }
+    }
+    if (this.potSpark > 0) this.potSpark = Math.max(0, this.potSpark - dt);
+    // Counter roll-up on the chip: ease toward the live amount, rewrite
+    // the sprite at ~20 fps so we do not allocate a canvas every frame.
+    if (Math.abs(this.potCount - this.potCountWant) > 0.5) {
+      this.potCount += (this.potCountWant - this.potCount) * Math.min(1, dt * 7);
+      if (!this._potLabelAt || tNow - this._potLabelAt > 0.05) {
+        this._potLabelAt = tNow;
+        this._setPotLabel('Owambe Pot ' + D.fmtN(Math.round(this.potCount)));
+      }
+    } else if (this.potCount !== this.potCountWant) {
+      this.potCount = this.potCountWant;
+      this._setPotLabel('Owambe Pot ' + D.fmtN(this.potCountWant));
+    }
+    // Flying coins / notes.
+    const left = [];
+    for (const f of this.coinFlyers) {
+      f.t += dt;
+      if (f.t < 0) { left.push(f); continue; }
+      const u = Math.min(1, f.t / f.dur);
+      const pos = f.from.clone().lerp(f.to, u);
+      pos.y += Math.sin(u * Math.PI) * f.arc;
+      f.mesh.position.copy(pos);
+      f.mesh.rotation.z += dt * 6;
+      if (u >= 1) {
+        if (!f.landed) {
+          f.landed = true;
+          if (f.kind === 'in') beat('potCoin', {});
+          this.scene.remove(f.mesh);
+          if (f.mesh.geometry && f.mesh.geometry !== this._coinGeo) { /* shared geos are reused */ }
+          if (f.mesh.material && f.mesh.material.map) { /* note tex is shared */ }
+        }
+      } else left.push(f);
+    }
+    this.coinFlyers = left;
+    if (left.length) motion(0.3);
+  }
   update(dt, tNow) {
     const s = this.scene;
     // bridge danfo shuttle (range and height follow the smaller arc)
@@ -1907,6 +2114,7 @@ class GameScene {
     this.bridgeDanfo.rotation.y = Math.cos(tNow * 0.13) > 0 ? Math.PI / 2 : -Math.PI / 2;
     // pot notes gentle shimmer
     this.potNotes.rotation.y = Math.sin(tNow * 0.4) * 0.05;
+    this._tickPot(dt, tNow);
     // tokens: hops, idle bob, jail cell tilt
     for (const [pid, o] of this.tokens) {
       if (o.anim) {
@@ -2064,20 +2272,33 @@ class GameScene {
       // frustum on a lower direction), then the camera glides out to
       // the fitted framing and stays.
       this.countdownZoom -= dt;
+      if (this.countdownZoom <= 0) motion(2.2);
       wantDir = new THREE.Vector3(0, 12.6, 11.4).normalize(); wantZoom = 0.62; damp = 1.1;
     } else if (this.viewFollow) {
       // Follow: about 2.2x on the moving token. Full stays the fitted
-      // board (zoom 1, the full-bleed frustum). A toggle applies on the
-      // next frame, including mid hop. The glide is about 300ms.
+      // board. A toggle applies on the next frame, including mid hop.
       wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
       wantZoom = 1 / 2.2;
       const tok = this._followToken();
       if (tok) this.lookWant.set(tok.grp.position.x, 0, tok.grp.position.z);
       damp = this.viewKick > 0 ? 11 : 7;
+    } else if (this.autoFollowT > 0) {
+      // A hop starts a short dolly onto the moving token, then eases
+      // back to the full-board view once the piece lands.
+      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
+      wantZoom = 0.7;
+      const tok = (this.autoFollowId && this.tokens.get(this.autoFollowId)) || this._followToken();
+      if (tok) this.lookWant.set(tok.grp.position.x, 0, tok.grp.position.z);
+      damp = 4.2;
+      let hopping = false;
+      for (const o of this.tokens.values()) if (o.anim) hopping = true;
+      if (!hopping) {
+        this.autoFollowT = Math.max(0, this.autoFollowT - dt);
+        if (this.autoFollowT <= 0) motion(2);
+      }
     } else {
-      // Full board: the fitted orthographic frustum (see _applyCam),
-      // centred, edge to edge. Portrait keeps the near-plan direction
-      // even on a squat stage.
+      // Full board: a fitted perspective frustum (see _applyCam),
+      // centred, every corner on stage.
       wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1)); wantZoom = 1;
       if (this.viewKick > 0) damp = 11;
     }
@@ -2103,9 +2324,14 @@ class GameScene {
       const cw = hostEl ? hostEl.clientWidth : 0, ch = hostEl ? hostEl.clientHeight : 0;
       let placed = false;
       if (cw > 0 && ch > 0 && v.z < 1) {
-        // Orthographic frustum: the visible world size is the frustum
-        // itself, at every depth.
-        const visW = cam.right - cam.left, visH = cam.top - cam.bottom;
+        let visW, visH;
+        if (cam.isPerspectiveCamera) {
+          const dist = cam.position.distanceTo(home);
+          visH = 2 * Math.tan((cam.fov * Math.PI / 180) / 2) * dist;
+          visW = visH * (cam.aspect || 1);
+        } else {
+          visW = cam.right - cam.left; visH = cam.top - cam.bottom;
+        }
         const limX = Math.max(0, 1 - this.potLabel.scale.x / visW - 12 / cw);
         const limY = Math.max(0, 1 - this.potLabel.scale.y / visH - 12 / ch);
         const dx = Math.min(limX, Math.max(-limX, v.x)) - v.x;
@@ -2126,6 +2352,13 @@ class GameScene {
     if (this.countdownZoom > 0) return true;
     if (this.pulseT < 1) return true;
     if (this.camGlide) return true;
+    if (this.coinFlyers && this.coinFlyers.length) return true;
+    if (this.potWobble > 0) return true;
+    if (this.autoFollowT > 0) return true;
+    if (this.cineT > 0) return true;
+    if (Math.abs(this.potCount - this.potCountWant) > 1) return true;
+    if (Math.abs(this.zoomK - (this.viewFollow ? 1 / 2.2 : 1)) > 0.02) return true;
+    if (this.look && this.look.length() > 0.08 && !this.viewFollow) return true;
     for (const o of this.tokens.values()) if (o.anim) return true;
     return false;
   }
@@ -2585,12 +2818,23 @@ KP3D.boardProbePx = function () {
   }
   const rimWidthPx = Math.max(...xs) - Math.min(...xs);
   const rimHeightPx = Math.max(...ys) - Math.min(...ys);
+  const ndc = [];
+  for (const cx of [-L.TW / 2, L.TW / 2]) for (const cz of [-L.TD / 2, L.TD / 2]) {
+    ndc.push(new THREE.Vector3(cx, 0, cz).project(cam));
+  }
+  const nx = ndc.map((v) => v.x), ny = ndc.map((v) => v.y);
   return {
     rimWidthPx: Math.round(rimWidthPx),
     rimHeightPx: Math.round(rimHeightPx),
     rimWPct: Math.round(rimWidthPx / w * 1000) / 10,
     rimHPct: Math.round(rimHeightPx / h * 1000) / 10,
-    canvasW: w, canvasH: h
+    canvasW: w, canvasH: h,
+    perspective: !!(cam.isPerspectiveCamera),
+    minNdcX: Math.round(Math.min(...nx) * 1000) / 1000,
+    maxNdcX: Math.round(Math.max(...nx) * 1000) / 1000,
+    minNdcY: Math.round(Math.min(...ny) * 1000) / 1000,
+    maxNdcY: Math.round(Math.max(...ny) * 1000) / 1000,
+    clipped: ndc.some((v) => v.x < -1.02 || v.x > 1.02 || v.y < -1.02 || v.y > 1.02 || v.z < 0 || v.z > 1)
   };
 };
 // Follow is ~2.2x on the token. Full is the fitted board. The glide
@@ -2605,6 +2849,19 @@ KP3D.setView = function (mode) {
 KP3D.getView = function () {
   const g = SCENES.game;
   return g && g.viewFollow ? 'follow' : 'full';
+};
+KP3D.camInfo = function () {
+  const g = SCENES.game; if (!g || !g.camera) return null;
+  const c = g.camera;
+  return {
+    pos: c.position.toArray().map((n) => Math.round(n*100)/100),
+    look: (g.look||{x:0,y:0,z:0}),
+    lookA: g.look ? g.look.toArray().map((n)=>Math.round(n*100)/100) : null,
+    dir: g.camDir ? g.camDir.toArray().map((n)=>Math.round(n*1000)/1000) : null,
+    zoomK: g.zoomK, dist: g.camDist, fov: c.fov, aspect: Math.round(c.aspect*1000)/1000,
+    cineT: g.cineT||0, autoT: g.autoFollowT||0, cd: g.countdownZoom||0, follow: !!g.viewFollow,
+    near: c.near, far: c.far, isPersp: !!c.isPerspectiveCamera
+  };
 };
 KP3D.camZoom = function () {
   const g = SCENES.game;

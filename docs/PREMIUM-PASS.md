@@ -44,3 +44,11 @@ classic client has its own primitive pieces with name/YOU tags).
 - Bank alert: dark game banner with a gradient credit/debit strip, gold coin logo, neon amounts. HUD badges 12px (18px pill); the mode pill and room chip are 12px at <=520px.
 
 Licences: ambientCG Asphalt026C and Concrete034, CC0 1.0 (https://ambientcg.com/license).
+
+## Camera, pot, and a fixed board (follow-up)
+
+- The game camera is a true PerspectiveCamera at 46° (portrait) / 42° (landscape), 50° on the lite tier. The old 100/100 orthographic fit law is replaced: every corner of the ring stays on stage, the idle view fills most of the box, and far-edge tiles carry camera-facing name/price chips. A hop dollies onto the moving token and eases back; buy, jail and Owambe push-ins are kept. 2D is unchanged.
+- The portrait dock and rail reserve a constant height (`--dock-reserve`, `--rail-reserve`), so Buy / Auction / End turn, the timer, a bank alert or a sheet can never resize the board. A browser test asserts the wrap and canvas stay within 1px across those moments.
+- The Owambe pot is a live physical thing: coins and notes arc in from the payer, clink and buzz, the pile and glow grow with the amount, the chip counts up, and the pot wobbles at 25/50/75/100%. A GRAB drains the pile to the winner. 2D has a fill gauge, a flying-coin sprite and the same counter. Low tiers use fewer coins and skip sparkles.
+- Tile tops are darker concrete with cream prices, for contrast under the new lighting.
+

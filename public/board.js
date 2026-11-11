@@ -190,7 +190,7 @@ const KPBoard = {
       '<div class="skyline">' + SKYLINE_SVG + '</div>' +
       '<div class="logo">KOLO<span class="gold">POLY</span></div>' +
       '<div class="meta" id="centerPhase"></div>' +
-      '<div class="pot-visual" id="centerPotVisual" data-tier="0"><div class="pot-notes"></div><div class="pot-bowl"><span></span></div></div>' +
+      '<div class="pot-visual" id="centerPotVisual" data-tier="0"><div class="pot-notes"></div><div class="pot-bowl"><i class="pot-level"></i><span></span></div></div>' +
       '<div class="pot" id="centerPot">Owambe Pot ₦0</div>' +
       '<div class="dice-row" id="centerDice"></div>' +
       '<div class="deck-row"><span class="deck-pile wahala">WAHALA</span><span class="deck-pile family">FAMILY MEETING</span></div>' +
@@ -249,15 +249,73 @@ const KPBoard = {
       el.classList.toggle('legal', !!this.legalSet && this.legalSet.has(i));
     }
     const centerPot = document.getElementById('centerPot');
-    if (centerPot) centerPot.textContent = 'Owambe Pot ' + D.fmtN(state.pot);
+    const potAmt = state.pot || 0;
+    const potMax = (state.owambeRules && state.owambeRules.auto) || 500000;
     const potVisual = document.getElementById('centerPotVisual');
+    if (centerPot) {
+      // Animated counter roll-up on the chip.
+      if (this._potShow == null) this._potShow = potAmt;
+      const target = potAmt;
+      if (Math.abs(this._potShow - target) > 1) {
+        this._potShow += (target - this._potShow) * 0.35;
+        centerPot.textContent = 'Owambe Pot ' + D.fmtN(Math.round(this._potShow));
+        // Keep ticking while we catch up: the next render is short.
+        if (Math.abs(this._potShow - target) > 1) {
+          const self = this;
+          const tickPot = function () {
+            try {
+              if (!self.lastState) return;
+              const want = (self.lastState.pot || 0);
+              self._potShow += (want - self._potShow) * 0.35;
+              if (Math.abs(self._potShow - want) <= 1) self._potShow = want;
+              const el = document.getElementById('centerPot');
+              if (el) el.textContent = 'Owambe Pot ' + D.fmtN(Math.round(self._potShow));
+              if (Math.abs(self._potShow - want) > 1) setTimeout(tickPot, 50);
+            } catch (e) {}
+          };
+          setTimeout(tickPot, 50);
+        }
+      } else {
+        this._potShow = target;
+        centerPot.textContent = 'Owambe Pot ' + D.fmtN(potAmt);
+      }
+    }
     if (potVisual) {
-      const pot = state.pot || 0;
+      const pot = potAmt;
+      const prev = Number(potVisual.dataset.amt || 0);
       const tier = pot <= 0 ? 0 : pot < 100000 ? 1 : pot < 300000 ? 2 : pot < 600000 ? 3 : pot < 1000000 ? 4 : 5;
       if (potVisual.dataset.tier !== String(tier)) {
         potVisual.dataset.tier = String(tier);
         potVisual.querySelector('.pot-notes').innerHTML = '<i></i>'.repeat(tier * 2);
       }
+      const level = potVisual.querySelector('.pot-level');
+      if (level) level.style.height = Math.min(100, Math.round(pot / potMax * 100)) + '%';
+      if (pot > prev) {
+        const n = Math.min(6, 1 + Math.floor((pot - prev) / 80000));
+        const bowl = potVisual.querySelector('.pot-bowl') || potVisual;
+        for (let k = 0; k < n; k++) {
+          const fly = document.createElement('div');
+          fly.className = 'pot-fly' + (k % 3 === 0 ? ' note' : '');
+          const ang = (Math.random() - 0.5) * 160;
+          fly.style.setProperty('--fx', Math.cos(ang * Math.PI / 180) * (50 + Math.random() * 40) + 'px');
+          fly.style.setProperty('--fy', (-30 - Math.random() * 50) + 'px');
+          fly.style.left = '50%'; fly.style.top = '8px';
+          fly.style.animationDelay = (k * 0.07) + 's';
+          potVisual.appendChild(fly);
+          setTimeout(() => fly.remove(), 800 + k * 70);
+        }
+        const steps = [0.25, 0.5, 0.75, 1];
+        for (const t of steps) if (prev / potMax < t && pot / potMax >= t) {
+          potVisual.setAttribute('data-flourish', String(t));
+          setTimeout(() => potVisual.removeAttribute('data-flourish'), 600);
+        }
+        try { if (window.KPBeat) window.KPBeat('potCoin', { n }); } catch (e) {}
+      } else if (pot < prev) {
+        potVisual.classList.add('pot-drain');
+        setTimeout(() => potVisual.classList.remove('pot-drain'), 500);
+        try { if (window.KPBeat) window.KPBeat('potDrain', {}); } catch (e) {}
+      }
+      potVisual.dataset.amt = String(pot);
     }
     const centerDice = document.getElementById('centerDice');
     if (centerDice) {

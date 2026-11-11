@@ -593,6 +593,13 @@ const sfx = {
   diceSettle(doubles) { knockSfx(0, 0.1); knockSfx(0.09, 0.08); if (doubles) sfx.horn(); },
   hop() { noiseHit({ dur: 0.04, vol: 0.06, freq: 700, ftype: 'lowpass' }); tone({ f: 320, dur: 0.045, vol: 0.045 }); },
   land() { knockSfx(0, 0.12); },
+  potClink() {
+    // A short naira clink: two metallic partials and a tiny click.
+    tone({ f: 1860, dur: 0.05, type: 'triangle', vol: 0.07 });
+    tone({ f: 2790, dur: 0.035, type: 'sine', vol: 0.03 });
+    noiseHit({ dur: 0.018, vol: 0.04, freq: 4200, q: 3.2 });
+  },
+  potDrain() { duckAmbient(); cashInCue(200000); [523, 659, 784].forEach((f, i) => tone({ f, at: 0.08 + i * 0.07, dur: 0.22, type: 'triangle', vol: 0.04 })); },
   buy() { playCash(0.9); },
   buildDuplex() { knockSfx(0, 0.08); knockSfx(0.13, 0.08); for (let i = 0; i < 3; i++) coinTick(0.26 + i * 0.06, 5000, 0.045); },
   buildMansion() { coinCascade(500000, 700); [523, 659, 784].forEach((f, i) => tone({ f, at: 0.1 + i * 0.09, dur: 0.3, type: 'triangle', vol: 0.045 })); },
@@ -642,6 +649,9 @@ window.KPBeat = (name, data) => {
       else sfx.cardSwish();
     }
     else if (name === 'cardReveal') sfx.cardSnap();
+    else if (name === 'potCoin') { sfx.potClink(); buzz(8); }
+    else if (name === 'potFlourish') { sfx.potClink(); buzz(14); }
+    else if (name === 'potDrain') { sfx.potDrain(); buzz([18, 30, 18]); }
   } catch (e) { /* sound is garnish, never a blocker */ }
 };
 window.KPSfxHop = () => sfx.hop();
