@@ -218,10 +218,10 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 /* Owambe Rush: an arcade moment. */
 #owambeRush.show { animation: kpFade 0.2s ease; }
 .rush-card { animation: kpPopIn 0.4s var(--g-ease-pop); }
-.rush-count { animation: kpBeat 1s ease-in-out infinite; text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45); will-change: transform; }
+.rush-count { text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45); }
 .rush-pot { text-shadow: 0 5px 0 rgba(0, 0, 0, 0.45); }
 .rush-grab { border-radius: 14px !important; text-transform: uppercase; letter-spacing: 0.06em; }
-.rush-card.open .rush-grab:not([aria-disabled="true"]) { animation: kpGrabPulse 0.7s ease-in-out infinite; }
+.rush-card.open .rush-grab:not([aria-disabled="true"]) { animation: kpSelPop 0.3s var(--g-ease-pop); box-shadow: 0 6px 0 #0a5c3e, 0 0 0 3px rgba(255, 224, 138, 0.9), 0 0 26px rgba(255, 200, 87, 0.55); }
 
 /* Cards (Wahala / Family Meeting): flip in like a dealt card. */
 .modal-card.card-face { animation: kpCardFlip 0.55s var(--g-ease-pop) both; transform-origin: 50% 60%; }

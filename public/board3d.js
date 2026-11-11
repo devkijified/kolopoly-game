@@ -2681,7 +2681,10 @@ function initGL() {
   // sun disc is prefiltered once through PMREM, so metal, glass, the gold
   // pot and the dice pick up real reflections instead of flat colour.
   try {
-    const envTex = buildSkyEnv(renderer);
+    // Quality tier gate: image-based lighting costs a cubemap lookup per
+    // pixel, so only the high and ultra profiles take it; lite and
+    // balanced (and software GL) keep the plain golden-hour lights.
+    const envTex = (TIER.shadowSize || 0) >= 1024 ? buildSkyEnv(renderer) : null;
     if (envTex) for (const n in SCENES) if (SCENES[n] && SCENES[n].scene) { SCENES[n].scene.environment = envTex; SCENES[n].scene.environmentIntensity = 0.55; }
   } catch (e) { /* the scene still lights without reflections */ }
   KP3D.active = true;
