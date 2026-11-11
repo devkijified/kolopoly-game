@@ -290,3 +290,41 @@ body.gl-on .join-card { background: var(--g-panel) !important; }
 /* In-game backdrop: the stage around the board is night asphalt, not page cream. */
 body:has(#view-game.active) { background: radial-gradient(120% 60% at 50% 100%, #1d1a15 0%, #0d0e12 70%); }
 #view-game { background: transparent; }
+
+/* ---------------------------------------------------------------------
+   Board pass: bank alert as a game reward/loss banner, HUD badges >=12px
+   --------------------------------------------------------------------- */
+.alert-card {
+  background: linear-gradient(180deg, #2a2118 0%, #17110b 100%) !important;
+  color: #f6ecd8;
+  border-top: none !important;
+  border-radius: 18px !important;
+  box-shadow: 0 0 0 2px rgba(255, 200, 87, 0.55), 0 6px 0 #0b0805, 0 20px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+  position: relative;
+}
+.alert-card::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px;
+  background: linear-gradient(90deg, #1fb67a, #8af0b8, #1fb67a);
+}
+.alert-card.debit { box-shadow: 0 0 0 2px rgba(255, 98, 82, 0.6), 0 6px 0 #0b0805, 0 20px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important; }
+.alert-card.debit::before { background: linear-gradient(90deg, #d83a2c, #ff9a8a, #d83a2c); }
+.alert-logo { background: linear-gradient(180deg, #ffd977, #e09b22); color: #2a1a06; box-shadow: 0 2px 0 #8a5a10; }
+.alert-bank-name { font-size: 12px; color: #d9c9a8; }
+.alert-pill { font-size: 12px; background: rgba(31, 182, 122, 0.18); color: #7ff0b5; box-shadow: inset 0 0 0 1px rgba(127, 240, 181, 0.45); }
+.alert-card.debit .alert-pill { background: rgba(216, 58, 44, 0.2); color: #ffab9f; box-shadow: inset 0 0 0 1px rgba(255, 171, 159, 0.45); }
+.alert-card .amt { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55); }
+.alert-card.credit .amt { color: #7ff0b5 !important; }
+.alert-card.debit .amt { color: #ff8a7a !important; }
+.alert-card .why { color: #c9b998 !important; }
+.alert-card .bal { color: #ffd977; border-top: 1px solid rgba(255, 217, 119, 0.22) !important; }
+.succ-text { color: #7ff0b5; }
+.hud-badge {
+  min-width: 18px !important; height: 18px !important; line-height: 18px !important;
+  font-size: 12px !important; padding: 0 4px !important; top: -3px !important; right: -3px !important;
+  background: linear-gradient(180deg, #ffd977, #e09b22) !important; color: #2a1a06 !important;
+  box-shadow: 0 2px 0 #7a4e0c, 0 0 0 2px #17110b;
+}
+@media (max-width: 520px) {
+  #modePill:not(.hidden) { font-size: 12px !important; }
+  body:has(#view-game.active) #roomChip { font-size: 12px !important; }
+}

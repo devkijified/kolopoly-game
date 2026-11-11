@@ -494,6 +494,33 @@ const tileTexCache = {};
 // logical space 336 deep (scale TS), so every painter constant below
 // stays true and type grows with the deeper tile.
 const TS = CORNER / 1.6;
+function concreteGrain(x, W, H, seed) {
+  let r = seed >>> 0;
+  const rnd = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296; };
+  const n = Math.round(W * H / 90);
+  for (let k = 0; k < n; k++) {
+    const v = rnd();
+    x.fillStyle = v < 0.5 ? 'rgba(40,32,24,' + (0.05 + rnd() * 0.07).toFixed(3) + ')' : 'rgba(255,255,255,' + (0.05 + rnd() * 0.08).toFixed(3) + ')';
+    const sz = 1 + rnd() * 2.2;
+    x.fillRect(rnd() * W, rnd() * H, sz, sz);
+  }
+  // a few soft stains so no two slabs read as printed copies
+  for (let k = 0; k < 3; k++) {
+    const cx = rnd() * W, cy = rnd() * H, rr = 30 + rnd() * 70;
+    const gr = x.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    gr.addColorStop(0, 'rgba(60,48,34,0.07)'); gr.addColorStop(1, 'rgba(60,48,34,0)');
+    x.fillStyle = gr; x.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
+  }
+}
+// The colour band as a glossy enamel strip: a bright top sheen and a
+// thin specular line, like paint on a metal plate.
+function glossStrip(x, X, Y, w, h) {
+  const gl = x.createLinearGradient(0, Y, 0, Y + h);
+  gl.addColorStop(0, 'rgba(255,255,255,0.38)'); gl.addColorStop(0.45, 'rgba(255,255,255,0.08)');
+  gl.addColorStop(0.5, 'rgba(0,0,0,0.0)'); gl.addColorStop(1, 'rgba(0,0,0,0.18)');
+  x.fillStyle = gl; x.fillRect(X, Y, w, h);
+  x.fillStyle = 'rgba(255,255,255,0.55)'; x.fillRect(X + 4, Y + 3, w - 8, 2);
+}
 function tileTexture(i, mortgaged, wPx) {
   const sp = D.SPACES[i];
   const corner = i % SIDE === 0;
@@ -506,10 +533,14 @@ function tileTexture(i, mortgaged, wPx) {
   x.scale(TS, TS);
   const band = deepenBand(bandColorFor(i, sp));
   const art = artFor(i, sp);
+  // Premium pass: painted concrete, not paper. A cool warm-grey slab with
+  // deterministic grain and a worn darker frame; the ink stays legible.
   const g = x.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#fffdf4'); g.addColorStop(1, '#f6e9cd');
+  g.addColorStop(0, '#cdc7ba'); g.addColorStop(1, '#a8a090');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
-  x.strokeStyle = 'rgba(43,32,24,0.35)'; x.lineWidth = 3; x.strokeRect(4, 4, W - 8, H - 8);
+  concreteGrain(x, W, H, i * 7919 + 13);
+  x.strokeStyle = 'rgba(20,16,12,0.55)'; x.lineWidth = 4; x.strokeRect(3, 3, W - 6, H - 6);
+  x.strokeStyle = 'rgba(255,255,255,0.35)'; x.lineWidth = 2; x.strokeRect(7, 7, W - 14, H - 14);
   x.textAlign = 'center';
   const name = sp.short || sp.name;
   if (sp.type === 'card') {
@@ -530,7 +561,8 @@ function tileTexture(i, mortgaged, wPx) {
     // board20: a thick colour band (30 percent of the tile) carrying the
     // name in heavy type, and a big price on a cream foot.
     x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.30);
-    x.fillStyle = 'rgba(0,0,0,0.22)'; x.fillRect(6, H * 0.30 + 3, W - 12, 6);
+    glossStrip(x, 6, 6, W - 12, H * 0.30);
+    x.fillStyle = 'rgba(0,0,0,0.30)'; x.fillRect(6, H * 0.30 + 3, W - 12, 6);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
     const words = name.split(' ');
     let lines = [name];
@@ -656,7 +688,7 @@ function diceFaceTexture(v) {
 // ---------------------------------------------------------------------------
 const MAT = {
   cream: new THREE.MeshStandardMaterial({ color: 0xf3e6c8, roughness: 0.85 }),
-  slabSide: new THREE.MeshStandardMaterial({ color: 0xe9dcbc, roughness: 0.9 }),
+  slabSide: new THREE.MeshStandardMaterial({ color: 0x5f594f, roughness: 0.78 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 0.6 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x274b63, roughness: 0.25, metalness: 0.35 }),
   white: new THREE.MeshStandardMaterial({ color: 0xfdfbf5, roughness: 0.7 }),
@@ -1113,8 +1145,10 @@ function measureWordmark(canvas, ts, yLogical, x0, x1, wordZ) {
         if (a < 40) continue;
         // Cream floor is the only thing that counts as a hole. Antialiased
         // edges of the ink and the gold both count as letter.
-        const cream = r > 220 && gch > 190 && b > 150;
-        if (!cream) hit = true;
+        // Premium pass: the floor is dark asphalt now and the letters are
+        // cream (KOLO) and gold (POLY), so the hole is the dark floor.
+        const floor = r < 90 && gch < 85 && b < 80;
+        if (!floor) hit = true;
       }
       if (hit) {
         ink += 1;
@@ -1135,22 +1169,25 @@ function centreTexture(innerW, innerD) {
   // at the centre scale (x1.5 over the painter space on Auto/High/Mid).
   const [c, x] = cnvS(W, H, TIER.centreScale);
   const g = x.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, Math.max(W, H) * 0.72);
-  g.addColorStop(0, '#fdf3d8'); g.addColorStop(1, '#f0dfba');
+  // Premium pass: the centre is a dark asphalt plaza (an ambientCG
+  // asphalt normal map lands on it after first paint), not cream paper.
+  g.addColorStop(0, '#3b3732'); g.addColorStop(1, '#1f1c19');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
-  x.strokeStyle = 'rgba(160,116,32,0.55)'; x.lineWidth = 5; x.strokeRect(26, 26, W - 52, H - 52);
-  x.strokeStyle = 'rgba(160,116,32,0.25)'; x.lineWidth = 2; x.strokeRect(44, 44, W - 88, H - 88);
+  concreteGrain(x, W, H, 4242);
+  x.strokeStyle = 'rgba(255,200,87,0.55)'; x.lineWidth = 5; x.strokeRect(26, 26, W - 52, H - 52);
+  x.strokeStyle = 'rgba(255,255,255,0.22)'; x.lineWidth = 2; x.setLineDash([26, 18]); x.strokeRect(44, 44, W - 88, H - 88); x.setLineDash([]);
   const px = (wx) => (wx / innerW + 0.5) * W, pz = (wz) => (wz / innerD + 0.5) * H;
   // Lagos skyline wash: stepped towers with lit windows that still read at phone size
   // board20: the deeper ring leaves 0.45 units north of the baseline, so
   // the painted towers are scaled to fit inside the field border.
   const hs = [70, 120, 88, 150, 96, 132, 74, 118, 84, 140, 92].map((h) => Math.round(h * Math.min(1, Math.max(0.36, (innerD - 7.2) / 1.8 * 0.64 + 0.36))));
-  const skyCols = ['rgba(46,80,66,0.42)', 'rgba(55,70,88,0.40)', 'rgba(90,70,48,0.38)'];
+  const skyCols = ['rgba(14,20,28,0.92)', 'rgba(22,28,38,0.9)', 'rgba(30,26,22,0.9)'];
   let bx0 = px(-innerW / 2 + 0.2);
   hs.forEach((h, ki) => {
     const w = 52 + (h % 40);
     const top = pz(0.45 - innerD / 2) - h;
     x.fillStyle = skyCols[ki % 3]; x.fillRect(bx0, top, w, h);
-    x.fillStyle = 'rgba(255,233,168,0.55)';
+    x.fillStyle = 'rgba(255,214,130,0.75)';
     for (let r = 0; r < Math.floor(h / 18); r++) for (let c = 0; c < Math.floor(w / 14); c++) {
       if ((r + c + ki) % 3 === 0) continue;
       x.fillRect(bx0 + 4 + c * 14, top + 6 + r * 18, 7, 8);
@@ -1158,10 +1195,10 @@ function centreTexture(innerW, innerD) {
     bx0 += w + 14;
   });
   // Third Mainland arc + lagoon wash (believable water, not a flat stripe)
-  x.strokeStyle = 'rgba(43,32,24,0.4)'; x.lineWidth = 7;
+  x.strokeStyle = 'rgba(210,200,180,0.55)'; x.lineWidth = 7;
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.45)); x.quadraticCurveTo(px(0), pz(-3.6), px(4.2), pz(-2.45)); x.stroke();
   const lag = x.createLinearGradient(px(-4.5), pz(-2.8), px(4.5), pz(-1.6));
-  lag.addColorStop(0, 'rgba(40,110,170,0.22)'); lag.addColorStop(0.5, 'rgba(70,160,210,0.38)'); lag.addColorStop(1, 'rgba(40,110,170,0.22)');
+  lag.addColorStop(0, 'rgba(30,110,160,0.45)'); lag.addColorStop(0.5, 'rgba(80,180,225,0.6)'); lag.addColorStop(1, 'rgba(30,110,160,0.45)');
   x.fillStyle = lag; x.beginPath(); x.moveTo(px(-4.4), pz(-2.55)); x.quadraticCurveTo(px(0), pz(-1.55), px(4.4), pz(-2.55)); x.lineTo(px(4.4), pz(-1.85)); x.quadraticCurveTo(px(0), pz(-1.35), px(-4.4), pz(-1.85)); x.closePath(); x.fill();
   x.strokeStyle = 'rgba(180,220,245,0.45)'; x.lineWidth = 2.5;
   x.beginPath(); x.moveTo(px(-4.2), pz(-2.05)); x.quadraticCurveTo(px(0), pz(-1.7), px(4.2), pz(-2.05)); x.stroke();
@@ -1182,25 +1219,25 @@ function centreTexture(innerW, innerD) {
   const wordZ = 0.95;
   const yWord = pz(wordZ);
   const xWord = px(0) - fullW / 2;
-  x.fillStyle = INK;
+  x.fillStyle = '#f3ead6';
   x.fillText(word, xWord, yWord);
   x.save();
   x.beginPath();
   x.rect(xWord + kw - 2, yWord - 140, fullW, 180);
   x.clip();
-  x.fillStyle = '#b57f10';
+  x.fillStyle = '#ffc857';
   x.fillText(word, xWord, yWord);
   x.restore();
   wordmarkProbe = measureWordmark(c, TIER.centreScale || 1, yWord, xWord, xWord + fullW, wordZ);
   // The slogan takes the old cities subline's slot, set bold and tracked
   // so it reads at frame size.
-  x.fillStyle = 'rgba(30,20,9,0.85)'; x.font = '700 33px "Aeonik Pro", sans-serif'; x.textAlign = 'center';
+  x.fillStyle = 'rgba(243,234,214,0.9)'; x.font = '700 33px "Aeonik Pro", sans-serif'; x.textAlign = 'center';
   try { x.letterSpacing = '1.5px'; } catch (e) { /* older canvas: untracked is fine */ }
   x.fillText('Break your kolo, buy the street.', px(0), pz(1.35));
   try { x.letterSpacing = '0px'; } catch (e) { /* noop */ }
-  x.fillStyle = 'rgba(138,109,29,0.9)'; x.font = '900 30px "Aeonik Pro", sans-serif';
-  x.fillText('OWAMBE POT', px(0), pz(3.35));
-  x.fillStyle = 'rgba(43,32,24,0.5)'; x.font = '700 24px "Figtree", sans-serif';
+  // The painted OWAMBE POT caption is gone: the live pot chip carries
+  // the name and the amount, and two labels were clashing there.
+  x.fillStyle = 'rgba(243,234,214,0.62)'; x.font = '700 24px "Figtree", sans-serif';
   x.fillText('WAHALA', px(-2.95), pz(-0.28));
   x.fillText('FAMILY MEETING', px(2.95), pz(-0.28));
   return texOf(c, true);
@@ -1314,7 +1351,7 @@ class GameScene {
       const slab = new THREE.Mesh(new THREE.BoxGeometry(1, 0.22, 1), slabMat);
       slab.position.y = 0.11;
       grp.add(slab);
-      const topMat = new THREE.MeshStandardMaterial({ roughness: 0.82 });
+      const topMat = new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0.04 });
       const top = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), topMat);
       top.rotation.x = -Math.PI / 2; top.position.y = 0.221; top.receiveShadow = true;
       grp.add(top);
@@ -1411,6 +1448,7 @@ class GameScene {
     const L = this.layout;
     const innerW = L.TW - RING2, innerD = L.TD - RING2;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(innerW + 0.34, innerD + 0.34), new THREE.MeshStandardMaterial({ map: centreTexture(innerW, innerD), roughness: 0.9 }));
+    this.centreFloor = floor;
     floor.rotation.x = -Math.PI / 2; floor.position.y = 0.02; floor.receiveShadow = true; s.add(floor);
     this.floorMesh = floor;
     // skyline row
@@ -1430,7 +1468,7 @@ class GameScene {
       sx += w + 0.16; s.add(b); this.skylineBars.push(b);
     });
     // water and bridge
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x2f6fad, roughness: 0.22, metalness: 0.45, envMapIntensity: 0.6 }));
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x2a78a8, roughness: 0.08, metalness: 0.25, envMapIntensity: 1.4, emissive: 0x0b2a40, emissiveIntensity: 0.6 }));
     water.rotation.x = -Math.PI / 2; water.position.set(0, 0.035, -2.45); water.receiveShadow = true; s.add(water);
     water.scale.x = Math.min(1, (innerW - 0.3) / 8.4); this.water = water;
     const bridgeMat = std(0x333a40, 0.6, 0.3);
@@ -1447,9 +1485,20 @@ class GameScene {
     [[0.03, 0], [0.30, 0.01], [0.44, 0.10], [0.50, 0.26], [0.47, 0.38], [0.50, 0.42]].forEach((p) => potPts.push(new THREE.Vector2(p[0], p[1])));
     const pot = new THREE.Mesh(new THREE.LatheGeometry(potPts, 22), new THREE.MeshStandardMaterial({ color: 0x9a6a24, roughness: 0.38, metalness: 0.5, side: THREE.DoubleSide }));
     pot.position.set(0, 0.02, 2.35); pot.castShadow = true; s.add(pot);
+    // Cheap bloom (high tiers only): an additive halo sprite on the pot,
+    // no post pass, no extra render target.
+    if ((TIER && TIER.shadowSize || 0) >= 1024) {
+      const gc = document.createElement('canvas'); gc.width = gc.height = 128;
+      const gx = gc.getContext('2d'); const gr = gx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(255,214,120,0.85)'); gr.addColorStop(0.35, 'rgba(255,170,60,0.35)'); gr.addColorStop(1, 'rgba(255,140,40,0)');
+      gx.fillStyle = gr; gx.fillRect(0, 0, 128, 128);
+      const gt = new THREE.CanvasTexture(gc); gt.colorSpace = THREE.SRGBColorSpace;
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: gt, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
+      halo.scale.set(1.9, 1.9, 1); halo.position.set(0, 0.35, 2.35); s.add(halo); this.potHalo = halo;
+    }
     this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.30, 2.35); s.add(this.potNotes);
     this.potTier = -1;
-    this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 1.05, 2.35); s.add(this.potLabel);
+    this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 0.42, 2.95); s.add(this.potLabel);
     this.potLabelHome = this.potLabel.position.clone(); // anchor for the stage clamp in update()
     // decks and discards
     this.deckPos = { wahala: new THREE.Vector3(-2.95, 0.02, -0.9), family: new THREE.Vector3(2.95, 0.02, -0.9) };
@@ -1526,6 +1575,7 @@ class GameScene {
 
   sync(state) {
     this.lastState = state;
+    this._cineScan(state);
     if (KP3D._pendingView) { const mode = KP3D._pendingView; KP3D._pendingView = null; KP3D.setView(mode); }
     // KP15: a turn boundary is a gated moment: a pending Auto step is
     // applied here, in the same beat as the state-driven redraw that
@@ -1797,6 +1847,28 @@ class GameScene {
     const first = this.tokens.values().next();
     return first && first.value ? first.value : null;
   }
+  _cineScan(state) {
+    try {
+      const own = (state.props || []).map((pr) => (pr && pr.o != null ? pr.o : null));
+      const jail = (state.players || []).map((p) => p.id + ':' + (p.inJail ? 1 : 0)).join(',');
+      const ow = state.owambeResult && state.owambeResult.id;
+      if (this._cineOwn && state.status === 'playing') {
+        let at = -1;
+        own.forEach((o, i) => { if (o != null && this._cineOwn[i] == null) at = i; });
+        if (at >= 0 && this.tiles && this.tiles[at]) this.cineAt(this.tiles[at].grp.position);
+        else if (this._cineJail && jail !== this._cineJail && /:1/.test(jail) && (jail.match(/:1/g) || []).length > (this._cineJail.match(/:1/g) || []).length) {
+          const jt = this.tiles && this.tiles[D.JAIL_INDEX != null ? D.JAIL_INDEX : SIDE];
+          if (jt) this.cineAt(jt.grp.position);
+        } else if (ow && ow !== this._cineOw) this.cineAt(new THREE.Vector3(0, 0, 0));
+      }
+      this._cineOwn = own; this._cineJail = jail; this._cineOw = ow;
+    } catch (e) { /* a camera flourish never blocks the sync */ }
+  }
+  cineAt(pos) {
+    this.cineLook = new THREE.Vector3(pos.x * 0.6, 0, pos.z * 0.6);
+    this.cineT = 1.6;
+    motion(2.2);
+  }
   fullDir(aspect) {
     if (aspect < 1.2) return new THREE.Vector3(0, Math.sin(CINE_EL_P), Math.cos(CINE_EL_P));
     return new THREE.Vector3(0, Math.sin(CINE_EL_L), Math.cos(CINE_EL_L));
@@ -1979,7 +2051,15 @@ class GameScene {
     // camera
     let wantDir, wantZoom, damp = 2.4;
     this.lookWant.set(0, 0, 0);
-    if (this.countdownZoom > 0) {
+    if (this.cineT > 0 && !(this.countdownZoom > 0)) {
+      // Premium pass: a short cinematic push-in on a big moment (a buy,
+      // Kirikiri, the Owambe pot), then the glide back to the board.
+      this.cineT = Math.max(0, this.cineT - dt);
+      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
+      wantZoom = this.cineT > 0.35 ? 0.66 : 1;
+      if (this.cineT > 0.35 && this.cineLook) this.lookWant.copy(this.cineLook);
+      damp = 3.2;
+    } else if (this.countdownZoom > 0) {
       // The 3-2-1 countdown opens on a closer angled pass (a tighter
       // frustum on a lower direction), then the camera glides out to
       // the fitted framing and stays.
@@ -2620,6 +2700,37 @@ function buildSkyEnv(r) {
   pm.dispose(); t.dispose(); dome.geometry.dispose(); dome.material.dispose(); sun.geometry.dispose(); sun.material.dispose();
   return rt.texture;
 }
+function loadPremiumSurfaces() {
+  const g = SCENES.game;
+  if (!g || !renderer || g._surfaces) return;
+  g._surfaces = true;
+  const L = new THREE.TextureLoader();
+  const aniso = Math.min(TIER.aniso || 2, renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 2);
+  const load = (url, srgb, rep) => new Promise((res) => L.load(url, (t) => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); t.anisotropy = aniso;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    res(t);
+  }, undefined, () => res(null)));
+  Promise.all([load('/tex/concrete-nor.webp', false, 1), load('/tex/concrete-col.webp', true, 1), load('/tex/asphalt-col.webp', true, 10), load('/tex/asphalt-nor.webp', false, 10)]).then(([cn, cc, ac, an]) => {
+    try {
+      (g.tiles || []).forEach((t) => {
+        if (cn) { t.topMat.normalMap = cn; t.topMat.normalScale = new THREE.Vector2(0.45, 0.45); t.topMat.needsUpdate = true; }
+        if (t.slabMat) { if (cc) t.slabMat.map = cc; if (cn) t.slabMat.normalMap = cn; t.slabMat.needsUpdate = true; }
+      });
+      if (g.centreFloor && an) {
+        const n2 = an.clone(); n2.repeat.set(3, 3); n2.needsUpdate = true;
+        g.centreFloor.material.normalMap = n2; g.centreFloor.material.normalScale = new THREE.Vector2(0.35, 0.35);
+        g.centreFloor.material.roughness = 0.82; g.centreFloor.material.needsUpdate = true;
+      }
+      if (ac) {
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ map: ac, normalMap: an || null, color: 0x8a847a, roughness: 0.92 }));
+        ground.rotation.x = -Math.PI / 2; ground.position.y = -0.03; ground.receiveShadow = true;
+        g.scene.add(ground); g.groundMesh = ground;
+      }
+      motion(1.2);
+    } catch (e) { /* the board keeps its painted look */ }
+  });
+}
 function initGL() {
   let gl = null;
   try {
@@ -2689,6 +2800,10 @@ function initGL() {
   } catch (e) { /* the scene still lights without reflections */ }
   KP3D.active = true;
   document.body.classList.add('gl-on');
+  // Premium pass: real-world surfaces arrive AFTER the board shows (about
+  // 63 KB of CC0 ambientCG maps, see public/tex/SOURCES.md): concrete grain
+  // on the tile slabs, asphalt under and around the board.
+  setTimeout(loadPremiumSurfaces, 1200);
   KP3D.debug = function () {
     const g = SCENES.game;
     if (!g) return { active: true, scene: activeName, tier: TIER.name, tierAuto: TIER.auto };
