@@ -32,3 +32,15 @@ classic client has its own primitive pieces with name/YOU tags).
 
 ## Budget
 +~24 KB uncompressed (premium.css + game-feel.js), ~6 KB gzipped.
+
+## Board pass (GTA V grounding)
+
+- Tiles: painted concrete (deterministic grain, worn frame), colour band as a glossy enamel strip; darker concrete slab sides; tops roughness 0.62.
+- Centre: dark asphalt plaza with gold border and dashed lane line; cream/gold wordmark (the wordmark probe now treats the dark floor as the hole); night skyline silhouettes with lit windows; brighter lagoon wash plus a glossier, emissive-lifted 3D water strip.
+- Surfaces: CC0 ambientCG maps lazy-loaded 1.2 s after the board shows (`public/tex/`, ~63 KB, see `public/tex/SOURCES.md`): concrete normal/colour on tiles and slabs, asphalt normal on the centre, asphalt ground plane around the board.
+- Camera: a 1.6 s cinematic push-in on a new purchase, a new Kirikiri arrival, and an Owambe result, then the glide back. The orthographic fit-law camera is kept (a perspective camera would break the KP11 fit law and its tests); follow mode is still the ortho zoom dolly.
+- Bloom: a cheap additive halo on the Owambe pot on high and ultra tiers only (no post pass).
+- Pot label: the painted OWAMBE POT caption is removed and the live chip sits low at the pot front, clear of the slogan.
+- Bank alert: dark game banner with a gradient credit/debit strip, gold coin logo, neon amounts. HUD badges 12px (18px pill); the mode pill and room chip are 12px at <=520px.
+
+Licences: ambientCG Asphalt026C and Concrete034, CC0 1.0 (https://ambientcg.com/license).
