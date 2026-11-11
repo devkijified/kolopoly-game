@@ -286,3 +286,7 @@ body.gl-on .join-card { background: var(--g-panel) !important; }
 }
 .hud-ico[aria-pressed="true"] { background: linear-gradient(180deg, #ffe08c, #f0a90e) !important; color: #1d1408 !important; }
 .slot.empty { color: rgba(244, 236, 220, 0.55); }
+
+/* In-game backdrop: the stage around the board is night asphalt, not page cream. */
+body:has(#view-game.active) { background: radial-gradient(120% 60% at 50% 100%, #1d1a15 0%, #0d0e12 70%); }
+#view-game { background: transparent; }
