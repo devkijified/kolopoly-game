@@ -756,7 +756,7 @@ try {
         bw: cs.borderTopWidth, bg: cs.backgroundColor
       };
     }));
-    check(tag + ' game: every utility is a ghost item (inline icon, 11px label, no border box)', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px' && u.bw === '0px' && u.bg === 'rgba(0, 0, 0, 0)'), JSON.stringify(ubar));
+    check(tag + ' game: every utility is a ghost item (inline icon, 12px label floor, no border box)', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '12px' && u.bw === '0px' && u.bg === 'rgba(0, 0, 0, 0)'), JSON.stringify(ubar));
     // KP11: the tall stage is restored (the KP10 square is gone), the
     // frame assembly (table, platform, rim) is deleted from the scene,
     // and the tile ring itself fills the box: the layout is built from
@@ -846,7 +846,7 @@ try {
       const el = document.querySelector('#endOverlay .end-lessons');
       return el ? getComputedStyle(el).color : '';
     });
-    check(tag + ' final table flavour reads in ink, not washed cream', lessonInk === 'rgb(92, 76, 61)', lessonInk);
+    check(tag + ' final table flavour reads in the premium soft text on the dark panel', lessonInk === 'rgb(184, 173, 155)', lessonInk);
     await MP.screenshot({ path: SHOTS + 'kp22-final-' + W + '.png' });
     if (W === 390) {
       await MP.click('#endShare');
@@ -1154,7 +1154,7 @@ try {
   check('KP17: the scene band carries no copy (no heading or paragraph renders inside it)', ld.sceneTextEls === 0, String(ld.sceneTextEls));
   check('KP17: the scrim layer is gone from the hero', ld.scrim === false, String(ld.scrim));
   check('KP17: no dimmed windows remain in the scene', ld.tzDim === 0, String(ld.tzDim));
-  check('KP17: the slogan reads in deep amber on cream', ld.sloganColor === 'rgb(138, 90, 0)', ld.sloganColor);
+  check('Premium: the slogan reads in game gold on the dark front end', ld.sloganColor === 'rgb(255, 200, 87)', ld.sloganColor);
   check('KP17: the wordmark splits ink and gold like the header', ld.wmGold === 'POLY', ld.wmGold);
   check('the landing has no horizontal overflow at 390', await LND.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'scrollWidth ' + (await LND.evaluate(() => document.documentElement.scrollWidth)));
   // KP14 structure pass: the landing is one spacing system, the mode

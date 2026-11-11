@@ -242,6 +242,30 @@ function audio() {
     return audioCtx;
   } catch (e) { return null; }
 }
+// Premium pass: the game UI tap. A short, weighty two-layer click (a
+// low thump plus a bright tick) for every chunky button, plus a light
+// haptic. It shares the one mastering chain and the one mute state, so
+// "Sound off" silences it with everything else. game-feel.js calls it.
+window.__kpUiTap = function (kind) {
+  buzz(kind === 'big' ? 14 : 8);
+  const ctx = audio();
+  if (!ctx || !busAmbient) return;
+  try {
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(kind === 'big' ? 180 : 230, t);
+    o.frequency.exponentialRampToValueAtTime(kind === 'big' ? 70 : 110, t + 0.08);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(kind === 'big' ? 0.5 : 0.32, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+    o.connect(g); g.connect(busAmbient); o.start(t); o.stop(t + 0.12);
+    const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+    o2.type = 'square'; o2.frequency.setValueAtTime(kind === 'big' ? 1250 : 1800, t);
+    g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(0.07, t + 0.003);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+    o2.connect(g2); g2.connect(busAmbient); o2.start(t); o2.stop(t + 0.04);
+  } catch (e) { /* a missed click never blocks the tap */ }
+};
 // Mix rule: the newest important sound ducks the ambient texture briefly.
 function duckAmbient() {
   if (!audioCtx || !busAmbient) return;

@@ -224,6 +224,8 @@ function tileRect(i, L) {
 // columns (side tiles keep their width, near/far tiles gain breadth).
 // Tile local depth (lz) is CORNER in every layout, so only local width (lx)
 // varies, and tile face textures are generated for the tile's own lx.
+const CINE_EL_P = 56 * Math.PI / 180, CINE_EL_L = 50 * Math.PI / 180;
+const CINE_SIN_P = Math.sin(CINE_EL_P), CINE_SIN_L = Math.sin(CINE_EL_L);
 function trackLayout(boxAspect, forceTall) {
   const camAspect = 1 / boxAspect;
   // KP19: in a portrait window the layout ALWAYS takes the tall
@@ -231,7 +233,11 @@ function trackLayout(boxAspect, forceTall) {
   // own aspect), even when the stage box itself is squat: the board
   // then fills its stage exactly at true proportions, the KP11 law at
   // every portrait size. Landscape windows keep the two-branch rule.
-  const sinEl = (forceTall || camAspect < 1.2) ? 0.99862 : 0.95083; // fullDir depth factors: 87 or 71.9 degrees
+  // Premium pass: the cinematic tilt. The view drops from the old 87 degree
+  // near plan to 56 degrees (portrait) and 50 degrees (landscape), so pieces,
+  // buildings and dice read as objects with sides. The KP11 fit law holds:
+  // the depth factor below is the same sine the camera uses.
+  const sinEl = (forceTall || camAspect < 1.2) ? CINE_SIN_P : CINE_SIN_L;
   let TW, TD;
   if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
   else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
@@ -1239,21 +1245,26 @@ class GameScene {
     // exactly the frustum, which is the box, on both axes. The view
     // stays the near-plan 87 degree read the game already had.
     this.camera = new THREE.OrthographicCamera(-6.1, 6.1, 6.1, -6.1, 0.1, 120);
-    this.camDir = new THREE.Vector3(0, 26.6, 1.4).normalize();
+    this.camDir = new THREE.Vector3(0, Math.sin(CINE_EL_P), Math.cos(CINE_EL_P));
     this.zoomK = 1; // frustum scale: 1 = fitted to the board; <1 = tighter (countdown or Follow)
     this.look = new THREE.Vector3();
     this.lookWant = new THREE.Vector3();
     this.viewFollow = false;
     this.viewKick = 0;
-    this.hemi = new THREE.HemisphereLight(0xfff2d8, 0x5a4028, 0.8); s.add(this.hemi);
-    this.key = new THREE.DirectionalLight(0xffd9a0, 1.55);
-    this.key.position.set(7, 13, 8);
+    // Premium pass: Lagos golden hour. A low warm sun from the west throws
+    // long soft shadows across the tiles; a cool sky bounce keeps the
+    // shadow side from going muddy under ACES.
+    this.hemi = new THREE.HemisphereLight(0xcfe2ff, 0x4a3420, 0.55); s.add(this.hemi);
+    this.key = new THREE.DirectionalLight(0xffc98a, 2.35);
+    this.key.position.set(-9, 9.5, 6.5);
     this.key.castShadow = TIER.shadowSize > 0;
     this.key.shadow.mapSize.set(TIER.shadowSize || 1024, TIER.shadowSize || 1024);
     this.key.shadow.camera.left = -10; this.key.shadow.camera.right = 10;
     this.key.shadow.camera.top = 10; this.key.shadow.camera.bottom = -10;
     this.key.shadow.camera.near = 2; this.key.shadow.camera.far = 34;
     this.key.shadow.bias = -0.0006;
+    this.key.shadow.normalBias = 0.02;
+    this.key.shadow.radius = 3;
     s.add(this.key);
     this.keyLight = this.key;
     const fill = new THREE.DirectionalLight(0xbfd9ff, 0.32); fill.position.set(-7, 9, -6); s.add(fill);
@@ -1787,8 +1798,8 @@ class GameScene {
     return first && first.value ? first.value : null;
   }
   fullDir(aspect) {
-    if (aspect < 1.2) return new THREE.Vector3(0, 26.6, 1.4).normalize();
-    return new THREE.Vector3(0, 22.1, 7.2).normalize();
+    if (aspect < 1.2) return new THREE.Vector3(0, Math.sin(CINE_EL_P), Math.cos(CINE_EL_P));
+    return new THREE.Vector3(0, Math.sin(CINE_EL_L), Math.cos(CINE_EL_L));
   }
   // KP11 fit: set the orthographic frustum to the board itself. The
   // frustum's width span is the track width; its height span is the
@@ -2590,6 +2601,25 @@ KP3D.setTier = function (name) {
 // ---------------------------------------------------------------------------
 // Init: WebGL or silent fallback to the 2D board
 // ---------------------------------------------------------------------------
+function buildSkyEnv(r) {
+  if (!r || !THREE.PMREMGenerator) return null;
+  const sky = new THREE.Scene();
+  const c = document.createElement('canvas'); c.width = 8; c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 128);
+  grd.addColorStop(0.0, '#2b4a7a'); grd.addColorStop(0.38, '#e9a15a');
+  grd.addColorStop(0.5, '#ffd39a'); grd.addColorStop(0.56, '#6b4a30'); grd.addColorStop(1.0, '#1c140c');
+  g.fillStyle = grd; g.fillRect(0, 0, 8, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide }));
+  sky.add(dome);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(4, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 4.2, 2.4) }));
+  sun.position.set(-32, 14, 20); sky.add(sun);
+  const pm = new THREE.PMREMGenerator(r);
+  const rt = pm.fromScene(sky, 0.04);
+  pm.dispose(); t.dispose(); dome.geometry.dispose(); dome.material.dispose(); sun.geometry.dispose(); sun.material.dispose();
+  return rt.texture;
+}
 function initGL() {
   let gl = null;
   try {
@@ -2615,6 +2645,10 @@ function initGL() {
   renderer.shadowMap.enabled = TIER.shadowSize > 0;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // Premium pass: filmic response. ACES rolls the golden-hour highlights
+  // off instead of clipping them, the way a game camera would.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
   renderer.domElement.addEventListener('webglcontextlost', (e) => {
     e.preventDefault();
     KP3D.active = false;
@@ -2642,6 +2676,14 @@ function initGL() {
     renderer = null;
     return;
   }
+  // Premium pass: a procedural golden-hour sky as the environment map.
+  // Zero bytes on the wire (no HDRI download): a gradient dome with a warm
+  // sun disc is prefiltered once through PMREM, so metal, glass, the gold
+  // pot and the dice pick up real reflections instead of flat colour.
+  try {
+    const envTex = buildSkyEnv(renderer);
+    if (envTex) for (const n in SCENES) if (SCENES[n] && SCENES[n].scene) { SCENES[n].scene.environment = envTex; SCENES[n].scene.environmentIntensity = 0.55; }
+  } catch (e) { /* the scene still lights without reflections */ }
   KP3D.active = true;
   document.body.classList.add('gl-on');
   KP3D.debug = function () {
