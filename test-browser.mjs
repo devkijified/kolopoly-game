@@ -786,16 +786,14 @@ try {
       }
     }
     console.log('    ' + tag + ' board probe (settled): ' + JSON.stringify(probe));
-    // Premium pass: a true perspective camera. The old 99.5/99.5 law
-    // was an orthographic fit (near and far edges the same size). The
-    // new law: every corner stays on stage, the idle view fills most
-    // of the box, and the camera is a PerspectiveCamera.
-    check(tag + ' game: the camera is a true perspective camera', !!probe && probe.perspective === true, JSON.stringify(probe));
+    // The camera is orthographic again, as in the old build: near and
+    // far edges the same size, the ring filling the box at 100 percent
+    // on both axes. The span checks keep a sub-percent allowance for
+    // pixel rounding and slab height; the design target is 100/100.
+    check(tag + ' game: the camera is orthographic (near and far edges the same size)', !!probe && probe.perspective === false, JSON.stringify(probe));
     check(tag + ' game: every corner of the tile ring stays on stage', !!probe && probe.clipped === false && probe.minNdcX >= -1.02 && probe.maxNdcX <= 1.02 && probe.minNdcY >= -1.02 && probe.maxNdcY <= 1.02, JSON.stringify(probe));
-    // corners28 portrait caps depth at 1.25× width so the far row
-    // stays legible; the ring fills the width and a designed share of
-    // the height (a dark table margin is intentional, not a shrink).
-    check(tag + ' game: the tile ring fills at least 88 percent of the box width and 60 percent of the height (capped perspective table)', !!probe && probe.rimWPct >= 88 && probe.rimHPct >= 60, JSON.stringify(probe));
+    check(tag + ' game: the tile ring spans at least 99.5 percent of the box width (design target 100)', !!probe && probe.rimWPct >= 99.5, JSON.stringify(probe));
+    check(tag + ' game: the tile ring spans at least 99.5 percent of the box height (design target 100)', !!probe && probe.rimHPct >= 99.5, JSON.stringify(probe));
     const wm = await MP.evaluate(() => window.KP3D && window.KP3D.wordmark ? window.KP3D.wordmark() : null);
     check(tag + ' game: KOLOPOLY is one continuous wordmark clear of the bridge', !!wm && wm.text === 'KOLOPOLY' && wm.gap <= 16 && wm.ink > 30 && wm.clearOfBridge === true, JSON.stringify(wm));
     const tray = await MP.evaluate(() => {
@@ -925,7 +923,7 @@ try {
       return clock ? Number(clock.getAttribute('data-deadline')) : 0;
     });
     check('the on-screen auction clock stays on the original deadline', shown === end0, 'shown=' + shown + ' end0=' + end0);
-    await AU.click('#bidPass');
+    await clickId(AU, 'bidPass');
     await sleep(400);
     const afterPass = (await S(AU)).auction;
     check('tapping Pass does not add auction time', !afterPass || afterPass.endsAt === end0, JSON.stringify({ end0, now: afterPass && afterPass.endsAt }));

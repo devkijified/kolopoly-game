@@ -189,8 +189,8 @@ KP3D.probe = function () { return lastProbe; };
 // ---------------------------------------------------------------------------
 // corners28: geometry from KP_DATA. 7 steps per side, an 8 x 8 grid with 6
 // middle tiles per side. Corners stay 2.5 and middle tiles stay 1.8, so
-// the ring grows from 12.2 to 15.8 and no tile shrinks. The perspective
-// camera re-fits the longer footprint. The centre field is 10.8 x 10.8.
+// the ring grows from 12.2 to 15.8 and no tile shrinks. The orthographic
+// camera re-fits the longer footprint edge to edge. The centre field is 10.8 x 10.8.
 const SIDE = D.SIDE, NSP = D.BOARD_SIZE, G = SIDE + 1, MID = SIDE - 1;
 // corners28: same corner (2.5) and middle-tile (1.8) sizes as board20;
 // the ring grows from 12.2 to 15.8 so the eight new deeds do not shrink tiles.
@@ -223,23 +223,20 @@ function tileRect(i, L) {
 // columns (side tiles keep their width, near/far tiles gain breadth).
 // Tile local depth (lz) is CORNER in every layout, so only local width (lx)
 // varies, and tile face textures are generated for the tile's own lx.
-const CINE_EL_P = 58 * Math.PI / 180, CINE_EL_L = 48 * Math.PI / 180;
-const CINE_SIN_P = Math.sin(CINE_EL_P), CINE_SIN_L = Math.sin(CINE_EL_L);
+// Elevation factors mirror fullDir: near-plan 87° in portrait / squarish
+// stages, 71.9° in wide landscape. These keep the projected silhouette
+// binding both box axes at 100 percent, the old-build upright fit.
 function trackLayout(boxAspect, forceTall) {
   const camAspect = 1 / boxAspect;
-  // corners28 in portrait: do not stretch the ring into a hallway just
-  // to fill a tall stage. Tile widths stay 1.8 (corners 2.5) so nothing
-  // shrinks; depth is capped at 1.25 x the width so the far row stays
-  // close enough to read (about 55-60 percent of the near-row scale).
-  // The fitted camera may leave a dark table margin above and below.
-  // Landscape still uses the two-branch rule and is uncapped.
-  const sinEl = (forceTall || camAspect < 1.2) ? CINE_SIN_P : CINE_SIN_L;
+  // KP19: in a portrait window the layout ALWAYS takes the tall
+  // construction (near-plan factor, width fixed, depth from the box's
+  // own aspect), even when the stage box itself is squat: the board
+  // then fills its stage exactly at true proportions, the KP11 law at
+  // every portrait size. Landscape windows keep the two-branch rule.
+  const sinEl = (forceTall || camAspect < 1.2) ? 0.99862 : 0.95083; // fullDir depth factors: 87 or 71.9 degrees
   let TW, TD;
-  if (forceTall || boxAspect >= 1) {
-    TW = TOTALW;
-    const raw = TOTALW * boxAspect / sinEl;
-    TD = Math.min(raw, TOTALW * 1.25);
-  } else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
+  if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
+  else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
   const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
   for (let k = 0; k < G; k++) {
@@ -1159,45 +1156,6 @@ function textSprite(text, opts) {
   return sp;
 }
 
-// Far-row name + price chip. sizeAttenuation is off so the type holds a
-// readable 13px+ size at 390px, even on the north edge. Two lines keep
-// the short name and the price from fighting for one row.
-function compactNaira(n) {
-  n = Math.round(Number(n) || 0);
-  if (Math.abs(n) >= 1000) return '₦' + Math.round(n / 1000) + 'k';
-  return D.fmtN(n);
-}
-function farChipSprite(name, price) {
-  const c = cnv(384, 140), x = c.getContext('2d');
-  x.fillStyle = 'rgba(16,12,8,0.94)'; rr(x, 8, 12, 368, 116, 22); x.fill();
-  x.strokeStyle = 'rgba(255,200,87,0.85)'; x.lineWidth = 5; rr(x, 8, 12, 368, 116, 22); x.stroke();
-  x.fillStyle = '#fff6e0'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  let label = (name || '').toUpperCase();
-  // Keep long far-row titles to a chip-friendly word so 8 labels fit
-  // across 390px without covering each other.
-  if (label.indexOf('KIRIKIRI') >= 0) label = 'KIRIKIRI';
-  else if (label.indexOf('AIRPORT') >= 0 || label === 'MMIA AIRPORT') label = 'MMIA';
-  else if (label === 'PARTY RENTALS') label = 'PARTY RENT.';
-  const hasPrice = !!price;
-  fitFont(x, label, 348, 54, '900', '"Aeonik Pro", sans-serif');
-  x.fillText(label, 192, hasPrice ? 50 : 70);
-  if (hasPrice) {
-    x.fillStyle = '#ffd873';
-    fitFont(x, price, 348, 38, '800', '"Figtree", sans-serif');
-    x.fillText(price, 192, 100);
-  }
-  const mat = new THREE.SpriteMaterial({ map: texOf(c), transparent: true, depthWrite: false, depthTest: false, sizeAttenuation: false });
-  const sp = new THREE.Sprite(mat);
-  // sizeAttenuation is off, so scale is multiplied by -z in the sprite
-  // shader and becomes a near-constant screen size. On a 390x574 board
-  // canvas at fov 42 these values land at ~70x38 CSS pixels — 15px name
-  // and 13px price — small enough that a two-row stagger of the 8
-  // north-edge chips does not collide.
-  sp.scale.set(0.091, 0.051, 1);
-  sp.renderOrder = 26;
-  return sp;
-}
-
 
 // ---------------------------------------------------------------------------
 // Centre floor texture (wordmark, skyline strip, pot and deck labels)
@@ -1357,18 +1315,15 @@ class GameScene {
     // sits entirely inside the clear range; the fog remains only as the
     // phase-tinted void past the board's edge.
     s.fog = new THREE.Fog(0x2a1a0e, 60, 140);
-    // Premium pass: a true perspective camera. The old KP11 100/100
-    // law was an orthographic fit (near and far edges the same size),
-    // which is why the board still read as a flat map. The new law is:
-    // every corner of the ring stays on stage, the idle view fills as
-    // much of the box as a 42-46 degree tilt allows, and names on the
-    // far edge get billboard labels so they stay legible at 360px.
-    // Lite keeps perspective but sits a little higher for sharpness.
-    const lite = TIER && (TIER.shadowSize || 0) < 512;
-    this.camFov = lite ? 40 : 42;
-    this.camera = new THREE.PerspectiveCamera(this.camFov, 1, 0.15, 220);
-    this.camDir = new THREE.Vector3(0, Math.sin(lite ? 58 * Math.PI / 180 : CINE_EL_P), Math.cos(lite ? 58 * Math.PI / 180 : CINE_EL_P));
-    this.zoomK = 1; // 1 = fitted full board; <1 = tighter (follow, cine, countdown)
+    // The game camera is ORTHOGRAPHIC, fitted to the board: the old
+    // KP11 100/100 law. A perspective tilt made the board look as if
+    // it were lying on the floor and left dark margins; under parallel
+    // projection the ring spans the frustum, which is the box, on both
+    // axes. The view stays the near-plan 87° read of the old build, so
+    // the board stands upright, edge to edge, and every tile stays bold.
+    this.camera = new THREE.OrthographicCamera(-TOTALW / 2, TOTALW / 2, TOTALW / 2, -TOTALW / 2, 0.1, 120);
+    this.camDir = new THREE.Vector3(0, 26.6, 1.4).normalize();
+    this.zoomK = 1; // 1 = fitted full board; <1 would tighten, but follow/cine stay no-ops
     this.camDist = 22;
     this.autoFollowT = 0;
     this.autoFollowId = null;
@@ -1464,22 +1419,6 @@ class GameScene {
       pick.userData.space = i;
       grp.add(pick); this.pickables.push(pick);
       s.add(grp);
-      // Far-edge (north) tiles: a slight world-X counter-tilt plus a
-      // camera-facing name/price chip, so perspective does not shrink
-      // the printed type past a readable size at 360px.
-      if (i >= 2 * SIDE && i <= 3 * SIDE) {
-        grp.updateMatrixWorld(true);
-        top.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), -0.28);
-        const sp = D.SPACES[i];
-        const price = sp.price ? compactNaira(sp.price) : (sp.amount ? compactNaira(sp.amount) : '');
-        const spr = farChipSprite(sp.short || sp.name, price);
-        // Two-row stagger: neighbours go high / low so 38px chips clear
-        // each other. The high row sits in the table margin above the
-        // far edge, not over the centre field.
-        const stagger = (i - 2 * SIDE) % 2 === 0 ? 0.68 : 2.72;
-        spr.position.set(0, stagger, 0);
-        grp.add(spr);
-      }
       const t = { i, grp, topMat, slabMat, frame, frameMat: fm, bld, pledge, sig: '', bSig: -1, rect, th, lx, lz, slab, top, pick, bars };
       this.tiles.push(t);
       topMat.map = tileTexture(i, false, this.texW(t));
@@ -2091,8 +2030,8 @@ class GameScene {
     } catch (e) { /* a camera flourish never blocks the sync */ }
   }
   cineAt(/* pos, zoom, hold */) {
-    // Owner t134u: the camera stays at the settled idle tilt. Push-ins
-    // and follows are no-ops; coin arcs and pot flourishes still run.
+    // The camera stays at the settled upright, edge-to-edge fit.
+    // Push-ins and follows are no-ops; coin arcs and pot flourishes still run.
   }
   closeUp(/* pos, zoom, hold */) {}
   snapIdle() {
@@ -2105,48 +2044,13 @@ class GameScene {
     this.viewKick = 0;
     this.zoomK = 1;
     this.camDir.copy(this.fullDir(portraitWindow() ? 1 : (this.camera && this.camera.aspect) || 1));
-    const L = this.layout || trackLayout(1);
-    this.lookWant.set(0, 0, -L.TD * 0.08);
+    this.lookWant.set(0, 0, 0);
     if (this.look) this.look.copy(this.lookWant);
     this.camGlide = false;
   }
   fullDir(aspect) {
-    const lite = TIER && (TIER.shadowSize || 0) < 512;
-    const elP = lite ? 58 * Math.PI / 180 : CINE_EL_P;
-    const elL = lite ? 50 * Math.PI / 180 : CINE_EL_L;
-    if (aspect < 1.2) return new THREE.Vector3(0, Math.sin(elP), Math.cos(elP));
-    return new THREE.Vector3(0, Math.sin(elL), Math.cos(elL));
-  }
-  // Distance that keeps every corner of the ring (and a little slab
-  // height) just inside the perspective frustum, then scaled by zoomK.
-  _fitPerspDist(cam, dir, look, L, zoomK) {
-    const corners = [];
-    for (const x of [-L.TW / 2, L.TW / 2]) for (const z of [-L.TD / 2, L.TD / 2]) for (const y of [0, 0.45]) corners.push(new THREE.Vector3(x, y, z));
-    // 0.98 fills the stage a little more tightly so the far row reads;
-    // look is already applied, so a modest far-row bias stays inside the fit.
-    const target = 0.98 / Math.max(0.22, zoomK);
-    const measure = (dist) => {
-      cam.position.copy(dir).multiplyScalar(dist).add(look);
-      cam.lookAt(look);
-      cam.updateMatrixWorld(true);
-      cam.updateProjectionMatrix();
-      let maxC = 0;
-      for (let k = 0; k < corners.length; k++) {
-        const v = corners[k].clone().project(cam);
-        if (!isFinite(v.x) || !isFinite(v.y) || v.z < 0 || v.z > 1) { maxC = 8; break; }
-        maxC = Math.max(maxC, Math.abs(v.x), Math.abs(v.y));
-      }
-      return maxC;
-    };
-    // Binary search: a larger distance shrinks the projection. Find the
-    // smallest dist whose projected corners sit inside the target NDC.
-    let lo = 4, hi = 120;
-    for (let i = 0; i < 14; i++) {
-      const mid = (lo + hi) / 2;
-      if (measure(mid) > target) lo = mid; else hi = mid;
-    }
-    this.camDist = hi;
-    return hi;
+    if (aspect < 1.2) return new THREE.Vector3(0, 26.6, 1.4).normalize();
+    return new THREE.Vector3(0, 22.1, 7.2).normalize();
   }
   // KP11 fit: set the orthographic frustum to the board itself. The
   // frustum's width span is the track width; its height span is the
@@ -2156,33 +2060,23 @@ class GameScene {
   // factor, the frustum's aspect IS the box's aspect, so the renderer
   // maps it onto the canvas with no stretch and the ring's silhouette
   // coincides with the box edges at exactly 100 percent on both axes:
-  // nothing cut, nothing left over. zoomK tightens the frustum for the
-  // countdown pass only; the fitted game sits at zoomK 1.
+  // nothing cut, nothing left over. zoomK is held at 1; follow and
+  // cine push-ins stay no-ops.
   _applyCam() {
     const cam = this.camera;
     const L = this.layout || trackLayout(1);
     const d = this.camDir;
+    const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
+    const halfW = (L.TW / 2) * this.zoomK;
+    const halfH = (L.TD * f / 2) * this.zoomK;
+    cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
     const look = this.look || _zeroLook;
+    cam.position.copy(d).multiplyScalar(30).add(look);
+    cam.lookAt(look);
     const host = this.host && this.host();
     const el = (renderer && renderer.domElement) || host;
-    const aspect = el && el.clientWidth && el.clientHeight ? el.clientWidth / el.clientHeight : (L.TW / Math.max(0.1, L.TD));
-    if (cam.isPerspectiveCamera) {
-      cam.aspect = aspect;
-      cam.fov = this.camFov || 42;
-      cam.updateProjectionMatrix();
-      const dist = this._fitPerspDist(cam, d, look, L, this.zoomK);
-      cam.position.copy(d).multiplyScalar(dist).add(look);
-      cam.lookAt(look);
-      cam.updateProjectionMatrix();
-    } else {
-      const f = Math.sqrt(Math.max(0.05, 1 - d.z * d.z));
-      const halfW = (L.TW / 2) * this.zoomK;
-      const halfH = (L.TD * f / 2) * this.zoomK;
-      cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
-      cam.position.copy(d).multiplyScalar(30).add(look);
-      cam.lookAt(look);
-      cam.updateProjectionMatrix();
-    }
+    if (el && el.clientWidth && el.clientHeight) cam.aspect = el.clientWidth / el.clientHeight;
+    cam.updateProjectionMatrix();
   }
 
   _tickPot(dt, tNow) {
@@ -2397,15 +2291,13 @@ class GameScene {
     }
     if (this.accentT > 0) { this.accentT = Math.max(0, this.accentT - dt * 1.4); this.accent.intensity = this.accentT * 14; }
     // camera
-    // Owner t134u: the camera is locked to the settled idle tilt
-    // (58° portrait / 48° landscape, fitted frustum). No follow dolly,
-    // no countdown pass, no buy / jail / pot push-in, no ease-back.
+    // Locked to the settled upright fit (87° portrait / 72° landscape,
+    // orthographic frustum, edge to edge). No follow dolly, no countdown
+    // pass, no buy / jail / pot push-in, no ease-back.
     const wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
     this.camDir.copy(wantDir);
     this.zoomK = 1;
-    const L0 = this.layout;
-    if (L0) this.lookWant.set(0, 0, -L0.TD * 0.08);
-    else this.lookWant.set(0, 0, 0);
+    this.lookWant.set(0, 0, 0);
     if (this.look) this.look.copy(this.lookWant);
     this.camGlide = false;
     this.cineT = 0;
@@ -2949,7 +2841,10 @@ KP3D.boardProbePx = function () {
     maxNdcX: Math.round(Math.max(...nx) * 1000) / 1000,
     minNdcY: Math.round(Math.min(...ny) * 1000) / 1000,
     maxNdcY: Math.round(Math.max(...ny) * 1000) / 1000,
-    clipped: ndc.some((v) => v.x < -1.02 || v.x > 1.02 || v.y < -1.02 || v.y > 1.02 || v.z < 0 || v.z > 1)
+    // z may be in [-1,1] (classic GL NDC) or [0,1]; either is on-stage
+    // as long as x/y stay inside the box. A 0.02 pad covers exact-edge
+    // rounding on the 100/100 orthographic fit.
+    clipped: ndc.some((v) => v.x < -1.02 || v.x > 1.02 || v.y < -1.02 || v.y > 1.02 || v.z < -1.02 || v.z > 1.02)
   };
 };
 // Owner t134u: follow mode is retired. setView stays a no-op so old
