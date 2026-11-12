@@ -418,17 +418,17 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
     const buyer = turn === ada.playerId ? ada : bola;
     const tenant = turn === ada.playerId ? bola : ada;
     const tenantId = playing.room.players.find((p) => p.id !== turn).id;
-    buyer.send({ type: 'test_set_position', playerId: turn, space: 5 });
+    buyer.send({ type: 'test_set_position', playerId: turn, space: 8 });
     buyer.send({ type: 'test_dice', rolls: [[1, 2]] });
     buyer.send({ type: 'roll' });
-    await ada.until((m) => m.type === 'state' && m.room.phase === 'buy' && m.room.buySpace === 8, 'surulere offered');
+    await ada.until((m) => m.type === 'state' && m.room.phase === 'buy' && m.room.buySpace === 11, 'surulere offered');
     buyer.send({ type: 'buy' });
-    await ada.until((m) => m.type === 'state' && m.room.props[8].o === turn, 'surulere bought');
+    await ada.until((m) => m.type === 'state' && m.room.props[11].o === turn, 'surulere bought');
     buyer.send({ type: 'end_turn' });
     await ada.until((m) => m.type === 'state' && m.room.turnPlayerId === tenantId && m.room.phase === 'roll', 'tenant to roll');
     ada.send({ type: 'test_phase', phase: 2 });
     await ada.until((m) => m.type === 'state' && m.room.inf.phase === 2, 'squeeze');
-    tenant.send({ type: 'test_set_position', playerId: tenantId, space: 1 });
+    tenant.send({ type: 'test_set_position', playerId: tenantId, space: 4 });
     tenant.send({ type: 'test_dice', rolls: [[2, 5]] });
     tenant.send({ type: 'roll' });
     const billed = await ada.until((m) => m.type === 'state' && m.room.pendingBill && m.room.pendingBill.playerId === tenantId, 'lifeline bill');
@@ -479,6 +479,7 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
       // Yaba (13) and old Parkview Estate (37, gone on board20).
       const other = room.players.find((p) => p.id !== room.turnPlayerId);
       delete room.boardSize;
+      delete room.boardGen;
       const legacy = [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39];
       room.props = {};
       for (const i of legacy) room.props[i] = { owner: null, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null };
@@ -491,16 +492,16 @@ describe('worker inflation: seven phases, lifeline and snapshots', () => {
     const restored = await ada.until((m) => m.type === 'state'
       && m.room.players.find((p) => p.id === ada.playerId).cash === 7654321, 'restored after eviction');
     expect(restored.room.inf.phase).toBe(2);
-    expect(Object.keys(restored.room.props).every((k) => Number(k) < 20)).toBe(true);
+    expect(Object.keys(restored.room.props).every((k) => Number(k) < 28)).toBe(true);
     expect(typeof restored.room.inf.deadlineAt).toBe('number');
     // The imported game continues: a multiplied Squeeze landing still bills
     // at printed times the lower die and settles.
     const turn = restored.room.turnPlayerId;
     const tenant = turn === ada.playerId ? ada : bola;
     const ownerId = restored.room.players.find((p) => p.id !== turn).id;
-    // migrated by name: old Yaba 13 is Yaba 6 on the 20 space board
-    expect(restored.room.props[6].o).toBe(ownerId);
-    tenant.send({ type: 'test_set_position', playerId: turn, space: 1 });
+    // migrated by name: old Yaba 13 is Yaba 9 on the corners28 board
+    expect(restored.room.props[9].o).toBe(ownerId);
+    tenant.send({ type: 'test_set_position', playerId: turn, space: 4 });
     tenant.send({ type: 'test_dice', rolls: [[2, 3]] });
     tenant.send({ type: 'roll' });
     const billed = await ada.until((m) => m.type === 'state' && m.room.pendingBill && m.room.pendingBill.playerId === turn, 'bill after import');
