@@ -80,14 +80,14 @@ async function makeGame(settings, names) {
 }
 const INF = { gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 };
 
-// A turn that changes nothing (board20): stand on Family Meeting (2), roll 3, land on Kirikiri just visiting (5), end.
+// A turn that changes nothing (corners28): stand on Family Meeting (2), roll 3, land on Kirikiri just visiting (5), end.
 async function nullTurn(g) {
   await g.host.waitFor((s) => s.status === 'playing' && (s.phase === 'roll' || s.phase === 'jail'), 'an actionable turn state');
   const before = g.S().turnPlayerId;
   if (g.player(before).inJail) throw new Error('nullTurn called for a jailed player');
   const t = g.turn();
-  g.hook('test_set_position', { playerId: before, space: 2 });
-  g.hook('test_dice', { rolls: [[1, 2]] });
+  g.hook('test_set_position', { playerId: before, space: 3 });
+  g.hook('test_dice', { rolls: [[1, 3]] });
   t.send('roll', {});
   await t.waitFor((s) => s.phase === 'end' && s.turnPlayerId === before, 'null turn resolves');
   t.send('end_turn', {});
@@ -139,8 +139,8 @@ async function driveUntil(g, pred, label, ms) {
         const me = s.players.find((p) => p.id === host.playerId);
         if (me && me.inJail) host.send('jail_roll', {});
         else if (s.phase === 'roll') {
-          host.send('test_set_position', { playerId: host.playerId, space: 2 });
-          host.send('test_dice', { rolls: [[1, 2]] });
+          host.send('test_set_position', { playerId: host.playerId, space: 3 });
+          host.send('test_dice', { rolls: [[1, 3]] });
           host.send('roll', {});
         }
         else if (s.phase === 'buy') host.send('decline', {});
@@ -159,7 +159,7 @@ async function driveUntil(g, pred, label, ms) {
 // and any Lifeline bill is skipped so the full multiplied rent moves.
 async function rentCase(label, phase, rolls, expected, opts) {
   const o = opts || {};
-  const space = o.space != null ? o.space : 8;       // Surulere (board20), printed rent 24000
+  const space = o.space != null ? o.space : 11;       // Surulere (corners28), printed rent 24000
   const printed = o.printed != null ? o.printed : 24000;
   const from = o.from;
   const g = await makeGame(INF, ['Tenant', 'Owner']);
@@ -243,19 +243,19 @@ try {
   }
 
   // ------------------------------------------------------ X2 RENT MATRIX ---
-  console.log('X2: rent multipliers off the actual landing dice (Surulere printed rent 24000, board20)');
-  await rentCase('Standard rent stays printed x1', 1, [2, 5], 24000, { from: 1 });
-  await rentCase('Squeeze rent = printed x lower die 2', 2, [2, 5], 48000, { from: 1 });
-  await rentCase('Squeeze rent ignores dice order: [5,2] is still x2', 2, [5, 2], 48000, { from: 1 });
-  await rentCase('Heat rent = printed x higher die 5', 3, [2, 5], 120000, { from: 1 });
-  await rentCase('Crunch rent = printed x dice sum 7', 4, [2, 5], 168000, { from: 1 });
-  await rentCase('Crisis rent = printed x sum x lower die (7 x 2 = 14)', 5, [2, 5], 336000, { from: 1 });
-  await rentCase('Meltdown rent = printed x sum x higher die (7 x 5 = 35)', 6, [2, 5], 840000, { from: 1 });
-  await rentCase('Final Reckoning rent = printed x sum squared (7 x 7 = 49)', 7, [2, 5], 1176000, { from: 1 });
-  await rentCase('Squeeze doubles [3,3] still use both faces: x3', 2, [3, 3], 72000, { from: 2 });
-  await rentCase('Crunch doubles [3,3]: x6', 4, [3, 3], 144000, { from: 2 });
-  await rentCase('Final Reckoning doubles [3,3]: x36', 7, [3, 3], 864000, { from: 2 });
-  await rentCase('station rent multiplies too: MMIA (one station, printed 75000) in Heat x5', 3, [2, 5], 375000, { space: 14, printed: 75000, from: 7 });
+  console.log('X2: rent multipliers off the actual landing dice (Surulere printed rent 24000, corners28)');
+  await rentCase('Standard rent stays printed x1', 1, [2, 5], 24000, { from: 4 });
+  await rentCase('Squeeze rent = printed x lower die 2', 2, [2, 5], 48000, { from: 4 });
+  await rentCase('Squeeze rent ignores dice order: [5,2] is still x2', 2, [5, 2], 48000, { from: 4 });
+  await rentCase('Heat rent = printed x higher die 5', 3, [2, 5], 120000, { from: 4 });
+  await rentCase('Crunch rent = printed x dice sum 7', 4, [2, 5], 168000, { from: 4 });
+  await rentCase('Crisis rent = printed x sum x lower die (7 x 2 = 14)', 5, [2, 5], 336000, { from: 4 });
+  await rentCase('Meltdown rent = printed x sum x higher die (7 x 5 = 35)', 6, [2, 5], 840000, { from: 4 });
+  await rentCase('Final Reckoning rent = printed x sum squared (7 x 7 = 49)', 7, [2, 5], 1176000, { from: 4 });
+  await rentCase('Squeeze doubles [3,3] still use both faces: x3', 2, [3, 3], 72000, { from: 5 });
+  await rentCase('Crunch doubles [3,3]: x6', 4, [3, 3], 144000, { from: 5 });
+  await rentCase('Final Reckoning doubles [3,3]: x36', 7, [3, 3], 864000, { from: 5 });
+  await rentCase('station rent multiplies too: MMIA (one station, printed 75000) in Heat x5', 3, [2, 5], 375000, { space: 19, printed: 75000, from: 12 });
 
   // ------------------------------------------------- X3 MULTIPLIER SCOPE ---
   console.log('X3: the multiplier touches property rent only: utilities and taxes stay printed');
@@ -263,12 +263,12 @@ try {
     const g = await makeGame(INF, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 9 }); // NEPA (board20)
+    g.hook('test_give', { playerId: o.playerId, space: 12 }); // NEPA (corners28)
     g.hook('test_phase', { phase: 7 });
     await g.host.waitFor((s) => s.inf.phase === 7, 'final reckoning');
     const t0 = g.player(t.playerId).cash;
     const o0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 6 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 9 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
     await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === o0 + 30000, 'utility rent moved', 12000);
@@ -285,7 +285,7 @@ try {
     g.hook('test_phase', { phase: 7 });
     await g.host.waitFor((s) => s.inf.phase === 7, 'final reckoning');
     const t0 = g.player(t.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 2 });
     g.hook('test_dice', { rolls: [[1, 2]] });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'tax', 'FIRS tax choice', 12000);
@@ -305,10 +305,10 @@ try {
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
     const t0 = g.player(t.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 18 });
-    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.hook('test_set_position', { playerId: t.playerId, space: 25 });
+    g.hook('test_dice', { rolls: [[1, 4]] });
     t.send('roll', {});
-    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 1, 'wrapped to Makoko');
+    await t.waitFor((s) => s.phase === 'buy' && s.buySpace === 2, 'wrapped to Makoko');
     check('a START pass in Squeeze credits exactly 140000', g.player(t.playerId).cash === t0 + 140000,
       'cash=' + g.player(t.playerId).cash);
     t.send('decline', {});
@@ -320,10 +320,10 @@ try {
     g.hook('test_phase', { phase: 7 });
     await g.host.waitFor((s) => s.inf.phase === 7, 'final reckoning');
     const o0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: o.playerId, space: 18 });
-    g.hook('test_dice', { rolls: [[1, 2]] });
+    g.hook('test_set_position', { playerId: o.playerId, space: 25 });
+    g.hook('test_dice', { rolls: [[1, 4]] });
     o.send('roll', {});
-    await o.waitFor((s) => s.phase === 'buy' && s.buySpace === 1, 'wrapped to Makoko in phase 7');
+    await o.waitFor((s) => s.phase === 'buy' && s.buySpace === 2, 'wrapped to Makoko in phase 7');
     check('a START pass in Final Reckoning credits exactly 10000', g.player(o.playerId).cash === o0 + 10000,
       'cash=' + g.player(o.playerId).cash);
     for (const c of g.clients) c.ws.close();
@@ -335,14 +335,14 @@ try {
     const g = await makeGame(INF, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 8 }); // Surulere
-    g.hook('test_give', { playerId: t.playerId, space: 6 });  // Yaba: the raise asset
+    g.hook('test_give', { playerId: o.playerId, space: 11 }); // Surulere
+    g.hook('test_give', { playerId: t.playerId, space: 9 });  // Yaba: the raise asset
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'squeeze');
     g.hook('test_set_cash', { playerId: t.playerId, amount: 5000 });
     await sleep(200);
     const o0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => !!s.pendingBill && s.pendingBill.playerId === t.playerId, 'bill opens');
@@ -357,7 +357,7 @@ try {
     await sleep(300);
     check('in Heat the debt is still the frozen Squeeze 48000, not a Heat recalculation', g.S().debt && g.S().debt.amount === 48000,
       'debt=' + JSON.stringify(g.S().debt));
-    t.send('mortgage', { space: 6 });
+    t.send('mortgage', { space: 9 });
     await t.waitFor((s) => !s.debt, 'mortgage settles the debt', 12000);
     check('settling charges the frozen 48000: landlord gains 48000, tenant keeps 77000 of the 120000 raise',
       g.player(o.playerId).cash === o0 + 48000 && g.player(t.playerId).cash === 77000,
@@ -371,12 +371,12 @@ try {
     const g = await makeGame(INF, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 8 });
+    g.hook('test_give', { playerId: o.playerId, space: 11 });
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'squeeze');
     const t0 = g.player(t.playerId).cash;
     const o0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => !!s.pendingBill && s.pendingBill.playerId === t.playerId, 'bill opens');
@@ -399,7 +399,7 @@ try {
     const t1 = g.player(t.playerId).cash;
     const o1 = g.player(o.playerId).cash;
     let billSeen = false;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => {
@@ -417,12 +417,12 @@ try {
     const g = await makeGame(INF, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 8 });
+    g.hook('test_give', { playerId: o.playerId, space: 11 });
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'squeeze');
     const t0 = g.player(t.playerId).cash;
     const o0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => !!s.pendingBill, 'bill opens');
@@ -440,12 +440,12 @@ try {
     const g = await makeGame(INF, ['Ada', 'Bola']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 8 });
+    g.hook('test_give', { playerId: o.playerId, space: 11 });
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'squeeze');
     const t0 = g.player(t.playerId).cash;
     const o0 = g.player(o.playerId).cash;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => !!s.pendingBill, 'bill opens');
@@ -464,7 +464,7 @@ try {
     g.hold(botId, true); // frozen before the game starts: no first tick race
     g.host.send('start_game', {});
     await g.host.waitFor((s) => s.status === 'playing', 'bot inflation game started');
-    g.hook('test_give', { playerId: g.host.playerId, space: 19 }); // Banana Island (board20), printed rent 100000
+    g.hook('test_give', { playerId: g.host.playerId, space: 26 }); // Banana Island (corners28), printed rent 100000
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'squeeze');
     // Keep the host under the 50000 Hustle target floor so the bot turn is rent only.
@@ -481,8 +481,8 @@ try {
     }
     await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'end', 'host end phase', 30000);
     g.hook('test_set_cash', { playerId: botId, amount: 1500000 });
-    g.hook('test_set_position', { playerId: botId, space: 8 });
-    g.hook('test_dice', { rolls: [[5, 6]] }); // Squeeze: 100000 x lower die 5 = 500000, saving 400000
+    g.hook('test_set_position', { playerId: botId, space: 15 });
+    g.hook('test_dice', { rolls: [[5, 6]] }); // Squeeze: Banana 100000 x lower die 5 = 500000, saving 400000
     g.hold(botId, false);
     g.host.send('end_turn', {});
     await g.host.waitFor((s) => {
@@ -623,8 +623,8 @@ try {
     const atk = g.turn();
     const tgt = g.clients.find((c) => c !== atk);
     await ensureRollTurn(g, tgt, 'target to move');
-    g.hook('test_set_position', { playerId: tgt.playerId, space: 13 });
-    g.hook('test_dice', { rolls: [[1, 1]] });
+    g.hook('test_set_position', { playerId: tgt.playerId, space: 18 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
     tgt.send('roll', {});
     await tgt.waitFor((s) => s.players.find((p) => p.id === tgt.playerId).inJail, 'target sent to Kirikiri');
     tgt.send('end_turn', {});
@@ -655,7 +655,7 @@ try {
     await atk.waitFor((s) => s.players.find((p) => p.id === atk.playerId).inJail, 'hustler jailed');
     const a = g.player(atk.playerId);
     check('the third catch sends the hustler to Kirikiri (space 7) with Heat back to 0 and 3 fails on record',
-      a.inJail && a.position === 5 && a.hustleHeat === 0 && a.hustleFails === 3 && a.cash === 470000 && g.S().pot === 30000,
+      a.inJail && a.position === 7 && a.hustleHeat === 0 && a.hustleFails === 3 && a.cash === 470000 && g.S().pot === 30000,
       JSON.stringify({ inJail: a.inJail, pos: a.position, heat: a.hustleHeat, fails: a.hustleFails, cash: a.cash }));
     check('the jailed hustler turn moves to its end phase (no roll after Kirikiri)', g.S().phase === 'end' && g.S().turnPlayerId === atk.playerId, 'phase=' + g.S().phase);
     check('the jail trip is in the result and the feed', g.S().hustleResult.outcome === 'jailed' && g.S().feed.some((e) => e.kind === 'kirikiri' && /hustle/i.test(e.text || '')));
@@ -705,7 +705,7 @@ try {
   {
     const g = await makeGame(INF, ['Ada', 'Bola']);
     const [pa, pb] = g.S().players;
-    g.hook('test_give', { playerId: pa.id, space: 19 }); // Banana Island, 800000 of deeds
+    g.hook('test_give', { playerId: pa.id, space: 26 }); // Banana Island, 800000 of deeds
     g.hook('test_horn_in', { seconds: 2 });
     await g.host.waitFor((s) => s.status === 'ended', 'deadline ended the game', 12000);
     check('the higher net worth wins at the deadline', g.S().winner && g.S().winner.playerId === pa.id,
@@ -718,7 +718,7 @@ try {
     const [pa, pb] = g.S().players;
     g.hook('test_set_cash', { playerId: pa.id, amount: 700000 });
     g.hook('test_set_cash', { playerId: pb.id, amount: 180000 });
-    g.hook('test_give', { playerId: pb.id, space: 16 }); // Victoria Island, 520000 of deeds
+    g.hook('test_give', { playerId: pb.id, space: 23 }); // Victoria Island, 520000 of deeds
     await sleep(200);
     g.hook('test_horn_in', { seconds: 2 });
     await g.host.waitFor((s) => s.status === 'ended', 'deadline ended the tied game', 12000);
@@ -731,14 +731,14 @@ try {
     const [creditor, debtor] = g.S().players;
     const cCli = g.byId(creditor.id);
     const dCli = g.byId(debtor.id);
-    g.hook('test_give', { playerId: creditor.id, space: 8 }); // Surulere, 280000 of deeds
-    g.hook('test_give', { playerId: debtor.id, space: 18 });   // Eko Atlantic, 680000 of deeds
+    g.hook('test_give', { playerId: creditor.id, space: 11 }); // Surulere, 280000 of deeds
+    g.hook('test_give', { playerId: debtor.id, space: 25 });   // Eko Atlantic, 680000 of deeds
     g.hook('test_phase', { phase: 2 });
     await g.host.waitFor((s) => s.inf.phase === 2, 'squeeze');
     await ensureRollTurn(g, dCli, 'debtor to move');
     g.hook('test_set_cash', { playerId: debtor.id, amount: 5000 });
     await sleep(200);
-    g.hook('test_set_position', { playerId: debtor.id, space: 1 });
+    g.hook('test_set_position', { playerId: debtor.id, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     dCli.send('roll', {});
     await dCli.waitFor((s) => !!s.pendingBill && s.pendingBill.playerId === debtor.id, 'debtor bill opens');
@@ -763,12 +763,12 @@ try {
     const g = await makeGame(INF, ['Tenant', 'Owner']);
     const t = g.turn();
     const o = g.clients.find((c) => c !== t);
-    g.hook('test_give', { playerId: o.playerId, space: 8 }); // Surulere, printed rent 24000
+    g.hook('test_give', { playerId: o.playerId, space: 11 }); // Surulere, printed rent 24000
     g.hook('test_phase', { phase: 3 }); // Heat: a [2,5] landing would freeze a bill of 24000 x 5 = 120000
     await g.host.waitFor((s) => s.inf.phase === 3, 'heat phase set');
     await ensureRollTurn(g, o, 'owner roll turn');
-    g.hook('test_set_position', { playerId: o.playerId, space: 13 });
-    g.hook('test_dice', { rolls: [[1, 1]] });
+    g.hook('test_set_position', { playerId: o.playerId, space: 18 });
+    g.hook('test_dice', { rolls: [[1, 2]] });
     o.send('roll', {});
     await o.waitFor((s) => s.players.find((p) => p.id === o.playerId).inJail, 'owner in Kirikiri');
     check('the owner sits inside Kirikiri before the landing', g.player(o.playerId).inJail === true);
@@ -780,7 +780,7 @@ try {
     const o0 = g.player(o.playerId).cash;
     const pot0 = g.S().pot;
     let billSeen = false;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => {
@@ -809,11 +809,11 @@ try {
     await sleep(500);
     check('hustle_start is refused in Classic', t.errors.length > errBefore && !g.S().hustle,
       'err=' + t.errors.slice(-1));
-    g.hook('test_give', { playerId: o.playerId, space: 8 });
+    g.hook('test_give', { playerId: o.playerId, space: 11 });
     const t0 = g.player(t.playerId).cash;
     const o0 = g.player(o.playerId).cash;
     let billSeen = false;
-    g.hook('test_set_position', { playerId: t.playerId, space: 1 });
+    g.hook('test_set_position', { playerId: t.playerId, space: 4 });
     g.hook('test_dice', { rolls: [[2, 5]] });
     t.send('roll', {});
     await t.waitFor((s) => {

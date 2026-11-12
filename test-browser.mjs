@@ -138,9 +138,9 @@ try {
   await front(tp);
   await send(tp, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp, 'abRoll');
-  await waitState(tp, (s) => s.phase === 'buy' && s.buySpace === 3, 'Ajegunle offered');
+  await waitState(tp, (s) => s.phase === 'buy' && s.buySpace === 4, 'Ajegunle offered');
   await clickId(tp, 'abBuy');
-  await waitState(tp, (s) => s.props[3].o === s.turnPlayerId, 'Ajegunle bought');
+  await waitState(tp, (s) => s.props[4].o === s.turnPlayerId, 'Ajegunle bought');
   const alertSeen = await tp.evaluate(() => {
     const el = document.querySelector('.alert-card');
     return el ? el.textContent : '';
@@ -159,8 +159,8 @@ try {
   tp = await turnPage();
   await front(tp);
   const tpId = (await S(tp)).turnPlayerId;
-  await send(tp, 'test_set_position', { playerId: tpId, space: 18 });
-  await send(tp, 'test_dice', { rolls: [[2, 3]] });
+  await send(tp, 'test_set_position', { playerId: tpId, space: 25 });
+  await send(tp, 'test_dice', { rolls: [[1, 6]] });
   await clickId(tp, 'abRoll');
   await tp.waitForFunction(() => {
     const el = document.querySelector('.alert-card.credit');
@@ -201,7 +201,7 @@ try {
   tp = await turnPage();
   await front(tp);
   const tp2Id = (await S(tp)).turnPlayerId;
-  await send(tp, 'test_set_position', { playerId: tp2Id, space: 1 });
+  await send(tp, 'test_set_position', { playerId: tp2Id, space: 2 });
   await send(tp, 'test_dice', { rolls: [[1, 2]] });
   await clickId(tp, 'abRoll');
   await waitState(tp, (s) => s.phase === 'tax', 'FIRS tax');
@@ -215,7 +215,7 @@ try {
   check('board shot taken with the pot on Owambe Grounds', (await S(tp)).pot === 200000);
 
   // Deed sheet for Banana Island, with its area meaning line.
-  await tp.evaluate(() => { document.querySelectorAll('.bspace')[19].click(); });
+  await tp.evaluate(() => { document.querySelectorAll('.bspace')[26].click(); });
   await tp.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 15000 });
   const deedText = await tp.evaluate(() => document.querySelector('#deedSheet').textContent);
   check('deed sheet shows price, ladder and the area meaning', /Banana Island/.test(deedText) && /₦800,000/.test(deedText) && /Final boss\. If you get house here/.test(deedText), deedText.slice(0, 120));
@@ -265,7 +265,7 @@ try {
   await front(tp2);
   await send(tp2, 'test_dice', { rolls: [[3, 4]] });
   await clickId(tp2, 'abRoll');
-  await waitState(tp2, (s) => s.phase === 'buy' && s.buySpace === 7, 'Lekki Tollgate offered');
+  await waitState(tp2, (s) => s.phase === 'buy' && s.buySpace === 10, 'Lekki Tollgate offered');
   // Test auctions run a 4s clock (KP_TEST) and this rig is slow, so the bid
   // button wait is registered BEFORE the decline and the bidder's page is
   // fronted (background pages get their timers throttled): the click then
@@ -278,8 +278,8 @@ try {
   await other2.evaluate(() => { const bs = document.querySelectorAll('#auctionOverlay [data-bid]'); bs[bs.length - 1].click(); });
   await waitState(other2, (s) => !!s.auction && s.auction.highBid > 0, 'bid registered', 6000);
   await tp2.evaluate(() => { const p = document.querySelector('#bidPass'); if (p) p.click(); });
-  await waitState(C, (s) => !s.auction && !!s.props[7].o, 'auction settled', 12000);
-  const winnerId = (await S(C)).props[7].o;
+  await waitState(C, (s) => !s.auction && !!s.props[10].o, 'auction settled', 12000);
+  const winnerId = (await S(C)).props[10].o;
   check('the bidder owns Lekki Tollgate after the clock', winnerId === ids2[[C, Dp].indexOf(other2)]);
   await C.close(); await Dp.close();
 
@@ -307,10 +307,10 @@ try {
   const ownerPage = payerPage === E ? F : E;
   const ownerId = ids3[[E, F].indexOf(ownerPage)];
   const payerId = st3.turnPlayerId;
-  await send(E, 'test_give', { playerId: ownerId, space: 8 });
+  await send(E, 'test_give', { playerId: ownerId, space: 11 });
   await send(E, 'test_phase', { phase: 2 });
   await waitState(E, (s) => s.inf.phase === 2, 'phase 2 active');
-  await send(payerPage, 'test_set_position', { playerId: payerId, space: 4 });
+  await send(payerPage, 'test_set_position', { playerId: payerId, space: 5 });
   await send(payerPage, 'test_dice', { rolls: [[2, 2], [1, 2]] });
   await front(payerPage);
   await clickId(payerPage, 'abRoll');
@@ -374,8 +374,8 @@ try {
   let turnId4 = (await S(G)).turnPlayerId;
   let tp4 = page4(turnId4);
   await front(tp4);
-  await send(tp4, 'test_set_position', { playerId: turnId4, space: 17 });
-  await send(tp4, 'test_dice', { rolls: [[1, 2]] });
+  await send(tp4, 'test_set_position', { playerId: turnId4, space: 24 });
+  await send(tp4, 'test_dice', { rolls: [[1, 3]] });
   await clickId(tp4, 'abRoll');
   await waitState(tp4, (s) => s.phase === 'end', 'idle end phase reached');
   await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 10000, polling: 150 });
@@ -392,12 +392,12 @@ try {
   turnId4 = (await S(G)).turnPlayerId;
   tp4 = page4(turnId4);
   await front(tp4);
-  await send(tp4, 'test_set_position', { playerId: turnId4, space: 17 });
-  await send(tp4, 'test_dice', { rolls: [[1, 2]] });
+  await send(tp4, 'test_set_position', { playerId: turnId4, space: 24 });
+  await send(tp4, 'test_dice', { rolls: [[1, 3]] });
   await clickId(tp4, 'abRoll');
   await waitState(tp4, (s) => s.phase === 'end', 'second idle end phase reached');
   await tp4.waitForFunction(() => !!document.querySelector('#autoEndLabel'), { timeout: 10000, polling: 150 });
-  await tp4.evaluate(() => { document.querySelectorAll('.bspace')[19].click(); });
+  await tp4.evaluate(() => { document.querySelectorAll('.bspace')[26].click(); });
   await tp4.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show'), { timeout: 15000 });
   await sleep(7500); // longer than the 6s countdown
   check('open deed sheet cancelled the auto-end (turn held)', (await S(G)).turnPlayerId === turnId4);
@@ -442,11 +442,11 @@ try {
   }
   await J.evaluate(() => { document.querySelector('#toast').innerHTML = ''; });
   // The rejoined socket must be bound: a server intent from J must land.
-  await send(J, 'test_set_position', { playerId: jId, space: 7 });
+  await send(J, 'test_set_position', { playerId: jId, space: 10 });
   {
     const end = Date.now() + 9000;
     let landed = false;
-    while (Date.now() < end) { const jp = (await S(J)).players.find((p) => p.id === jId); if (jp && jp.position === 7) { landed = true; break; } await sleep(200); }
+    while (Date.now() < end) { const jp = (await S(J)).players.find((p) => p.id === jId); if (jp && jp.position === 10) { landed = true; break; } await sleep(200); }
     check('intents from the rejoined socket reach the room', landed);
   }
   // Sweep the visible rail controls; the forbidden toast must never appear.
@@ -541,9 +541,9 @@ try {
   // banner takes over on the second turn.
   const tpIdOpen = (await S(tp7)).turnPlayerId;
   await send(tp7, 'test_set_position', { playerId: tpIdOpen, space: 0 });
-  await send(tp7, 'test_dice', { rolls: [[1, 2]] });
+  await send(tp7, 'test_dice', { rolls: [[1, 3]] });
   await clickId(tp7, 'abRoll');
-  await waitState(tp7, (s) => s.phase === 'buy' && s.buySpace === 3, 'opener buys Ajegunle');
+  await waitState(tp7, (s) => s.phase === 'buy' && s.buySpace === 4, 'opener buys Ajegunle');
   await clickId(tp7, 'abBuy');
   await waitState(tp7, (s) => s.phase === 'end', 'opener reaches end phase');
   await clickId(tp7, 'abEnd');
@@ -587,13 +587,13 @@ try {
   await send(tp7b, 'test_deadline_in', { seconds: 30 });
   const tpId7 = (await S(tp7b)).turnPlayerId;
   await send(tp7b, 'test_set_position', { playerId: tpId7, space: 0 });
-  await send(tp7b, 'test_dice', { rolls: [[1, 2]] });
+  await send(tp7b, 'test_dice', { rolls: [[1, 3]] });
   await clickId(tp7b, 'abRoll');
   await waitState(tp7b, (s) => s.phase === 'buy' || s.phase === 'end', 'the move settled on the full board');
   check('token movement completes on the full board', await tp7b.evaluate((pid) => {
     const st = window.__kolopolyState();
     const p = st.players.find((x) => x.id === pid);
-    return !!p && p.position === 3;
+    return !!p && p.position === 4;
   }, tpId7));
 
   // Pause overlay (Lesson 14): O drops for real; N gets the waiting card.
@@ -642,7 +642,7 @@ try {
     if (b && (b.position !== 0 || b.deeds > 0 || b.cash !== 1500000)) { botMoved = true; break; }
     if (st.auction) { if (st.auction.highBidder !== hostId8) await send(BP, 'pass_bid', {}); }
     else if (st.turnPlayerId === hostId8) {
-      if (st.phase === 'roll') { await send(BP, 'test_set_position', { playerId: hostId8, space: 17 }); await send(BP, 'test_dice', { rolls: [[1, 2]] }); await send(BP, 'roll', {}); }
+      if (st.phase === 'roll') { await send(BP, 'test_set_position', { playerId: hostId8, space: 24 }); await send(BP, 'test_dice', { rolls: [[1, 3]] }); await send(BP, 'roll', {}); }
       else if (st.phase === 'buy') await send(BP, 'decline', {});
       else if (st.phase === 'tax') await send(BP, 'tax_choice', { choice: 'flat' });
       else if (st.phase === 'jail') await send(BP, 'jail_roll', {});
@@ -756,7 +756,7 @@ try {
         bw: cs.borderTopWidth, bg: cs.backgroundColor
       };
     }));
-    check(tag + ' game: every utility is a ghost item (inline icon, 11px label, no border box)', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '11px' && u.bw === '0px' && u.bg === 'rgba(0, 0, 0, 0)'), JSON.stringify(ubar));
+    check(tag + ' game: every utility is a ghost item (inline icon, 12px label floor, no border box)', ubar.length >= 4 && ubar.every((u) => u.svg && u.lb === '12px' && u.bw === '0px' && u.bg === 'rgba(0, 0, 0, 0)'), JSON.stringify(ubar));
     // KP11: the tall stage is restored (the KP10 square is gone), the
     // frame assembly (table, platform, rim) is deleted from the scene,
     // and the tile ring itself fills the box: the layout is built from
@@ -785,8 +785,13 @@ try {
       }
     }
     console.log('    ' + tag + ' board probe (settled): ' + JSON.stringify(probe));
-    check(tag + ' game: the tile ring spans at least 99.5 percent of the box width (design target 100)', !!probe && probe.rimWPct >= 99.5, JSON.stringify(probe));
-    check(tag + ' game: the tile ring spans at least 99.5 percent of the box height (design target 100)', !!probe && probe.rimHPct >= 99.5, JSON.stringify(probe));
+    // Premium pass: a true perspective camera. The old 99.5/99.5 law
+    // was an orthographic fit (near and far edges the same size). The
+    // new law: every corner stays on stage, the idle view fills most
+    // of the box, and the camera is a PerspectiveCamera.
+    check(tag + ' game: the camera is a true perspective camera', !!probe && probe.perspective === true, JSON.stringify(probe));
+    check(tag + ' game: every corner of the tile ring stays on stage', !!probe && probe.clipped === false && probe.minNdcX >= -1.02 && probe.maxNdcX <= 1.02 && probe.minNdcY >= -1.02 && probe.maxNdcY <= 1.02, JSON.stringify(probe));
+    check(tag + ' game: the tile ring fills at least 88 percent of the box width and 72 percent of the height (perspective trapezoid)', !!probe && probe.rimWPct >= 88 && probe.rimHPct >= 72, JSON.stringify(probe));
     const wm = await MP.evaluate(() => window.KP3D && window.KP3D.wordmark ? window.KP3D.wordmark() : null);
     check(tag + ' game: KOLOPOLY is one continuous wordmark clear of the bridge', !!wm && wm.text === 'KOLOPOLY' && wm.gap <= 16 && wm.ink > 30 && wm.clearOfBridge === true, JSON.stringify(wm));
     const tray = await MP.evaluate(() => {
@@ -846,7 +851,7 @@ try {
       const el = document.querySelector('#endOverlay .end-lessons');
       return el ? getComputedStyle(el).color : '';
     });
-    check(tag + ' final table flavour reads in ink, not washed cream', lessonInk === 'rgb(92, 76, 61)', lessonInk);
+    check(tag + ' final table flavour reads in the premium soft text on the dark panel', lessonInk === 'rgb(184, 173, 155)', lessonInk);
     await MP.screenshot({ path: SHOTS + 'kp22-final-' + W + '.png' });
     if (W === 390) {
       await MP.click('#endShare');
@@ -882,9 +887,9 @@ try {
     }
     const stageBefore = await AU.evaluate(() => Math.round(document.querySelector('.game-stage').getBoundingClientRect().height));
     await send(AU, 'test_set_position', { playerId: me.id, space: 0 });
-    await send(AU, 'test_dice', { rolls: [[3, 4]] });
+    await send(AU, 'test_dice', { rolls: [[4, 6]] });
     await clickId(AU, 'abRoll');
-    await waitState(AU, (s) => s.phase === 'buy' && s.buySpace === 7, 'Lekki Tollgate offered');
+    await waitState(AU, (s) => s.phase === 'buy' && s.buySpace === 10, 'Lekki Tollgate offered');
     await clickId(AU, 'abDecline');
     await waitState(AU, (s) => !!s.auction, 'auction open');
     await sleep(300);
@@ -921,6 +926,70 @@ try {
     const afterPass = (await S(AU)).auction;
     check('tapping Pass does not add auction time', !afterPass || afterPass.endsAt === end0, JSON.stringify({ end0, now: afterPass && afterPass.endsAt }));
     await AU.close();
+  }
+
+  // Premium pass: the board canvas and its wrap must not resize, rescale
+  // or jump when the turn/action panel, a bank alert or a sheet appears.
+  console.log('B-NS: the board stage stays the same size across a turn');
+  {
+    const NS = await newPage('NS');
+    try {
+    await NS.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
+    await NS.goto(BASE + '?KP_TEST=1', { waitUntil: 'networkidle0' });
+    await typeName(NS, 'Nia');
+    await NS.click('#createBtn');
+    await waitState(NS, (s) => s.status === 'lobby', 'NS lobby', 12000);
+    await send(NS, 'add_bot', { name: 'Bot' });
+    await NS.click('#startBtn');
+    await waitState(NS, (s) => s.status === 'playing', 'NS playing', 15000);
+    const boxOf = () => NS.evaluate(() => {
+      const wrap = document.getElementById('boardWrap');
+      const canvas = document.querySelector('#boardWrap canvas') || document.getElementById('board');
+      const wr = wrap.getBoundingClientRect();
+      const cr = canvas ? canvas.getBoundingClientRect() : wr;
+      return { ww: Math.round(wr.width), wh: Math.round(wr.height), wt: Math.round(wr.top), wl: Math.round(wr.left), cw: Math.round(cr.width), ch: Math.round(cr.height), ct: Math.round(cr.top) };
+    });
+    const endReady = Date.now() + 20000;
+    while (Date.now() < endReady) {
+      const ready = await NS.evaluate(() => !!document.getElementById('abRoll') || !!document.getElementById('abEnd') || !!document.getElementById('abBuy'));
+      if (ready) break;
+      await sleep(300);
+    }
+    const r0 = await boxOf();
+    const me = (await S(NS)).players.find((p) => p.name === 'Nia');
+    if ((await S(NS)).phase !== 'roll' || (await S(NS)).turnPlayerId !== me.id) {
+      if ((await S(NS)).phase === 'end' && (await S(NS)).turnPlayerId === me.id) await clickId(NS, 'abEnd');
+      await waitState(NS, (s) => s.phase === 'roll' && s.players.some((p) => p.name === 'Nia' && p.id === s.turnPlayerId), 'Nia to roll', 20000);
+    }
+    const rRoll = await boxOf();
+    await send(NS, 'test_set_position', { playerId: me.id, space: 0 });
+    await send(NS, 'test_dice', { rolls: [[4, 6]] });
+    await clickId(NS, 'abRoll');
+    await waitState(NS, (s) => s.phase === 'buy' && s.buySpace === 10, 'Lekki offered for size check', 15000);
+    await sleep(400);
+    const rBuy = await boxOf();
+    // Bank alert appears after a buy.
+    await clickId(NS, 'abBuy');
+    await waitState(NS, (s) => s.props[10] && s.props[10].o != null, 'Lekki bought', 10000);
+    await sleep(500);
+    const rAlert = await boxOf();
+    // Open the deeds sheet (a full-width portrait sheet).
+    await NS.evaluate(() => { const b = document.getElementById('sbDeeds'); if (b) b.click(); });
+    await sleep(400);
+    const rSheet = await boxOf();
+    await NS.evaluate(() => document.querySelectorAll('.scrim.show').forEach((s) => s.classList.remove('show')));
+    const same = (a, b) => Math.abs(a.ww - b.ww) <= 1 && Math.abs(a.wh - b.wh) <= 1 && Math.abs(a.cw - b.cw) <= 1 && Math.abs(a.ch - b.ch) <= 1 && Math.abs(a.wt - b.wt) <= 1;
+    const pack = { r0, rRoll, rBuy, rAlert, rSheet };
+    check('board wrap and canvas stay within 1px from roll to buy', same(rRoll, rBuy), JSON.stringify(pack));
+    check('board wrap and canvas stay within 1px when the bank alert appears', same(rBuy, rAlert), JSON.stringify(pack));
+    check('board wrap and canvas stay within 1px when a sheet opens', same(rAlert, rSheet), JSON.stringify(pack));
+    check('board wrap and canvas stay within 1px from the first settled frame of the turn', same(r0, rBuy), JSON.stringify(pack));
+    await NS.screenshot({ path: SHOTS + 'kp-noshrink-buy.png' });
+    } catch (err) {
+      check('board-size sequence completed without error', false, err && err.message);
+    } finally {
+      try { await NS.close(); } catch (e2) {}
+    }
   }
 
   console.log('B10: KP13 WS5: Inflation leads the landing with the MOST PLAYED badge and is the default; a default-created room is an Inflation room; a stored Classic pick still wins');
@@ -1154,7 +1223,7 @@ try {
   check('KP17: the scene band carries no copy (no heading or paragraph renders inside it)', ld.sceneTextEls === 0, String(ld.sceneTextEls));
   check('KP17: the scrim layer is gone from the hero', ld.scrim === false, String(ld.scrim));
   check('KP17: no dimmed windows remain in the scene', ld.tzDim === 0, String(ld.tzDim));
-  check('KP17: the slogan reads in deep amber on cream', ld.sloganColor === 'rgb(138, 90, 0)', ld.sloganColor);
+  check('Premium: the slogan reads in game gold on the dark front end', ld.sloganColor === 'rgb(255, 200, 87)', ld.sloganColor);
   check('KP17: the wordmark splits ink and gold like the header', ld.wmGold === 'POLY', ld.wmGold);
   check('the landing has no horizontal overflow at 390', await LND.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'scrollWidth ' + (await LND.evaluate(() => document.documentElement.scrollWidth)));
   // KP14 structure pass: the landing is one spacing system, the mode
@@ -1309,8 +1378,8 @@ try {
   const mTurnId = (await S(M1)).turnPlayerId;
   const mTp = mPages[mIds.indexOf(mTurnId)];
   await front(mTp);
-  await send(mTp, 'test_set_position', { playerId: mTurnId, space: 18 });
-  await send(mTp, 'test_dice', { rolls: [[2, 3]] });
+  await send(mTp, 'test_set_position', { playerId: mTurnId, space: 25 });
+  await send(mTp, 'test_dice', { rolls: [[1, 6]] });
   await clickId(mTp, 'abRoll');
   // The rig renders in software at a few frames a second, so the move
   // takes seconds of wall time: wait for the landing beat itself
@@ -1809,12 +1878,12 @@ try {
   const botId = seat.players.find((p) => p.bot).id;
   await send(UI, 'test_bot_hold', { playerId: botId, hold: true });
   await UI.evaluate((me, bot) => {
-    for (const s of [7, 8, 9, 14, 18, 19]) window.__kolopolySend('test_give', { playerId: me, space: s });
-    for (const s of [6, 11, 13, 16, 17]) window.__kolopolySend('test_give', { playerId: bot, space: s });
+    for (const s of [10, 11, 12, 19, 25, 26]) window.__kolopolySend('test_give', { playerId: me, space: s });
+    for (const s of [9, 16, 18, 23, 24]) window.__kolopolySend('test_give', { playerId: bot, space: s });
   }, meId, botId);
   await UI.waitForFunction((bot, me) => {
     const s = window.__kolopolyState();
-    return !!(s && s.props[6].o === bot && s.props[9].o === me);
+    return !!(s && s.props[9].o === bot && s.props[12].o === me);
   }, { timeout: 12000 }, botId, meId);
   const locked = await UI.evaluate(() => {
     const game = document.getElementById('view-game').getBoundingClientRect();
@@ -1823,14 +1892,14 @@ try {
     return { gh: Math.round(game.height), top: Math.round(top.height), app, ih: window.innerHeight, inGame: document.body.classList.contains('in-game') };
   });
   check('the playing column is the locked shell', locked.inGame && Math.abs(locked.gh - (locked.app - locked.top)) <= 2, JSON.stringify(locked));
-  await UI.waitForFunction(() => document.querySelectorAll('.bspace').length >= 20, { timeout: 8000 });
+  await UI.waitForFunction(() => document.querySelectorAll('.bspace').length >= 28, { timeout: 8000 });
   // board20 (owner t115u): every piece wears its player's name; mine says YOU.
   const tags = await UI.waitForFunction(() => {
     const t = [...document.querySelectorAll('.btoken .tok-tag')].map((e) => e.textContent);
     return t.length === 2 ? t : null;
   }, { timeout: 8000, polling: 200 }).then((h) => h.jsonValue()).catch(() => []);
   check('every piece wears a name tag: YOU on mine, the bot name on theirs', tags.length === 2 && tags.includes('YOU') && tags.some((t) => /^BOT /.test(t)), JSON.stringify(tags));
-  await UI.evaluate(() => document.querySelectorAll('.bspace')[6].click());
+  await UI.evaluate(() => document.querySelectorAll('.bspace')[9].click());
   await UI.waitForFunction(() => document.querySelector('#deedScrim').classList.contains('show') && document.querySelector('.deed-deals'), { timeout: 8000 });
   const deedUi = await UI.evaluate(() => {
     const deals = document.querySelector('.deed-deals');

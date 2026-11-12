@@ -311,7 +311,51 @@ const KP_ART = {
     '<path d="M4 30 Q24 30 44 16" stroke="#f5efe2" stroke-width="1.4" stroke-dasharray="4 4" fill="none"/>' +
     '<rect x="19" y="18.5" width="11" height="6.5" rx="1.6" fill="#f6b73c"/>' +
     '<rect x="21" y="20.1" width="3" height="2.4" fill="#cfeefb"/><rect x="25.4" y="20.1" width="3" height="2.4" fill="#cfeefb"/>' +
-    '<circle cx="22" cy="25.5" r="1.5" fill="#232323"/><circle cx="27.5" cy="25.5" r="1.5" fill="#232323"/>'
+    '<circle cx="22" cy="25.5" r="1.5" fill="#232323"/><circle cx="27.5" cy="25.5" r="1.5" fill="#232323"/>',
+  bridge:
+    '<path d="M4 28 H44" stroke="#8a8f99" stroke-width="5"/>' +
+    '<path d="M4 24 H44" stroke="#c5c8ce" stroke-width="3.2"/>' +
+    '<rect x="10" y="28" width="5" height="12" fill="#6b7078"/>' +
+    '<rect x="33" y="28" width="5" height="12" fill="#6b7078"/>' +
+    '<path d="M6 24 Q24 8 42 24" fill="none" stroke="#2b2018" stroke-width="2"/>' +
+    '<path d="M4 40 Q24 36 44 40" fill="none" stroke="#3f7fbf" stroke-width="3"/>' +
+    '<rect x="21" y="18" width="6" height="5" rx="1" fill="#f6b73c"/>',
+  market:
+    '<path d="M6 22 L16 8 L26 22Z" fill="#d64545"/>' +
+    '<path d="M22 24 L32 10 L42 24Z" fill="#e8a90c"/>' +
+    '<rect x="8" y="22" width="16" height="14" fill="#c47a2c"/>' +
+    '<rect x="24" y="24" width="16" height="12" fill="#2e9e5b"/>' +
+    '<circle cx="16" cy="30" r="2.2" fill="#f6b73c"/><circle cx="32" cy="31" r="2.2" fill="#d64545"/>',
+  buka:
+    '<rect x="12" y="30" width="24" height="8" rx="2" fill="#3d3d3d"/>' +
+    '<ellipse cx="24" cy="26" rx="13" ry="8" fill="#2b2018"/>' +
+    '<ellipse cx="24" cy="22" rx="11" ry="5" fill="#c45a12"/>' +
+    '<ellipse cx="24" cy="20" rx="8" ry="3.2" fill="#e8a90c"/>' +
+    '<path d="M30 20 L40 10" stroke="#2b2018" stroke-width="2.4"/>' +
+    '<circle cx="41" cy="9" r="2.6" fill="#8a5a33"/>' +
+    '<circle cx="20" cy="15" r="1.6" fill="#fff6e0"/><circle cx="26" cy="13" r="1.2" fill="#fff6e0"/>',
+  canopy:
+    '<path d="M6 24 L24 8 L42 24Z" fill="#d64545"/>' +
+    '<path d="M14 24 L24 8 L18 24Z" fill="#fff6e0"/>' +
+    '<path d="M28 24 L24 8 L34 24Z" fill="#fff6e0"/>' +
+    '<path d="M10 24 V40 M24 24 V40 M38 24 V40" stroke="#2b2018" stroke-width="2.4"/>' +
+    '<rect x="7" y="40" width="34" height="3" fill="#8a5a33"/>',
+  checkpoint:
+    '<rect x="8" y="12" width="8" height="26" fill="#1a3a6b"/>' +
+    '<rect x="6" y="8" width="12" height="6" fill="#d64545"/>' +
+    '<path d="M16 22 L40 14" stroke="#f6b73c" stroke-width="5"/>' +
+    '<path d="M16 22 L40 14" stroke="#1a3a6b" stroke-width="2"/>' +
+    '<circle cx="18" cy="38" r="5" fill="#d64545"/>' +
+    '<rect x="14" y="36" width="8" height="3" fill="#fff6e0"/>',
+  marina:
+    '<ellipse cx="24" cy="38" rx="18" ry="6" fill="#3f7fbf"/>' +
+    '<rect x="10" y="16" width="28" height="16" fill="#f0e6cf"/>' +
+    '<rect x="8" y="12" width="32" height="5" fill="#8a6d3b"/>' +
+    '<rect x="13" y="19" width="5" height="6" fill="#cfeefb"/>' +
+    '<rect x="21" y="19" width="5" height="6" fill="#cfeefb"/>' +
+    '<rect x="29" y="19" width="5" height="6" fill="#cfeefb"/>' +
+    '<path d="M8 32 H40" stroke="#7a4a22" stroke-width="3"/>' +
+    '<rect x="28" y="33" width="10" height="4" rx="1" fill="#f6b73c"/>'
 };
 function tileArt(id) {
   const body = KP_ART[id] || '';

@@ -261,8 +261,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .board {
   position: absolute; inset: var(--frame); display: grid;
-  grid-template-columns: 2.5fr repeat(4, 1.8fr) 2.5fr; /* board20 default; board.js sets the live layout */
-  grid-template-rows: 2.5fr repeat(4, 1.8fr) 2.5fr;
+  grid-template-columns: 2.5fr repeat(6, 1.8fr) 2.5fr; /* corners28 default; board.js sets the live layout */
+  grid-template-rows: 2.5fr repeat(6, 1.8fr) 2.5fr;
   transform-origin: 0 0; transition: transform 0.45s ease;
   border-radius: 10px; background: #fdf6df;
   box-shadow: inset 0 0 0 2px #20402c, inset 0 0 46px rgba(46, 107, 70, 0.22);

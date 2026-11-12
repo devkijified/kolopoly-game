@@ -20,6 +20,8 @@ const BUILD_FILES = [
   'public/index.html',
   'public/app.js',
   'public/style.css',
+  'public/premium.css',
+  'public/game-feel.js',
   'public/sw.js',
   'public/retention.js',
   'public/update.js',

@@ -19,15 +19,17 @@ function beat2d(name, data) {
   } catch (e) { /* sound is garnish */ }
 }
 
-// Board geometry comes from KP_DATA (board20: 5 steps per side, so a
-// 6 x 6 grid with 4 middle tiles per side). The track keeps the old
+// Board geometry comes from KP_DATA (corners28: 7 steps per side, so an
+// 8 x 8 grid with 6 middle tiles per side). The track keeps the old
 // 12.2 unit footprint, so every middle tile is 1.8 units wide (2.5 deep) (1.5 on
 // board28, 1.0 on the 40 board): the same board on the same phone, with
 // tiles more than twice the original width.
 // board20 (owner t114u): long rectangular tiles. Ring depth CORNER is 2.5
 // units (was 1.6), so a middle tile is 1.8 wide by 2.5 deep. Same as 3D.
 const BSIDE = D.SIDE, N = D.BOARD_SIZE, G = BSIDE + 1, MID = BSIDE - 1;
-const TOTALW = 12.2;
+// corners28: same tile sizes as board20, a longer 15.8 unit ring.
+const MID_TILE = 1.8;
+const TOTALW = 2 * 2.5 + (BSIDE - 1) * MID_TILE;
 const CORNER = 2.5, RING2 = 2 * CORNER;
 const MIDW = (TOTALW - RING2) / MID;
 const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? CORNER : MIDW));
@@ -45,7 +47,7 @@ function gridPos(i) {
 let L2D = { TW: TOTALW, TD: TOTALW, colX: COLW.slice(), rowD: COLW.slice() };
 function trackLayout2D(boxAspect) {
   let TW, TD;
-  if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect; }
+  if (boxAspect >= 1) { TW = TOTALW; TD = Math.min(TOTALW * boxAspect, TOTALW * 1.25); }
   else { TD = TOTALW; TW = TOTALW / boxAspect; }
   const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
@@ -85,12 +87,12 @@ function escTag(t) { return String(t).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;
 
 function bandColorFor(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
-    : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
+    : sp.type === 'station' || sp.type === 'bridge' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
     : i === 0 ? '#e8a90c' : i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
 // One scene per space identity. Group fallbacks first, hand picks on top.
-const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'house', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', darkblue: 'mansion' };
+const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'buka', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', olive: 'danfo', darkblue: 'mansion' };
 function artFor(i, sp) {
   if (sp.art) return sp.art;
   if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
@@ -190,7 +192,7 @@ const KPBoard = {
       '<div class="skyline">' + SKYLINE_SVG + '</div>' +
       '<div class="logo">KOLO<span class="gold">POLY</span></div>' +
       '<div class="meta" id="centerPhase"></div>' +
-      '<div class="pot-visual" id="centerPotVisual" data-tier="0"><div class="pot-notes"></div><div class="pot-bowl"><span></span></div></div>' +
+      '<div class="pot-visual" id="centerPotVisual" data-tier="0"><div class="pot-notes"></div><div class="pot-bowl"><i class="pot-level"></i><span></span></div></div>' +
       '<div class="pot" id="centerPot">Owambe Pot ₦0</div>' +
       '<div class="dice-row" id="centerDice"></div>' +
       '<div class="deck-row"><span class="deck-pile wahala">WAHALA</span><span class="deck-pile family">FAMILY MEETING</span></div>' +
@@ -249,15 +251,73 @@ const KPBoard = {
       el.classList.toggle('legal', !!this.legalSet && this.legalSet.has(i));
     }
     const centerPot = document.getElementById('centerPot');
-    if (centerPot) centerPot.textContent = 'Owambe Pot ' + D.fmtN(state.pot);
+    const potAmt = state.pot || 0;
+    const potMax = (state.owambeRules && state.owambeRules.auto) || 500000;
     const potVisual = document.getElementById('centerPotVisual');
+    if (centerPot) {
+      // Animated counter roll-up on the chip.
+      if (this._potShow == null) this._potShow = potAmt;
+      const target = potAmt;
+      if (Math.abs(this._potShow - target) > 1) {
+        this._potShow += (target - this._potShow) * 0.35;
+        centerPot.textContent = 'Owambe Pot ' + D.fmtN(Math.round(this._potShow));
+        // Keep ticking while we catch up: the next render is short.
+        if (Math.abs(this._potShow - target) > 1) {
+          const self = this;
+          const tickPot = function () {
+            try {
+              if (!self.lastState) return;
+              const want = (self.lastState.pot || 0);
+              self._potShow += (want - self._potShow) * 0.35;
+              if (Math.abs(self._potShow - want) <= 1) self._potShow = want;
+              const el = document.getElementById('centerPot');
+              if (el) el.textContent = 'Owambe Pot ' + D.fmtN(Math.round(self._potShow));
+              if (Math.abs(self._potShow - want) > 1) setTimeout(tickPot, 50);
+            } catch (e) {}
+          };
+          setTimeout(tickPot, 50);
+        }
+      } else {
+        this._potShow = target;
+        centerPot.textContent = 'Owambe Pot ' + D.fmtN(potAmt);
+      }
+    }
     if (potVisual) {
-      const pot = state.pot || 0;
+      const pot = potAmt;
+      const prev = Number(potVisual.dataset.amt || 0);
       const tier = pot <= 0 ? 0 : pot < 100000 ? 1 : pot < 300000 ? 2 : pot < 600000 ? 3 : pot < 1000000 ? 4 : 5;
       if (potVisual.dataset.tier !== String(tier)) {
         potVisual.dataset.tier = String(tier);
         potVisual.querySelector('.pot-notes').innerHTML = '<i></i>'.repeat(tier * 2);
       }
+      const level = potVisual.querySelector('.pot-level');
+      if (level) level.style.height = Math.min(100, Math.round(pot / potMax * 100)) + '%';
+      if (pot > prev) {
+        const n = Math.min(6, 1 + Math.floor((pot - prev) / 80000));
+        const bowl = potVisual.querySelector('.pot-bowl') || potVisual;
+        for (let k = 0; k < n; k++) {
+          const fly = document.createElement('div');
+          fly.className = 'pot-fly' + (k % 3 === 0 ? ' note' : '');
+          const ang = (Math.random() - 0.5) * 160;
+          fly.style.setProperty('--fx', Math.cos(ang * Math.PI / 180) * (50 + Math.random() * 40) + 'px');
+          fly.style.setProperty('--fy', (-30 - Math.random() * 50) + 'px');
+          fly.style.left = '50%'; fly.style.top = '8px';
+          fly.style.animationDelay = (k * 0.07) + 's';
+          potVisual.appendChild(fly);
+          setTimeout(() => fly.remove(), 800 + k * 70);
+        }
+        const steps = [0.25, 0.5, 0.75, 1];
+        for (const t of steps) if (prev / potMax < t && pot / potMax >= t) {
+          potVisual.setAttribute('data-flourish', String(t));
+          setTimeout(() => potVisual.removeAttribute('data-flourish'), 600);
+        }
+        try { if (window.KPBeat) window.KPBeat('potCoin', { n }); } catch (e) {}
+      } else if (pot < prev) {
+        potVisual.classList.add('pot-drain');
+        setTimeout(() => potVisual.classList.remove('pot-drain'), 500);
+        try { if (window.KPBeat) window.KPBeat('potDrain', {}); } catch (e) {}
+      }
+      potVisual.dataset.amt = String(pot);
     }
     const centerDice = document.getElementById('centerDice');
     if (centerDice) {
@@ -449,7 +509,7 @@ const KPBoard = {
       else if (sp.type === 'card') body = 'Draw a ' + (sp.deck === 'wahala' ? 'WAHALA' : 'FAMILY MEETING') + ' card and do wetin e talk.';
       return head + '</div></div>' +
         '<div class="deed-body">' +
-        (sp.meaning ? '<div class="meaning">' + esc(sp.meaning) + '</div>' : '') +
+        (sp.flavour ? '<div class="flavour">' + esc(sp.flavour) + '</div>' : '') + (sp.meaning ? '<div class="meaning">' + esc(sp.meaning) + '</div>' : '') + (D.perkLine && D.perkLine(sp) && D.perkLine(sp) !== sp.flavour && D.perkLine(sp) !== sp.meaning ? '<div class="perk-line">' + esc(D.perkLine(sp)) + '</div>' : '') +
         '<p class="lead" style="margin-top:10px;">' + body + '</p>' +
         '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>' +
         '</div></div>';
@@ -463,7 +523,9 @@ const KPBoard = {
       (pr && pr.b ? ' · ' + (pr.b >= 5 ? 'Mansion built' : pr.b + ' duplex(es) built') : '') + '</p></div>' +
       (owner ? '<div class="deed-stamp" style="--own:' + owner.color + '">OWNED</div>' : '') +
       '</div><div class="deed-body">';
+    if (sp.flavour) html += '<div class="flavour">' + esc(sp.flavour) + '</div>';
     if (sp.meaning) html += '<div class="meaning">' + esc(sp.meaning) + '</div>';
+    if (D.perkLine) { const pl = D.perkLine(sp); if (pl && pl !== sp.flavour && pl !== sp.meaning) html += '<div class="perk-line">' + esc(pl) + '</div>'; }
     html += '<div class="kv"><span>Price</span><b>' + D.fmtN(sp.price) + '</b></div>';
     html += '<div class="kv"><span>Mortgage value</span><b>' + D.fmtN(D.mortgageOf(sp.price)) + '</b></div>';
     html += '<div class="kv"><span>Lift mortgage for</span><b>' + D.fmtN(D.unmortgageCost(sp.price)) + '</b></div>';
