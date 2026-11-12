@@ -187,16 +187,15 @@ KP3D.probe = function () { return lastProbe; };
 // ---------------------------------------------------------------------------
 // Layout maths, mirrored from board.js (same grid, same slots)
 // ---------------------------------------------------------------------------
-// board20: geometry from KP_DATA. 5 steps per side, a 6 x 6 grid with 4
-// middle tiles per side. The ring keeps its 12.2 unit footprint, so a
-// middle tile is 1.8 units wide (1.5 on board28, 1.0 on the 40 board):
-// same camera fit, much bigger cards.
-// board20 (owner t114u): tiles are long rectangles, not squares. The ring
-// depth (CORNER, every tile's local depth) is 2.5 units (was 1.6), so a
-// middle tile is 1.8 wide by 2.5 deep: bigger, bolder and readable on a
-// phone. The centre field shrinks to 7.2 x 7.2 and its props still fit.
+// corners28: geometry from KP_DATA. 7 steps per side, an 8 x 8 grid with 6
+// middle tiles per side. Corners stay 2.5 and middle tiles stay 1.8, so
+// the ring grows from 12.2 to 15.8 and no tile shrinks. The perspective
+// camera re-fits the longer footprint. The centre field is 10.8 x 10.8.
 const SIDE = D.SIDE, NSP = D.BOARD_SIZE, G = SIDE + 1, MID = SIDE - 1;
-const TOTALW = 12.2;
+// corners28: same corner (2.5) and middle-tile (1.8) sizes as board20;
+// the ring grows from 12.2 to 15.8 so the eight new deeds do not shrink tiles.
+const MID_TILE = 1.8;
+const TOTALW = 2 * 2.5 + (SIDE - 1) * MID_TILE; // 15.8 when SIDE is 7
 const CORNER = 2.5, RING2 = 2 * CORNER;
 const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? CORNER : (TOTALW - RING2) / MID));
 function gridPos(i) {
@@ -224,23 +223,23 @@ function tileRect(i, L) {
 // columns (side tiles keep their width, near/far tiles gain breadth).
 // Tile local depth (lz) is CORNER in every layout, so only local width (lx)
 // varies, and tile face textures are generated for the tile's own lx.
-const CINE_EL_P = 46 * Math.PI / 180, CINE_EL_L = 42 * Math.PI / 180;
+const CINE_EL_P = 58 * Math.PI / 180, CINE_EL_L = 48 * Math.PI / 180;
 const CINE_SIN_P = Math.sin(CINE_EL_P), CINE_SIN_L = Math.sin(CINE_EL_L);
 function trackLayout(boxAspect, forceTall) {
   const camAspect = 1 / boxAspect;
-  // KP19: in a portrait window the layout ALWAYS takes the tall
-  // construction (near-plan factor, width fixed, depth from the box's
-  // own aspect), even when the stage box itself is squat: the board
-  // then fills its stage exactly at true proportions, the KP11 law at
-  // every portrait size. Landscape windows keep the two-branch rule.
-  // Premium pass: a true perspective camera at a low cinematic tilt
-  // (46 deg portrait, 42 deg landscape, 50 deg on the lite tier). The
-  // physical ring still uses this sine so a tall stage stays filled;
-  // _applyCam then fits a perspective frustum around that ring.
+  // corners28 in portrait: do not stretch the ring into a hallway just
+  // to fill a tall stage. Tile widths stay 1.8 (corners 2.5) so nothing
+  // shrinks; depth is capped at 1.25 x the width so the far row stays
+  // close enough to read (about 55-60 percent of the near-row scale).
+  // The fitted camera may leave a dark table margin above and below.
+  // Landscape still uses the two-branch rule and is uncapped.
   const sinEl = (forceTall || camAspect < 1.2) ? CINE_SIN_P : CINE_SIN_L;
   let TW, TD;
-  if (forceTall || boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect / sinEl; }
-  else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
+  if (forceTall || boxAspect >= 1) {
+    TW = TOTALW;
+    const raw = TOTALW * boxAspect / sinEl;
+    TD = Math.min(raw, TOTALW * 1.25);
+  } else { TD = TOTALW; TW = TOTALW * sinEl / boxAspect; }
   const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
   for (let k = 0; k < G; k++) {
@@ -265,11 +264,11 @@ function localToWorld(rect, th, lx, lz) {
 const TOKEN_SLOTS = [[-0.34, 0.08], [0.34, 0.08], [-0.34, 0.50], [0.34, 0.50], [0, -0.14], [0, 0.62]];
 function bandColorFor(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
-    : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
+    : sp.type === 'station' || sp.type === 'bridge' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
     : i === 0 || i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
-const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'house', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', darkblue: 'mansion' };
+const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'buka', orange: 'towers', red: 'gate', yellow: 'towers', olive: 'danfo', green: 'mansion', darkblue: 'mansion' };
 function artFor(i, sp) {
   if (sp.art) return sp.art === 'interchange' ? 'danfo' : sp.art;
   if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
@@ -477,7 +476,52 @@ function emblem(x, id, cx, cy, s, accent) {
       x.fillStyle = '#ffe9a8'; for (let r2 = 0; r2 < 4; r2++) for (let c2 = 0; c2 < 2; c2++) x.fillRect((-26 + c2 * 8) * u, (-22 + r2 * 12) * u, 5 * u, 6 * u);
       for (let r2 = 0; r2 < 5; r2++) x.fillRect(20 * u, (-28 + r2 * 12) * u, 5 * u, 6 * u); break;
     }
-    default: box(-20, -14, 40, 30, accent || GOLD);
+    case 'bridge': {
+      // Third Mainland: two piers and a long concrete span over water.
+      box(-40, 4, 80, 8, '#8a8f99'); box(-40, -2, 80, 6, '#c5c8ce');
+      box(-28, 12, 8, 22, '#6b7078'); box(20, 12, 8, 22, '#6b7078');
+      x.fillStyle = '#3f7fbf'; x.beginPath(); x.ellipse(0, 36 * u, 40 * u, 8 * u, 0, 0, 7); x.fill();
+      line(-36, -2, -10, -22, INK, 3); line(36, -2, 10, -22, INK, 3); line(-10, -22, 10, -22, INK, 3);
+      box(-6, -8, 6, 6, '#f6b73c'); break;
+    }
+    case 'market': {
+      box(-34, 6, 28, 22, '#c47a2c'); box(6, 8, 28, 20, '#2e9e5b');
+      x.fillStyle = '#d64545'; x.beginPath(); x.moveTo(-38 * u, 6 * u); x.lineTo(-20 * u, -18 * u); x.lineTo(-2 * u, 6 * u); x.closePath(); x.fill();
+      x.fillStyle = '#e8a90c'; x.beginPath(); x.moveTo(2 * u, 8 * u); x.lineTo(20 * u, -16 * u); x.lineTo(38 * u, 8 * u); x.closePath(); x.fill();
+      circ(-20, 18, 4, GOLD); circ(20, 20, 4, '#d63a2f'); break;
+    }
+    case 'buka': {
+      // Mama Put: a bubbling pot on a coal stove, ladle up.
+      box(-22, 16, 44, 14, '#3d3d3d'); circ(0, 8, 22, '#2b2018');
+      x.beginPath(); x.ellipse(0, 4 * u, 24 * u, 10 * u, 0, 0, 7); x.fillStyle = '#c45a12'; x.fill();
+      x.beginPath(); x.ellipse(0, 0, 18 * u, 7 * u, 0, 0, 7); x.fillStyle = '#e8a90c'; x.fill();
+      line(16, -2, 32, -22, INK, 4); circ(34, -24, 5, '#8a5a33');
+      circ(-8, -10, 3, '#fff6e0'); circ(4, -14, 2.4, '#fff6e0'); break;
+    }
+    case 'canopy': {
+      // Party Rentals: a striped owambe tent on poles.
+      x.fillStyle = '#d64545'; x.beginPath(); x.moveTo(-38 * u, 4 * u); x.lineTo(0, -28 * u); x.lineTo(38 * u, 4 * u); x.closePath(); x.fill();
+      x.fillStyle = '#fff6e0'; x.beginPath(); x.moveTo(-20 * u, 4 * u); x.lineTo(0, -28 * u); x.lineTo(-6 * u, 4 * u); x.closePath(); x.fill();
+      x.beginPath(); x.moveTo(8 * u, 4 * u); x.lineTo(0, -28 * u); x.lineTo(22 * u, 4 * u); x.closePath(); x.fill();
+      line(-28, 4, -28, 32, INK, 4); line(28, 4, 28, 32, INK, 4); line(0, 4, 0, 32, INK, 3);
+      box(-36, 32, 72, 5, '#8a5a33'); break;
+    }
+    case 'checkpoint': {
+      // Police Checkpoint: a boom barrier and a striped drum.
+      box(-32, -8, 12, 40, '#1a3a6b'); box(-34, -16, 16, 10, '#d64545');
+      line(-18, 4, 34, -10, GOLD, 7); line(-18, 4, 34, -10, '#1a3a6b', 3);
+      box(28, -4, 10, 8, '#d64545'); circ(-8, 30, 8, '#d64545');
+      x.fillStyle = '#fff6e0'; x.fillRect(-14 * u, 26 * u, 12 * u, 4 * u); break;
+    }
+    case 'marina': {
+      // The Marina: lagoon, a pier, and a white colonial front.
+      x.fillStyle = '#3f7fbf'; x.beginPath(); x.ellipse(0, 26 * u, 40 * u, 14 * u, 0, 0, 7); x.fill();
+      box(-28, -6, 56, 22, '#f0e6cf'); box(-32, -12, 64, 8, '#8a6d3b');
+      x.fillStyle = '#cfeefb'; for (let k = 0; k < 4; k++) x.fillRect((-22 + k * 14) * u, 0, 8 * u, 10 * u);
+      line(-36, 18, 36, 18, '#7a4a22', 5);
+      box(-30, 18, 18, 5, '#e8dcc2'); box(8, 20, 16, 6, '#f6b73c'); break;
+    }
+        default: box(-20, -14, 40, 30, accent || GOLD);
   }
   x.restore();
 }
@@ -1115,6 +1159,46 @@ function textSprite(text, opts) {
   return sp;
 }
 
+// Far-row name + price chip. sizeAttenuation is off so the type holds a
+// readable 13px+ size at 390px, even on the north edge. Two lines keep
+// the short name and the price from fighting for one row.
+function compactNaira(n) {
+  n = Math.round(Number(n) || 0);
+  if (Math.abs(n) >= 1000) return '₦' + Math.round(n / 1000) + 'k';
+  return D.fmtN(n);
+}
+function farChipSprite(name, price) {
+  const c = cnv(384, 140), x = c.getContext('2d');
+  x.fillStyle = 'rgba(16,12,8,0.94)'; rr(x, 8, 12, 368, 116, 22); x.fill();
+  x.strokeStyle = 'rgba(255,200,87,0.85)'; x.lineWidth = 5; rr(x, 8, 12, 368, 116, 22); x.stroke();
+  x.fillStyle = '#fff6e0'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  let label = (name || '').toUpperCase();
+  // Keep long far-row titles to a chip-friendly word so 8 labels fit
+  // across 390px without covering each other.
+  if (label.indexOf('KIRIKIRI') >= 0) label = 'KIRIKIRI';
+  else if (label.indexOf('AIRPORT') >= 0 || label === 'MMIA AIRPORT') label = 'MMIA';
+  else if (label === 'PARTY RENTALS') label = 'PARTY RENT.';
+  const hasPrice = !!price;
+  fitFont(x, label, 348, 54, '900', '"Aeonik Pro", sans-serif');
+  x.fillText(label, 192, hasPrice ? 50 : 70);
+  if (hasPrice) {
+    x.fillStyle = '#ffd873';
+    fitFont(x, price, 348, 38, '800', '"Figtree", sans-serif');
+    x.fillText(price, 192, 100);
+  }
+  const mat = new THREE.SpriteMaterial({ map: texOf(c), transparent: true, depthWrite: false, depthTest: false, sizeAttenuation: false });
+  const sp = new THREE.Sprite(mat);
+  // sizeAttenuation is off, so scale is multiplied by -z in the sprite
+  // shader and becomes a near-constant screen size. On a 390x574 board
+  // canvas at fov 42 these values land at ~70x38 CSS pixels — 15px name
+  // and 13px price — small enough that a two-row stagger of the 8
+  // north-edge chips does not collide.
+  sp.scale.set(0.091, 0.051, 1);
+  sp.renderOrder = 26;
+  return sp;
+}
+
+
 // ---------------------------------------------------------------------------
 // Centre floor texture (wordmark, skyline strip, pot and deck labels)
 // ---------------------------------------------------------------------------
@@ -1248,7 +1332,7 @@ function centreTexture(innerW, innerD) {
 // flash (Lesson 8) rings the tile in its own band colour.
 function bandColorHex(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
-    : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
+    : sp.type === 'station' || sp.type === 'bridge' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
     : i === 0 ? '#e8a90c' : i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
@@ -1281,9 +1365,9 @@ class GameScene {
     // far edge get billboard labels so they stay legible at 360px.
     // Lite keeps perspective but sits a little higher for sharpness.
     const lite = TIER && (TIER.shadowSize || 0) < 512;
-    this.camFov = lite ? 36 : 38;
+    this.camFov = lite ? 40 : 42;
     this.camera = new THREE.PerspectiveCamera(this.camFov, 1, 0.15, 220);
-    this.camDir = new THREE.Vector3(0, Math.sin(lite ? 50 * Math.PI / 180 : CINE_EL_P), Math.cos(lite ? 50 * Math.PI / 180 : CINE_EL_P));
+    this.camDir = new THREE.Vector3(0, Math.sin(lite ? 58 * Math.PI / 180 : CINE_EL_P), Math.cos(lite ? 58 * Math.PI / 180 : CINE_EL_P));
     this.zoomK = 1; // 1 = fitted full board; <1 = tighter (follow, cine, countdown)
     this.camDist = 22;
     this.autoFollowT = 0;
@@ -1302,12 +1386,12 @@ class GameScene {
     // shadow side from going muddy under ACES.
     this.hemi = new THREE.HemisphereLight(0xcfe2ff, 0x4a3420, 0.55); s.add(this.hemi);
     this.key = new THREE.DirectionalLight(0xffc98a, 2.35);
-    this.key.position.set(-9, 9.5, 6.5);
+    this.key.position.set(-12, 11, 8);
     this.key.castShadow = TIER.shadowSize > 0;
     this.key.shadow.mapSize.set(TIER.shadowSize || 1024, TIER.shadowSize || 1024);
-    this.key.shadow.camera.left = -10; this.key.shadow.camera.right = 10;
-    this.key.shadow.camera.top = 10; this.key.shadow.camera.bottom = -10;
-    this.key.shadow.camera.near = 2; this.key.shadow.camera.far = 34;
+    this.key.shadow.camera.left = -14; this.key.shadow.camera.right = 14;
+    this.key.shadow.camera.top = 14; this.key.shadow.camera.bottom = -14;
+    this.key.shadow.camera.near = 2; this.key.shadow.camera.far = 44;
     this.key.shadow.bias = -0.0006;
     this.key.shadow.normalBias = 0.02;
     this.key.shadow.radius = 3;
@@ -1387,10 +1471,13 @@ class GameScene {
         grp.updateMatrixWorld(true);
         top.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), -0.28);
         const sp = D.SPACES[i];
-        const lb = (sp.short || sp.name) + (sp.price ? '  ' + D.fmtN(sp.price) : (sp.amount ? '  ' + D.fmtN(sp.amount) : ''));
-        const spr = textSprite(lb, { size: 56, bg: 'rgba(18,14,10,0.9)', fg: '#fff6e0', rim: 'rgba(255,200,87,0.7)' });
-        spr.scale.set(2.6, 0.62, 1); spr.position.set(0, 0.92, 0);
-        spr.material.depthTest = false; spr.renderOrder = 25;
+        const price = sp.price ? compactNaira(sp.price) : (sp.amount ? compactNaira(sp.amount) : '');
+        const spr = farChipSprite(sp.short || sp.name, price);
+        // Two-row stagger: neighbours go high / low so 38px chips clear
+        // each other. The high row sits in the table margin above the
+        // far edge, not over the centre field.
+        const stagger = (i - 2 * SIDE) % 2 === 0 ? 0.68 : 2.72;
+        spr.position.set(0, stagger, 0);
         grp.add(spr);
       }
       const t = { i, grp, topMat, slabMat, frame, frameMat: fm, bld, pledge, sig: '', bSig: -1, rect, th, lx, lz, slab, top, pick, bars };
@@ -1505,12 +1592,15 @@ class GameScene {
     // Owambe pot
     const potPts = [];
     [[0.03, 0], [0.30, 0.01], [0.44, 0.10], [0.50, 0.26], [0.47, 0.38], [0.50, 0.42]].forEach((p) => potPts.push(new THREE.Vector2(p[0], p[1])));
-    const potGrp = new THREE.Group(); potGrp.position.set(0, 0, 2.35); s.add(potGrp); this.potGrp = potGrp;
-    const pot = new THREE.Mesh(new THREE.LatheGeometry(potPts, 22), new THREE.MeshStandardMaterial({ color: 0x9a6a24, roughness: 0.38, metalness: 0.5, side: THREE.DoubleSide }));
+    const potGrp = new THREE.Group(); potGrp.position.set(0, 0, 2.55); potGrp.scale.setScalar(1.72); s.add(potGrp); this.potGrp = potGrp;
+    const pot = new THREE.Mesh(new THREE.LatheGeometry(potPts, 28), new THREE.MeshStandardMaterial({ color: 0x9a6a24, roughness: 0.38, metalness: 0.5, side: THREE.DoubleSide }));
     pot.position.set(0, 0.02, 0); pot.castShadow = true; potGrp.add(pot); this.potMesh = pot;
-    // Live fill: a coin-pile cylinder that grows with the pot amount.
-    const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 1, 12), new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.45, metalness: 0.55, emissive: 0x4a3000, emissiveIntensity: 0.15 }));
+    // Live fill: a coin-pile cylinder that grows with the pot amount, plus
+    // a real coin/note heap that is already visible at idle zoom.
+    const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 1, 14), new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.45, metalness: 0.55, emissive: 0x4a3000, emissiveIntensity: 0.15 }));
     pile.position.set(0, 0.06, 0); pile.scale.y = 0.08; potGrp.add(pile); this.potPile = pile;
+    this.potHeap = new THREE.Group(); potGrp.add(this.potHeap);
+    this._buildPotHeap();
     if ((TIER && TIER.shadowSize || 0) >= 1024) {
       const gc = document.createElement('canvas'); gc.width = gc.height = 128;
       const gx = gc.getContext('2d'); const gr = gx.createRadialGradient(64, 64, 0, 64, 64, 64);
@@ -1520,9 +1610,9 @@ class GameScene {
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: gt, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.35 }));
       halo.scale.set(1.9, 1.9, 1); halo.position.set(0, 0.35, 0); potGrp.add(halo); this.potHalo = halo;
     }
-    this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.30, 0); potGrp.add(this.potNotes);
+    this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.34, 0); potGrp.add(this.potNotes);
     this.potTier = -1;
-    this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 0.42, 2.95); s.add(this.potLabel);
+    this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 0.95, 3.35); s.add(this.potLabel);
     this.potLabelHome = this.potLabel.position.clone();
     // decks and discards
     this.deckPos = { wahala: new THREE.Vector3(-2.95, 0.02, -0.9), family: new THREE.Vector3(2.95, 0.02, -0.9) };
@@ -1570,6 +1660,41 @@ class GameScene {
     }
   }
 
+  _buildPotHeap() {
+    if (!this.potHeap) return;
+    this.potHeap.clear();
+    const coinMat = new THREE.MeshStandardMaterial({ color: 0xe0b025, roughness: 0.35, metalness: 0.7, emissive: 0x5a3a00, emissiveIntensity: 0.18 });
+    const coinGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.018, 12);
+    const noteMat = new THREE.MeshStandardMaterial({ map: noteTexture(), roughness: 0.7 });
+    // A resting heap is always on the pot, even at ₦0, so idle zoom shows
+    // real coins and notes sitting in the bowl, not a bare bronze lip.
+    const coins = 22;
+    for (let k = 0; k < coins; k++) {
+      const ang = k * 1.7, rad = 0.08 + (k % 7) * 0.04;
+      const y = 0.28 + Math.floor(k / 7) * 0.03 + (k % 3) * 0.008;
+      const m = new THREE.Mesh(coinGeo, coinMat);
+      m.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
+      m.rotation.x = Math.PI / 2 + (k % 5 - 2) * 0.08;
+      m.rotation.z = (k % 4) * 0.3;
+      m.castShadow = true;
+      this.potHeap.add(m);
+    }
+    for (let k = 0; k < 6; k++) {
+      const n = bx(0.28, 0.014, 0.14, noteMat, (k % 3 - 1) * 0.11, 0.34 + k * 0.018, ((k * 3) % 5 - 2) * 0.07);
+      n.rotation.y = k * 0.5 - 0.6;
+      n.rotation.z = (k % 2 ? 0.12 : -0.1);
+      this.potHeap.add(n);
+    }
+    this._heapCoinGeo = coinGeo;
+  }
+  _syncPotHeap(fill) {
+    if (!this.potHeap) return;
+    const n = this.potHeap.children.length;
+    const show = Math.max(8, Math.min(n, 8 + Math.round(fill * (n - 8))));
+    for (let k = 0; k < n; k++) this.potHeap.children[k].visible = k < show;
+    this.potHeap.scale.setScalar(0.85 + Math.min(0.55, fill * 0.55));
+    this.potHeap.position.y = fill * 0.22;
+  }
   setPot(pot, state) {
     pot = Math.max(0, Math.round(pot || 0));
     const max = (state && state.owambeRules && state.owambeRules.auto) || 500000;
@@ -1591,7 +1716,7 @@ class GameScene {
     if (tier !== this.potTier) {
       this.potTier = tier;
       this.potNotes.clear();
-      const n = ((TIER.shadowSize || 0) < 512) ? Math.min(4, tier) : tier * 3;
+      const n = ((TIER.shadowSize || 0) < 512) ? Math.max(3, Math.min(8, tier + 3)) : Math.max(6, tier * 4);
       for (let k = 0; k < n; k++) {
         const note = bx(0.36, 0.018, 0.18, new THREE.MeshStandardMaterial({ map: noteTexture(), roughness: 0.7 }), (Math.random() - 0.5) * 0.4, 0.04 + k * 0.02, (Math.random() - 0.5) * 0.3);
         note.rotation.y = Math.random() * 1.2 - 0.6;
@@ -1968,15 +2093,39 @@ class GameScene {
       this._cineOwn = own; this._cineJail = jail; this._cineOw = ow;
     } catch (e) { /* a camera flourish never blocks the sync */ }
   }
-  cineAt(pos) {
+  cineAt(pos, zoom, hold) {
     this.cineLook = new THREE.Vector3(pos.x * 0.6, 0, pos.z * 0.6);
-    this.cineT = 1.6;
-    motion(2.2);
+    this.cineZoom = zoom || 0;
+    this.cineT = hold || 1.6;
+    motion(Math.max(2.2, (hold || 1.6) + 0.6));
+  }
+  closeUp(pos, zoom, hold) {
+    // True inspect push-in: look at the thing itself and fill the
+    // frame with it. Used for deed close-ups; regular cineAt stays a
+    // milder 0.66 nudge so a buy does not leave the rest of the board.
+    this.cineLook = new THREE.Vector3(pos.x, 0.05, pos.z);
+    this.cineZoom = zoom || 0.36;
+    this.cineT = hold || 2.4;
+    motion((hold || 2.4) + 0.6);
+  }
+  snapIdle() {
+    this.cineT = 0;
+    this.cineLook = null;
+    this.cineZoom = 0;
+    this.countdownZoom = 0;
+    this.viewFollow = false;
+    this.autoFollowT = 0;
+    this.zoomK = 1;
+    this.camDir.copy(this.fullDir(portraitWindow() ? 1 : (this.camera && this.camera.aspect) || 1));
+    const L = this.layout || trackLayout(1);
+    this.lookWant.set(0, 0, -L.TD * 0.08);
+    if (this.look) this.look.copy(this.lookWant);
+    motion(0.5);
   }
   fullDir(aspect) {
     const lite = TIER && (TIER.shadowSize || 0) < 512;
-    const elP = lite ? 50 * Math.PI / 180 : CINE_EL_P;
-    const elL = lite ? 46 * Math.PI / 180 : CINE_EL_L;
+    const elP = lite ? 58 * Math.PI / 180 : CINE_EL_P;
+    const elL = lite ? 50 * Math.PI / 180 : CINE_EL_L;
     if (aspect < 1.2) return new THREE.Vector3(0, Math.sin(elP), Math.cos(elP));
     return new THREE.Vector3(0, Math.sin(elL), Math.cos(elL));
   }
@@ -1985,7 +2134,9 @@ class GameScene {
   _fitPerspDist(cam, dir, look, L, zoomK) {
     const corners = [];
     for (const x of [-L.TW / 2, L.TW / 2]) for (const z of [-L.TD / 2, L.TD / 2]) for (const y of [0, 0.45]) corners.push(new THREE.Vector3(x, y, z));
-    const target = 0.96 / Math.max(0.22, zoomK);
+    // 0.98 fills the stage a little more tightly so the far row reads;
+    // look is already applied, so a modest far-row bias stays inside the fit.
+    const target = 0.98 / Math.max(0.22, zoomK);
     const measure = (dist) => {
       cam.position.copy(dir).multiplyScalar(dist).add(look);
       cam.lookAt(look);
@@ -2029,7 +2180,7 @@ class GameScene {
     const aspect = el && el.clientWidth && el.clientHeight ? el.clientWidth / el.clientHeight : (L.TW / Math.max(0.1, L.TD));
     if (cam.isPerspectiveCamera) {
       cam.aspect = aspect;
-      cam.fov = this.camFov || 38;
+      cam.fov = this.camFov || 42;
       cam.updateProjectionMatrix();
       const dist = this._fitPerspDist(cam, d, look, L, this.zoomK);
       cam.position.copy(d).multiplyScalar(dist).add(look);
@@ -2056,6 +2207,7 @@ class GameScene {
       this.potPile.material.emissiveIntensity = 0.12 + this.potFill * 0.55;
       this.potPile.visible = this.potFill > 0.02;
     }
+    this._syncPotHeap(this.potFill);
     if (this.potHalo) this.potHalo.material.opacity = 0.22 + this.potFill * 0.55 + (this.potSpark > 0 ? 0.25 : 0);
     if (this.potGrp) {
       if (this.potWobble > 0) {
@@ -2264,7 +2416,7 @@ class GameScene {
       // Kirikiri, the Owambe pot), then the glide back to the board.
       this.cineT = Math.max(0, this.cineT - dt);
       wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
-      wantZoom = this.cineT > 0.35 ? 0.66 : 1;
+      wantZoom = this.cineT > 0.35 ? (this.cineZoom || 0.66) : 1;
       if (this.cineT > 0.35 && this.cineLook) this.lookWant.copy(this.cineLook);
       damp = 3.2;
     } else if (this.countdownZoom > 0) {
@@ -2297,9 +2449,12 @@ class GameScene {
         if (this.autoFollowT <= 0) motion(2);
       }
     } else {
-      // Full board: a fitted perspective frustum (see _applyCam),
-      // centred, every corner on stage.
+      // Full board: a fitted perspective frustum (see _applyCam).
+      // A modest look toward the far row (negative z) so Banana and the
+      // new marina-side deeds read; the fit includes this look.
       wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1)); wantZoom = 1;
+      const L0 = this.layout;
+      if (L0) this.lookWant.set(0, 0, -L0.TD * 0.08);
       if (this.viewKick > 0) damp = 11;
     }
     if (this.viewKick > 0) this.viewKick = Math.max(0, this.viewKick - dt);
@@ -2790,6 +2945,22 @@ function loop(ts) {
 // Public API used by app.js hooks and the board patches below
 // ---------------------------------------------------------------------------
 KP3D.showDeedCard = function (i) { if (SCENES.game) { SCENES.game.showDeed(i); motion(1.4); } };
+KP3D.cineAtSpace = function (i) { if (SCENES.game && SCENES.game.worldFor) SCENES.game.cineAt(SCENES.game.worldFor(i, 0)); };
+KP3D.closeUpSpace = function (i, zoom, hold) {
+  const g = SCENES.game;
+  if (!g || !g.tiles || !g.tiles[i] || !g.closeUp) return false;
+  const pos = g.worldFor ? g.worldFor(i, 0) : g.tiles[i].grp.position.clone();
+  g.closeUp(pos, zoom || 0.36, hold || 2.6);
+  return true;
+};
+KP3D.closeUpPot = function () {
+  const g = SCENES.game;
+  if (!g || !g.closeUp) return false;
+  const pos = (g.potGrp && g.potGrp.position.clone()) || new THREE.Vector3(0, 0.2, 0);
+  g.closeUp(pos, 0.42, 3.2);
+  return true;
+};
+KP3D.snapIdle = function () { if (SCENES.game && SCENES.game.snapIdle) SCENES.game.snapIdle(); };
 KP3D.hideDeedCard = function () { if (SCENES.game) { SCENES.game.hideDeed(); motion(0.8); } };
 KP3D.onCardDrawn = function (card) {
   const g = SCENES.game; if (!g) return;

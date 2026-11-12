@@ -19,15 +19,17 @@ function beat2d(name, data) {
   } catch (e) { /* sound is garnish */ }
 }
 
-// Board geometry comes from KP_DATA (board20: 5 steps per side, so a
-// 6 x 6 grid with 4 middle tiles per side). The track keeps the old
+// Board geometry comes from KP_DATA (corners28: 7 steps per side, so an
+// 8 x 8 grid with 6 middle tiles per side). The track keeps the old
 // 12.2 unit footprint, so every middle tile is 1.8 units wide (2.5 deep) (1.5 on
 // board28, 1.0 on the 40 board): the same board on the same phone, with
 // tiles more than twice the original width.
 // board20 (owner t114u): long rectangular tiles. Ring depth CORNER is 2.5
 // units (was 1.6), so a middle tile is 1.8 wide by 2.5 deep. Same as 3D.
 const BSIDE = D.SIDE, N = D.BOARD_SIZE, G = BSIDE + 1, MID = BSIDE - 1;
-const TOTALW = 12.2;
+// corners28: same tile sizes as board20, a longer 15.8 unit ring.
+const MID_TILE = 1.8;
+const TOTALW = 2 * 2.5 + (BSIDE - 1) * MID_TILE;
 const CORNER = 2.5, RING2 = 2 * CORNER;
 const MIDW = (TOTALW - RING2) / MID;
 const COLW = Array.from({ length: G }, (_, k) => (k === 0 || k === G - 1 ? CORNER : MIDW));
@@ -45,7 +47,7 @@ function gridPos(i) {
 let L2D = { TW: TOTALW, TD: TOTALW, colX: COLW.slice(), rowD: COLW.slice() };
 function trackLayout2D(boxAspect) {
   let TW, TD;
-  if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect; }
+  if (boxAspect >= 1) { TW = TOTALW; TD = Math.min(TOTALW * boxAspect, TOTALW * 1.25); }
   else { TD = TOTALW; TW = TOTALW / boxAspect; }
   const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
@@ -85,12 +87,12 @@ function escTag(t) { return String(t).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;
 
 function bandColorFor(i, sp) {
   return sp.type === 'street' ? D.GROUPS[sp.group].color
-    : sp.type === 'station' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
+    : sp.type === 'station' || sp.type === 'bridge' ? '#3d3d3d' : sp.type === 'utility' ? '#3f7fbf'
     : i === 0 ? '#e8a90c' : i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
 // One scene per space identity. Group fallbacks first, hand picks on top.
-const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'house', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', darkblue: 'mansion' };
+const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'buka', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', olive: 'danfo', darkblue: 'mansion' };
 function artFor(i, sp) {
   if (sp.art) return sp.art;
   if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
@@ -507,7 +509,7 @@ const KPBoard = {
       else if (sp.type === 'card') body = 'Draw a ' + (sp.deck === 'wahala' ? 'WAHALA' : 'FAMILY MEETING') + ' card and do wetin e talk.';
       return head + '</div></div>' +
         '<div class="deed-body">' +
-        (sp.meaning ? '<div class="meaning">' + esc(sp.meaning) + '</div>' : '') +
+        (sp.flavour ? '<div class="flavour">' + esc(sp.flavour) + '</div>' : '') + (sp.meaning ? '<div class="meaning">' + esc(sp.meaning) + '</div>' : '') + (D.perkLine && D.perkLine(sp) && D.perkLine(sp) !== sp.flavour && D.perkLine(sp) !== sp.meaning ? '<div class="perk-line">' + esc(D.perkLine(sp)) + '</div>' : '') +
         '<p class="lead" style="margin-top:10px;">' + body + '</p>' +
         '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>' +
         '</div></div>';
@@ -521,7 +523,9 @@ const KPBoard = {
       (pr && pr.b ? ' · ' + (pr.b >= 5 ? 'Mansion built' : pr.b + ' duplex(es) built') : '') + '</p></div>' +
       (owner ? '<div class="deed-stamp" style="--own:' + owner.color + '">OWNED</div>' : '') +
       '</div><div class="deed-body">';
+    if (sp.flavour) html += '<div class="flavour">' + esc(sp.flavour) + '</div>';
     if (sp.meaning) html += '<div class="meaning">' + esc(sp.meaning) + '</div>';
+    if (D.perkLine) { const pl = D.perkLine(sp); if (pl && pl !== sp.flavour && pl !== sp.meaning) html += '<div class="perk-line">' + esc(pl) + '</div>'; }
     html += '<div class="kv"><span>Price</span><b>' + D.fmtN(sp.price) + '</b></div>';
     html += '<div class="kv"><span>Mortgage value</span><b>' + D.fmtN(D.mortgageOf(sp.price)) + '</b></div>';
     html += '<div class="kv"><span>Lift mortgage for</span><b>' + D.fmtN(D.unmortgageCost(sp.price)) + '</b></div>';

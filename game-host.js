@@ -125,6 +125,7 @@ function moveMoney(room, from, to, amount, text, opts) {
   if (!to && opts.toPot) {
     room.pot += amount;
     try { retention.onPot(room); } catch (e) { /* a whisper never blocks a payment */ }
+    potCut(room, amount);
   }
   if (from && opts.stat === 'fine') from.finesPaid.push(amount);
   if (to && opts.stat === 'rent') { to.lastRentReceived = amount; to.rentsReceived += amount; }
@@ -169,6 +170,9 @@ function rentFor(room, i, diceSum, rentMult) {
   if (!p || p.owner == null || p.mortgaged) return 0;
   const owner = room.players.find((x) => x.id === p.owner);
   if (!owner || owner.bankrupt) return 0;
+  if (sp.type === 'bridge') {
+    return (sp.perk && sp.perk.amount) || 8000;
+  }
   if (sp.type === 'station') {
     const count = D.STATIONS.filter((s) => room.props[s] && room.props[s].owner === p.owner).length;
     return D.STATION_RENT[Math.max(0, Math.min(D.STATION_RENT.length, count) - 1)] * (rentMult || 1);
@@ -459,7 +463,7 @@ function newRoom(code, isPublic, mode, settings) {
     code, isPublic: !!isPublic, mode: mode || 'online', settings,
     players: [], spectators: new Set(), hostId: null,
     status: 'lobby', paused: false,
-    props, duplexSupply: D.DUPLEX_SUPPLY, mansionSupply: D.MANSION_SUPPLY, pot: 0, boardSize: D.BOARD_SIZE,
+    props, duplexSupply: D.DUPLEX_SUPPLY, mansionSupply: D.MANSION_SUPPLY, pot: 0, boardSize: D.BOARD_SIZE, boardGen: 'corners28',
     decks: { wahala: shuffle(D.WAHALA.map((c) => c.id)), family: shuffle(D.FAMILY.map((c) => c.id)) },
     discard: { wahala: [], family: [] },
     turnOrder: [], turnIdx: 0, turnPlayerId: null,
@@ -642,6 +646,11 @@ function salary(room, player, exactLanding) {
     player.salaryNote2 = true;
     text += ' Your salary no reduce for real life o. Na price dey run, salary dey stand.';
   }
+  const boost = marinaBoost(room, player);
+  if (boost > 0) {
+    amount += boost;
+    text = 'Salary alert don enter: ' + D.fmtN(amount) + ' for ' + player.name + ' (The Marina boost ' + D.fmtN(boost) + ').';
+  }
   moveMoney(room, null, player, amount, text, { stat: 'salary' });
 }
 // Move forward n spaces. Passing START pays salary. Returns true if wrapped.
@@ -656,9 +665,75 @@ function moveForward(room, player, n, opts) {
     noteLap(room, player);
     if (!opts.noSalary) salary(room, player, player.position === 0);
   }
+  if (!opts.noPassPerk) collectPassTolls(room, player, from, n);
   return wrapped;
 }
+
+// Signature perks on the eight new corner deeds (docs/BOARD28-CORNERS.md).
+// A pass toll or a settle never opens a debt window: if the payer cannot
+// cover it, they pay what they have (or skip), so a hop or a Kirikiri
+// door is never blocked by a garnish fee.
+function ownerOfPerk(room, kind) {
+  for (let i = 0; i < D.SPACES.length; i++) {
+    const sp = D.SPACES[i];
+    if (!sp.perk || sp.perk.kind !== kind) continue;
+    const pr = room.props[i];
+    if (!pr || pr.owner == null || pr.mortgaged) continue;
+    const o = room.players.find((p) => p.id === pr.owner);
+    if (o && !o.bankrupt) return { owner: o, space: i, sp: sp, perk: sp.perk };
+  }
+  return null;
+}
+function payPerk(room, from, to, amount, text, spaceName) {
+  if (!from || !to || from.id === to.id || amount <= 0) return;
+  const pay = Math.min(amount, Math.max(0, from.cash));
+  if (pay <= 0) return;
+  moveMoney(room, from, to, pay, text, { stat: 'fine', spaceName: spaceName });
+}
+function collectPassTolls(room, player, from, n) {
+  if (!player || n <= 0) return;
+  for (let k = 1; k < n; k++) {
+    const i = (from + k) % D.BOARD_SIZE;
+    const sp = D.SPACES[i];
+    if (!sp || !sp.perk || sp.perk.kind !== 'passToll') continue;
+    const pr = room.props[i];
+    if (!pr || pr.owner == null || pr.mortgaged) continue;
+    const owner = room.players.find((p) => p.id === pr.owner);
+    if (!owner || owner.bankrupt || owner.id === player.id) continue;
+    payPerk(room, player, owner, sp.perk.amount, player.name + ' pay ' + D.fmtN(sp.perk.amount) + ' ' + sp.short + ' toll to ' + owner.name + '.', sp.name);
+  }
+}
+function marinaBoost(room, player) {
+  const hit = ownerOfPerk(room, 'salaryBoost');
+  if (!hit || hit.owner.id !== player.id) return 0;
+  return hit.perk.amount || 0;
+}
+function jailSettle(room, player) {
+  const hit = ownerOfPerk(room, 'jailSettle');
+  if (!hit || hit.owner.id === player.id) return;
+  payPerk(room, player, hit.owner, hit.perk.amount, player.name + ' settle ' + hit.owner.name + ' ' + D.fmtN(hit.perk.amount) + ' for ' + hit.sp.short + '.', hit.sp.name);
+}
+function potCut(room, amount) {
+  if (amount <= 0) return;
+  const hit = ownerOfPerk(room, 'potCut');
+  if (!hit) return;
+  const cut = hit.perk.amount || 0;
+  if (cut <= 0) return;
+  moveMoney(room, null, hit.owner, cut, hit.owner.name + ' collect ' + D.fmtN(cut) + ' Party Rentals cut as the Owambe pot swell.', { stat: 'other', spaceName: hit.sp.name });
+}
+function soupMoney(room, player) {
+  const i = player.position;
+  const sp = D.SPACES[i];
+  if (!sp || !sp.perk || sp.perk.kind !== 'soupMoney') return;
+  const pr = room.props[i];
+  if (!pr || pr.owner == null || pr.mortgaged) return;
+  const owner = room.players.find((p) => p.id === pr.owner);
+  if (!owner || owner.bankrupt) return;
+  moveMoney(room, null, owner, sp.perk.amount, owner.name + ' collect ' + D.fmtN(sp.perk.amount) + ' Mama Put soup money from the bank.', { stat: 'other', spaceName: sp.name });
+}
+
 function sendToKirikiri(room, player, reason) {
+  jailSettle(room, player);
   player.position = D.JAIL_INDEX;
   player.inJail = true;
   player.jailTurns = 0;
@@ -830,8 +905,9 @@ function resolveLanding(room, player, opts) {
   const i = player.position;
   const sp = D.SPACES[i];
   room.buySpace = null;
+  soupMoney(room, player);
 
-  if (sp.type === 'street' || sp.type === 'station' || sp.type === 'utility') {
+  if (sp.type === 'street' || sp.type === 'station' || sp.type === 'utility' || sp.type === 'bridge') {
     const p = room.props[i];
     if (p.owner == null) {
       const firstLapBlock = room.settings.firstLapNoBuy && player.lap === 0;
@@ -1549,6 +1625,7 @@ function startGame(room) {
   room.sapaOffer = null; room.sapaResult = null; room.missedTurn = null;
   room.owambeCounter = room.owambeCounter || 0; room.sapaCounter = room.sapaCounter || 0;
   room.boardSize = D.BOARD_SIZE;
+  room.boardGen = 'corners28';
   room.hustleCounter = 0; room.hustleRollQueue = []; room.billCounter = 0;
   room.turnCount = 0; room.hornRanking = null; room.hornDebt = null;
   room.inf = null;
@@ -1860,11 +1937,23 @@ const LEGACY_28 = [
   ['Victoria Island', 400000, 225000], ['Go to Kirikiri'], ['Eko Hotel', 420000, 225000], ['Water Board', 225000], ['Ikoyi', 460000, 300000],
   ['Bourdillon, Ikoyi', 480000, 300000], ['Eko Atlantic', 520000, 300000], ['Banana Island', 600000, 300000]
 ];
-const LEGACY_BOARDS = { 40: LEGACY_40, 28: LEGACY_28 };
+const LEGACY_20 = [
+  ['START'], ['Makoko', 120000, 100000], ['Family Meeting'], ['Ajegunle', 140000, 100000], ['FIRS Income Tax'],
+  ['Kirikiri Prison'], ['Yaba', 240000, 150000], ['Lekki Tollgate', 400000], ['Surulere', 280000, 150000], ['NEPA (PHCN)', 300000],
+  ['Owambe Grounds'], ['Oriental Hotel', 440000, 300000], ['Wahala'], ['Quilox', 470000, 300000], ['Murtala Muhammed Intl Airport', 400000],
+  ['Go to Kirikiri'], ['Victoria Island', 520000, 300000], ['Eko Hotel', 550000, 300000], ['Eko Atlantic', 680000, 400000], ['Banana Island', 800000, 400000]
+];
+// The current board is also 28 spaces, but it is a new generation
+// (corners28). An old board28 snapshot has boardSize 28 and no boardGen,
+// so it still comes through LEGACY_28. A corners28 room is stamped and skipped.
+const LEGACY_BOARDS = { 40: LEGACY_40, 28: LEGACY_28, 20: LEGACY_20 };
 function migrateBoard(room) {
+  if (room.boardGen === 'corners28' && room.boardSize === D.BOARD_SIZE) return false;
   const from = room.boardSize || 40;
-  if (from === D.BOARD_SIZE) { room.boardSize = D.BOARD_SIZE; return false; }
+  // A brand-new corners28 room that was just constructed already matches
+  // and is stamped below. An unstamped 28-space snapshot is the old board28.
   const LEGACY = LEGACY_BOARDS[from] || LEGACY_40;
+  if (from === D.BOARD_SIZE && room.boardGen === 'corners28') { room.boardSize = D.BOARD_SIZE; return false; }
   const nameToNew = {};
   D.SPACES.forEach((sp, i) => { if (nameToNew[sp.name] == null) nameToNew[sp.name] = i; });
   const mapIdx = (old) => {
@@ -1926,6 +2015,7 @@ function migrateBoard(room) {
   room.duplexSupply = Math.min(room.duplexSupply == null ? D.DUPLEX_SUPPLY : room.duplexSupply, D.DUPLEX_SUPPLY);
   room.mansionSupply = Math.min(room.mansionSupply == null ? D.MANSION_SUPPLY : room.mansionSupply, D.MANSION_SUPPLY);
   room.boardSize = D.BOARD_SIZE;
+  room.boardGen = 'corners28';
   return true;
 }
 function startOwambeRush(room, player, reason) {
@@ -2166,7 +2256,7 @@ function doBuild(room, player, i, kind, fail) {
   // guard sits here at the choke point: it covers duplex and mansion.
   if (player.inJail) { fail('You dey Kirikiri. You no fit build.'); return false; }
   if (!canBuildOn(room, player.id, i, kind)) { fail('You cannot build a ' + kind + ' on ' + (sp ? sp.name : 'that space') + ' now. You need the full set, even building, and no mortgage in the set.'); return false; }
-  const cost0 = sp.duplex;
+  const cost0 = D.buildCostOf ? D.buildCostOf(sp) : sp.duplex;
   if (kind === 'duplex') {
     if (room.duplexSupply <= 0) { fail('The bank don run out of duplexes. None left to build.'); return false; }
     if (room.duplexSupply === 1) {
@@ -3234,7 +3324,18 @@ function handleConnection(ws) {
       const bad = sapaDealProblem(room, from, me, o.spaces, o.cash);
       room.sapaOffer = null; // exactly once: closed before anything moves
       if (bad) { room.sapaResult = { id: o.id, from: o.from, to: o.to, outcome: 'void', at: now() }; broadcast(room); return fail('Sapa Deal don spoil: ' + bad); }
-      moveMoney(room, from, me, o.cash, 'Sapa Deal: ' + from.name + ' pay ' + me.name + ' ' + D.fmtN(o.cash) + '.', {});
+      {
+        let pay = o.cash;
+        const village = ownerOfPerk(room, 'sapaDiscount');
+        if (village && village.owner.id === from.id && village.perk.mult < 1) {
+          pay = Math.round(o.cash * village.perk.mult);
+          const cover = o.cash - pay;
+          moveMoney(room, from, me, pay, 'Sapa Deal (Computer Village price): ' + from.name + ' pay ' + me.name + ' ' + D.fmtN(pay) + '.', {});
+          if (cover > 0) moveMoney(room, null, me, cover, 'Computer Village cover the remaining ' + D.fmtN(cover) + ' so ' + me.name + ' collect the full deal.', { stat: 'other' });
+        } else {
+          moveMoney(room, from, me, o.cash, 'Sapa Deal: ' + from.name + ' pay ' + me.name + ' ' + D.fmtN(o.cash) + '.', {});
+        }
+      }
       for (const i of o.spaces) {
         room.props[i].owner = from.id;
         if (room.props[i].mortgaged) queueChoice(room, from, i);
