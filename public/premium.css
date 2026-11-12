@@ -70,6 +70,7 @@ h1, h2, h3, .title, .headline, .overline, .end-headline, .deed-kicker, .invite-t
 }
 .iconbtn:active, .iconbtn.kp-press { transform: translateY(3px); box-shadow: 0 1px 0 #0b0d10; }
 #muteBtn.on { background: linear-gradient(180deg, #ffe08c, #f0a90e); color: #1d1408; box-shadow: 0 4px 0 #a8740a, inset 0 1px 0 rgba(255, 255, 255, 0.6); }
+#muteBtn.off { color: var(--g-soft); opacity: 1; }
 .ubtn:active, .ubtn.kp-press { transform: translateY(2px) scale(0.96); }
 
 /* ---------- Top bar: a HUD strip, not a site header ---------- */
@@ -148,7 +149,7 @@ h1, h2, h3, .title, .headline, .overline, .end-headline, .deed-kicker, .invite-t
   box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.10), 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   font-weight: 800; letter-spacing: 0.03em;
 }
-.textin::placeholder, input::placeholder { color: rgba(244, 236, 220, 0.38); font-weight: 700; }
+.textin::placeholder, input::placeholder { color: #c9bfb0; font-weight: 700; opacity: 1; }
 .textin:focus, input:focus { outline: none; box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 200, 87, 0.75) !important; }
 
 /* ---------- Landing and lobby: a game front end ---------- */

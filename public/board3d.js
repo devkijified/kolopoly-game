@@ -1771,7 +1771,6 @@ class GameScene {
       this.coinFlyers.push({ mesh, t: -k * 0.07, dur: 0.55 + Math.random() * 0.1, from: from.clone(), to, arc: 1.1 + Math.random() * 0.7, landed: false, kind: 'in' });
     }
     motion(1.1);
-    if (amount >= 40000) this.cineAt(dest);
   }
   _potDrain(state) {
     const cheap = (TIER.shadowSize || 0) < 512;
@@ -1916,7 +1915,7 @@ class GameScene {
     // phase relight targets
     const look = PHASE_LOOKS[state.inf ? state.inf.phase - 1 : 0];
     this.phaseTarget = { key: new THREE.Color(look.key), int: look.int, bg: new THREE.Color(look.bg) };
-    if (state.status === 'countdown' && !this.countedFor) { this.countedFor = state.code; this.countdownZoom = 2.4; this.camDir.set(0, 20, 18).normalize(); this.zoomK = 0.7; }
+    if (state.status === 'countdown' && !this.countedFor) { this.countedFor = state.code; }
     if (state.status === 'playing') this.countedFor = null;
   }
 
@@ -1970,8 +1969,6 @@ class GameScene {
           let cur = from;
           while (cur !== p.position) { cur = (cur + 1) % NSP; path.push(cur); }
           o.anim = { path, t: 0, step: 0.235, cur: from };
-          this.autoFollowT = Math.max(this.autoFollowT || 0, path.length * 0.235 + 0.9);
-          this.autoFollowId = p.id;
         }
       } else if (!o.anim) {
         o.grp.position.copy(this.worldFor(p.position, slot));
@@ -2093,21 +2090,11 @@ class GameScene {
       this._cineOwn = own; this._cineJail = jail; this._cineOw = ow;
     } catch (e) { /* a camera flourish never blocks the sync */ }
   }
-  cineAt(pos, zoom, hold) {
-    this.cineLook = new THREE.Vector3(pos.x * 0.6, 0, pos.z * 0.6);
-    this.cineZoom = zoom || 0;
-    this.cineT = hold || 1.6;
-    motion(Math.max(2.2, (hold || 1.6) + 0.6));
+  cineAt(/* pos, zoom, hold */) {
+    // Owner t134u: the camera stays at the settled idle tilt. Push-ins
+    // and follows are no-ops; coin arcs and pot flourishes still run.
   }
-  closeUp(pos, zoom, hold) {
-    // True inspect push-in: look at the thing itself and fill the
-    // frame with it. Used for deed close-ups; regular cineAt stays a
-    // milder 0.66 nudge so a buy does not leave the rest of the board.
-    this.cineLook = new THREE.Vector3(pos.x, 0.05, pos.z);
-    this.cineZoom = zoom || 0.36;
-    this.cineT = hold || 2.4;
-    motion((hold || 2.4) + 0.6);
-  }
+  closeUp(/* pos, zoom, hold */) {}
   snapIdle() {
     this.cineT = 0;
     this.cineLook = null;
@@ -2115,12 +2102,13 @@ class GameScene {
     this.countdownZoom = 0;
     this.viewFollow = false;
     this.autoFollowT = 0;
+    this.viewKick = 0;
     this.zoomK = 1;
     this.camDir.copy(this.fullDir(portraitWindow() ? 1 : (this.camera && this.camera.aspect) || 1));
     const L = this.layout || trackLayout(1);
     this.lookWant.set(0, 0, -L.TD * 0.08);
     if (this.look) this.look.copy(this.lookWant);
-    motion(0.5);
+    this.camGlide = false;
   }
   fullDir(aspect) {
     const lite = TIER && (TIER.shadowSize || 0) < 512;
@@ -2409,61 +2397,23 @@ class GameScene {
     }
     if (this.accentT > 0) { this.accentT = Math.max(0, this.accentT - dt * 1.4); this.accent.intensity = this.accentT * 14; }
     // camera
-    let wantDir, wantZoom, damp = 2.4;
-    this.lookWant.set(0, 0, 0);
-    if (this.cineT > 0 && !(this.countdownZoom > 0)) {
-      // Premium pass: a short cinematic push-in on a big moment (a buy,
-      // Kirikiri, the Owambe pot), then the glide back to the board.
-      this.cineT = Math.max(0, this.cineT - dt);
-      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
-      wantZoom = this.cineT > 0.35 ? (this.cineZoom || 0.66) : 1;
-      if (this.cineT > 0.35 && this.cineLook) this.lookWant.copy(this.cineLook);
-      damp = 3.2;
-    } else if (this.countdownZoom > 0) {
-      // The 3-2-1 countdown opens on a closer angled pass (a tighter
-      // frustum on a lower direction), then the camera glides out to
-      // the fitted framing and stays.
-      this.countdownZoom -= dt;
-      if (this.countdownZoom <= 0) motion(2.2);
-      wantDir = new THREE.Vector3(0, 12.6, 11.4).normalize(); wantZoom = 0.62; damp = 1.1;
-    } else if (this.viewFollow) {
-      // Follow: about 2.2x on the moving token. Full stays the fitted
-      // board. A toggle applies on the next frame, including mid hop.
-      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
-      wantZoom = 1 / 2.2;
-      const tok = this._followToken();
-      if (tok) this.lookWant.set(tok.grp.position.x, 0, tok.grp.position.z);
-      damp = this.viewKick > 0 ? 11 : 7;
-    } else if (this.autoFollowT > 0) {
-      // A hop starts a short dolly onto the moving token, then eases
-      // back to the full-board view once the piece lands.
-      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
-      wantZoom = 0.7;
-      const tok = (this.autoFollowId && this.tokens.get(this.autoFollowId)) || this._followToken();
-      if (tok) this.lookWant.set(tok.grp.position.x, 0, tok.grp.position.z);
-      damp = 4.2;
-      let hopping = false;
-      for (const o of this.tokens.values()) if (o.anim) hopping = true;
-      if (!hopping) {
-        this.autoFollowT = Math.max(0, this.autoFollowT - dt);
-        if (this.autoFollowT <= 0) motion(2);
-      }
-    } else {
-      // Full board: a fitted perspective frustum (see _applyCam).
-      // A modest look toward the far row (negative z) so Banana and the
-      // new marina-side deeds read; the fit includes this look.
-      wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1)); wantZoom = 1;
-      const L0 = this.layout;
-      if (L0) this.lookWant.set(0, 0, -L0.TD * 0.08);
-      if (this.viewKick > 0) damp = 11;
-    }
-    if (this.viewKick > 0) this.viewKick = Math.max(0, this.viewKick - dt);
-    const kk = 1 - Math.exp(-dt * damp);
-    this.camDir.lerp(wantDir, kk).normalize();
-    this.zoomK += (wantZoom - this.zoomK) * kk;
-    if (this.look) this.look.lerp(this.lookWant, kk);
+    // Owner t134u: the camera is locked to the settled idle tilt
+    // (58° portrait / 48° landscape, fitted frustum). No follow dolly,
+    // no countdown pass, no buy / jail / pot push-in, no ease-back.
+    const wantDir = this.fullDir(portraitWindow() ? 1 : (this.camera.aspect || 1));
+    this.camDir.copy(wantDir);
+    this.zoomK = 1;
+    const L0 = this.layout;
+    if (L0) this.lookWant.set(0, 0, -L0.TD * 0.08);
+    else this.lookWant.set(0, 0, 0);
+    if (this.look) this.look.copy(this.lookWant);
+    this.camGlide = false;
+    this.cineT = 0;
+    this.countdownZoom = 0;
+    this.autoFollowT = 0;
+    this.viewFollow = false;
+    if (this.viewKick > 0) this.viewKick = 0;
     this._applyCam();
-    this.camGlide = this.camDir.angleTo(wantDir) > 0.004 || Math.abs(this.zoomK - wantZoom) > 0.004;
     // Owambe pot label: keep the chip fully on stage. The pot sits at the
     // board centre; when framing ever pushed it toward an edge the label
     // followed it out and clipped ("ambe Pot NO"). Project the
@@ -2504,16 +2454,10 @@ class GameScene {
   isBusy() {
     if (this.diceAnim || this.cardAnim) return true;
     if (this.deedAnim && this.deedAnim.mode !== 'hover') return true;
-    if (this.countdownZoom > 0) return true;
     if (this.pulseT < 1) return true;
-    if (this.camGlide) return true;
     if (this.coinFlyers && this.coinFlyers.length) return true;
     if (this.potWobble > 0) return true;
-    if (this.autoFollowT > 0) return true;
-    if (this.cineT > 0) return true;
     if (Math.abs(this.potCount - this.potCountWant) > 1) return true;
-    if (Math.abs(this.zoomK - (this.viewFollow ? 1 / 2.2 : 1)) > 0.02) return true;
-    if (this.look && this.look.length() > 0.08 && !this.viewFollow) return true;
     for (const o of this.tokens.values()) if (o.anim) return true;
     return false;
   }
@@ -3008,19 +2952,13 @@ KP3D.boardProbePx = function () {
     clipped: ndc.some((v) => v.x < -1.02 || v.x > 1.02 || v.y < -1.02 || v.y > 1.02 || v.z < 0 || v.z > 1)
   };
 };
-// Follow is ~2.2x on the token. Full is the fitted board. The glide
-// starts the frame the call lands, including while a token is mid hop.
-KP3D.setView = function (mode) {
+// Owner t134u: follow mode is retired. setView stays a no-op so old
+// callers and tests do not throw; the camera is always the idle fit.
+KP3D.setView = function (/* mode */) {
   const g = SCENES.game;
-  if (!g) { KP3D._pendingView = mode; return; }
-  g.viewFollow = mode === 'follow';
-  g.viewKick = 0.45;
-  motion(0.6);
+  if (g) { g.viewFollow = false; g.viewKick = 0; g.snapIdle(); }
 };
-KP3D.getView = function () {
-  const g = SCENES.game;
-  return g && g.viewFollow ? 'follow' : 'full';
-};
+KP3D.getView = function () { return 'full'; };
 KP3D.camInfo = function () {
   const g = SCENES.game; if (!g || !g.camera) return null;
   const c = g.camera;
