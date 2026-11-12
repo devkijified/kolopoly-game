@@ -47,7 +47,7 @@ function gridPos(i) {
 let L2D = { TW: TOTALW, TD: TOTALW, colX: COLW.slice(), rowD: COLW.slice() };
 function trackLayout2D(boxAspect) {
   let TW, TD;
-  if (boxAspect >= 1) { TW = TOTALW; TD = Math.min(TOTALW * boxAspect, TOTALW * 1.25); }
+  if (boxAspect >= 1) { TW = TOTALW; TD = TOTALW * boxAspect; }
   else { TD = TOTALW; TW = TOTALW / boxAspect; }
   const wm = (TW - RING2) / MID, dm = (TD - RING2) / MID;
   const colX = [], rowD = [];
