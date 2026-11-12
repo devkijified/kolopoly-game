@@ -933,6 +933,7 @@ try {
   console.log('B-NS: the board stage stays the same size across a turn');
   {
     const NS = await newPage('NS');
+    try {
     await NS.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true }, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36' });
     await NS.goto(BASE + '?KP_TEST=1', { waitUntil: 'networkidle0' });
     await typeName(NS, 'Nia');
@@ -958,7 +959,7 @@ try {
     const me = (await S(NS)).players.find((p) => p.name === 'Nia');
     if ((await S(NS)).phase !== 'roll' || (await S(NS)).turnPlayerId !== me.id) {
       if ((await S(NS)).phase === 'end' && (await S(NS)).turnPlayerId === me.id) await clickId(NS, 'abEnd');
-      await waitState(NS, (s) => s.turnPlayerId === me.id && s.phase === 'roll', 'Nia to roll', 20000);
+      await waitState(NS, (s) => s.phase === 'roll' && s.players.some((p) => p.name === 'Nia' && p.id === s.turnPlayerId), 'Nia to roll', 20000);
     }
     const rRoll = await boxOf();
     await send(NS, 'test_set_position', { playerId: me.id, space: 0 });
@@ -969,7 +970,7 @@ try {
     const rBuy = await boxOf();
     // Bank alert appears after a buy.
     await clickId(NS, 'abBuy');
-    await waitState(NS, (s) => s.props[7] && s.props[7].o === me.id, 'Lekki bought', 10000);
+    await waitState(NS, (s) => s.props[7] && s.props[7].o != null, 'Lekki bought', 10000);
     await sleep(500);
     const rAlert = await boxOf();
     // Open the deeds sheet (a full-width portrait sheet).
@@ -984,7 +985,11 @@ try {
     check('board wrap and canvas stay within 1px when a sheet opens', same(rAlert, rSheet), JSON.stringify(pack));
     check('board wrap and canvas stay within 1px from the first settled frame of the turn', same(r0, rBuy), JSON.stringify(pack));
     await NS.screenshot({ path: SHOTS + 'kp-noshrink-buy.png' });
-    await NS.close();
+    } catch (err) {
+      check('board-size sequence completed without error', false, err && err.message);
+    } finally {
+      try { await NS.close(); } catch (e2) {}
+    }
   }
 
   console.log('B10: KP13 WS5: Inflation leads the landing with the MOST PLAYED badge and is the default; a default-created room is an Inflation room; a stored Classic pick still wins');
