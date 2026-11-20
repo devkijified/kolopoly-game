@@ -1228,25 +1228,203 @@ $('roomModeRow').querySelectorAll('[data-rmode]').forEach((b) => b.addEventListe
 function myName() { return $('nameIn').value.trim(); }
 function needName() { if (!myName()) { toast('Type your display name first.'); $('nameIn').focus(); return false; } localStorage.setItem('kolopolyName', myName()); return true; }
 
+function createSettings() {
+  return {
+    gameMode: selectedGameMode,
+    preset: $('presetSel').value,
+    timed: $('optTimed').checked,
+    doubleStart: $('optDoubleStart').checked,
+    noRentInJail: $('optNoRentJail').checked,
+    firstLapNoBuy: $('optFirstLap').checked,
+    chaos: $('optChaos').checked,
+    voiceAlerts: $('optVoice').checked,
+    turnTimerSec: Number($('optTimer').value)
+  };
+}
 $('createBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
   clearSeat(); // a fresh entry choice abandons any stored seat
   entrySent = true;
   send('create_room', {
     name: myName(), token: selectedToken, clientId: CLIENT_ID, mode: selectedRoomMode,
-    settings: {
-      gameMode: selectedGameMode,
-      preset: $('presetSel').value,
-      timed: $('optTimed').checked,
-      doubleStart: $('optDoubleStart').checked,
-      noRentInJail: $('optNoRentJail').checked,
-      firstLapNoBuy: $('optFirstLap').checked,
-      chaos: $('optChaos').checked,
-      voiceAlerts: $('optVoice').checked,
-      turnTimerSec: Number($('optTimer').value)
-    }
+    settings: createSettings()
   });
 });
+// ---------------------------------------------------------------------------
+// Play to Earn: the paid tables door. One button on the landing opens
+// the city ladder exactly as the server holds it (fees, winner and
+// house figures per table size). Picking a city creates a paid room;
+// the entry is paid inside the lobby, seat by seat, before the game
+// can start. While the payment provider is the test one, every figure
+// still reads exact and every payment is marked Test mode.
+// ---------------------------------------------------------------------------
+let paidTableData = null;
+// The paid account: an email sign-in token kept on this phone. Paid
+// create, join and pay carry it, so the seat, the payment and the
+// prize all belong to the account, not the device.
+function authToken() { try { return localStorage.getItem('kolopolyAuthToken') || ''; } catch (e) { return ''; } }
+function authEmail() { try { return localStorage.getItem('kolopolyAuthEmail') || ''; } catch (e) { return ''; } }
+function setAuth(token, email) {
+  try {
+    if (token) { localStorage.setItem('kolopolyAuthToken', token); localStorage.setItem('kolopolyAuthEmail', email || ''); }
+    else { localStorage.removeItem('kolopolyAuthToken'); localStorage.removeItem('kolopolyAuthEmail'); }
+  } catch (e) {}
+}
+let pendingAuthEmail = '';
+function renderPaidAuth() {
+  const box = $('paidAuth');
+  if (!box) return;
+  if (authToken()) {
+    box.innerHTML = '<div class="paid-auth"><p class="paid-auth-note">Signed in as ' + esc(authEmail()) + '. Your payments, prizes and results stay on this account.</p></div>';
+    return;
+  }
+  box.innerHTML = '<div class="paid-auth">' +
+    '<p class="paid-auth-note">Paid tables need an account, so your money and your record stay yours on any phone. Sign in with your email.</p>' +
+    '<div class="paid-auth-row"><input id="paidEmailIn" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" maxlength="120"><button class="mini-btn gold" id="paidSendCodeBtn" type="button">Send code</button></div>' +
+    '<div class="paid-auth-row hidden" id="paidAuthCodeRow"><input id="paidCodeIn" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digit code" maxlength="6"><button class="mini-btn gold" id="paidVerifyBtn" type="button">Sign in</button></div>' +
+    '<p class="paid-auth-msg" id="paidAuthMsg"></p></div>';
+  $('paidSendCodeBtn').addEventListener('click', sendAuthCode);
+  $('paidVerifyBtn').addEventListener('click', verifyAuthCode);
+}
+async function sendAuthCode() {
+  const email = ($('paidEmailIn').value || '').trim();
+  const msg = $('paidAuthMsg');
+  if (!email) { msg.textContent = 'Enter your email first.'; return; }
+  msg.textContent = 'Dey send your code…';
+  try {
+    const res = await fetch('/api/auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok) { msg.textContent = (data && data.message) || 'The code no send. Try again.'; return; }
+    pendingAuthEmail = email;
+    $('paidAuthCodeRow').classList.remove('hidden');
+    msg.textContent = 'Code sent. Check your email and enter the 6 digits.' + (data.devCode ? ' Test code: ' + data.devCode : '');
+  } catch (e) { msg.textContent = 'The code no send. Check your connection and try again.'; }
+}
+async function verifyAuthCode() {
+  const code = ($('paidCodeIn').value || '').trim();
+  const msg = $('paidAuthMsg');
+  if (!pendingAuthEmail) { msg.textContent = 'Ask for a code first.'; return; }
+  try {
+    const res = await fetch('/api/auth/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: pendingAuthEmail, code }) });
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok) { msg.textContent = (data && data.message) || 'That code no correct.'; return; }
+    setAuth(data.token, data.email);
+    toast('You don sign in. Welcome.');
+    renderPaidAuth();
+  } catch (e) { msg.textContent = 'Sign in no go through. Try again.'; }
+}
+// Real payment: open the Paystack page for my seat. The reference is
+// kept on this phone so the return trip can ask the server to verify;
+// the seat itself only flips when the server settles, from the
+// webhook, this verify, or the sweep.
+async function initializePayment() {
+  if (!room || !room.paid) return;
+  try {
+    const res = await fetch('/api/payments/initialize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken() },
+      body: JSON.stringify({ roomCode: room.code })
+    });
+    const data = await res.json().catch(() => null);
+    if (data && data.ok && data.authorizationUrl) {
+      try { sessionStorage.setItem('kolopolyPayRef', data.reference); } catch (e) {}
+      window.location.href = data.authorizationUrl;
+      return;
+    }
+    if (data && data.alreadyPaid) { toast('You don pay your entry already.'); return; }
+    toast((data && data.message) || 'Payment no open. Try again.');
+    if (room) renderLobby();
+  } catch (e) {
+    toast('Payment no open. Check your connection and try again.');
+    if (room) renderLobby();
+  }
+}
+(function pollReturnPayment() {
+  let ref = '';
+  try { ref = sessionStorage.getItem('kolopolyPayRef') || ''; } catch (e) {}
+  if (!ref) return;
+  let tries = 0;
+  const timer = setInterval(async () => {
+    tries += 1;
+    try {
+      const res = await fetch('/api/payments/status?reference=' + encodeURIComponent(ref));
+      const data = await res.json().catch(() => null);
+      if (data && data.status === 'paid') {
+        clearInterval(timer);
+        try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+        toast('Payment confirmed. Your seat don pay.');
+        return;
+      }
+      if (data && data.status === 'failed') {
+        clearInterval(timer);
+        try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+        toast('That payment no go through. Try again.');
+        return;
+      }
+    } catch (e) {}
+    if (tries >= 24) clearInterval(timer);
+  }, 2500);
+})();
+function openPaidTables() {
+  const sheet = $('paidSheet');
+  sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('card', 18) + ' Play to Earn</h3>' +
+    '<p class="caption" style="margin-top:4px;">Paid tables. Everybody pays the entry before the game starts. Winner takes the winner share, house keeps the rest. If the game no start, your entry comes back.</p>' +
+    '<p class="caption" id="paidLoad" style="margin-top:8px;">Loading the tables…</p>' +
+    '<div id="paidAuth"></div>' +
+    '<div id="paidCities"></div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('paidScrim').classList.add('show');
+  renderPaidAuth();
+  wireSheetButtons(sheet, myId);
+  fetch('/api/competition').then((r) => r.json()).then((data) => {
+    paidTableData = data;
+    renderPaidTables();
+  }).catch(() => {
+    const el = $('paidLoad');
+    if (el) el.textContent = 'The tables no load. Check your connection and try again.';
+  });
+}
+function renderPaidTables() {
+  const box = $('paidCities');
+  const load = $('paidLoad');
+  if (!box || !paidTableData || !Array.isArray(paidTableData.table)) return;
+  if (load) load.textContent = paidTableData.testMode
+    ? 'Test mode: payments confirm on this phone, no real money moves.'
+    : paidTableData.mode === 'redirect'
+      ? 'Payments run through Paystack. You pay on the Paystack page; your seat confirms when Paystack confirm.'
+      : 'Payments never set up yet. You fit look the tables, but nobody fit pay until the house finish the setup.';
+  box.innerHTML = paidTableData.table.map((row) =>
+    '<div class="paid-city' + (row.open ? '' : ' locked') + '">' +
+      '<div class="paid-city-head"><div><div class="paid-city-name">' + esc(row.city) + (row.flagship ? ' <span class="paid-flag">Flagship</span>' : '') + (row.open ? '' : ' <span class="paid-flag">Coming soon</span>') + '</div>' +
+      '<div class="caption">' + esc(row.venue) + '</div></div>' +
+      '<div class="paid-fee">' + fmtN(row.fee) + '<span class="paid-fee-k">entry</span></div></div>' +
+      '<div class="paid-sizes">' + row.sizes.map((s) =>
+        '<div class="paid-size"><span>' + s.players + ' players</span><span>Pot ' + fmtN(s.pot) + '</span><span>Winner ' + fmtN(s.winner) + '</span><span>House ' + fmtN(s.house) + '</span></div>').join('') +
+      '</div>' +
+      (row.open
+        ? '<button class="btn gold block" data-paid-city="' + esc(row.id) + '">Play at ' + esc(row.city) + ' · ' + fmtN(row.fee) + '</button>'
+        : '<p class="caption center">This table never open yet.</p>') +
+    '</div>').join('');
+  box.querySelectorAll('[data-paid-city]').forEach((b) => b.addEventListener('click', () => {
+    if (!needName() || entrySent) return;
+    if (paidTableData.accountRequired && !authToken()) {
+      toast('Sign in with your email first, then pick your table.');
+      const emailIn = $('paidEmailIn');
+      if (emailIn) emailIn.focus();
+      return;
+    }
+    clearSeat();
+    entrySent = true;
+    $('paidScrim').classList.remove('show');
+    send('create_room', {
+      name: myName(), token: selectedToken, clientId: CLIENT_ID, mode: 'online',
+      cityId: b.dataset.paidCity,
+      authToken: authToken() || undefined,
+      settings: createSettings()
+    });
+  }));
+}
+$('playToEarnBtn').addEventListener('click', () => { if (!entrySent) openPaidTables(); });
 $('quickBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
   clearSeat();
@@ -1261,7 +1439,7 @@ function tryJoin(code) {
   clearSeat();
   entrySent = true;
   joinSentFor = code;
-  send('join_room', { code, name: myName(), token: selectedToken, clientId: CLIENT_ID });
+  send('join_room', { code, name: myName(), token: selectedToken, clientId: CLIENT_ID, authToken: authToken() || undefined });
 }
 $('joinBtn').addEventListener('click', () => tryJoin($('codeIn').value));
 $('codeIn').addEventListener('input', () => { if ($('codeIn').value.trim().length === 4) tryJoin($('codeIn').value); });
@@ -1346,7 +1524,7 @@ if (inviteCode) {
     clearSeat();
     entrySent = true;
     joinSentFor = code;
-    send('join_room', { code, name: joinName, token: selectedToken, clientId: CLIENT_ID });
+    send('join_room', { code, name: joinName, token: selectedToken, clientId: CLIENT_ID, authToken: authToken() || undefined });
   });
   $('inviteChangeBtn').addEventListener('click', () => revealForm('nameIn'));
 }
@@ -1723,7 +1901,8 @@ function renderLobby(room) {
   const modeLine = room.settings.gameMode === 'inflation'
     ? 'Inflation Mode · ' + ({ quick: 'Quick Bite', standard: 'Standard', fullnight: 'Full Night' }[room.settings.preset] || 'Standard') + ' preset'
     : 'Classic Mode';
-  $('lobbyModeLine').textContent = modeLine + (room.mode === 'pass' ? ' · This phone (pass and play)' : room.isPublic ? ' · Public quick room' : ' · Private room');
+  $('lobbyModeLine').textContent = modeLine + (room.mode === 'pass' ? ' · This phone (pass and play)' : room.isPublic ? ' · Public quick room' : ' · Private room') +
+    (room.paid ? ' · Paid table: ' + room.paid.city + ', ' + fmtN(room.paid.fee) + ' entry' : '');
   $('copyInviteBtn').innerHTML = window.icon('copy', 16) + ' Copy invite';
   $('shareInviteBtn').innerHTML = window.icon('share', 16) + ' Share';
   if (typeof qrcode === 'function' && qrForCode !== room.code) {
@@ -1739,7 +1918,9 @@ function renderLobby(room) {
     if (!p) return '<div class="slot empty">Waiting for player…</div>';
     return '<div class="slot"><div class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 22) + '</div>' +
       '<div><div class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
-      '<div class="meta">' + (p.bot ? 'Bot player · always ready' : room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
+      '<div class="meta">' + (room.paid && !p.bot
+        ? (p.paidSeat ? 'Paid ' + fmtN(room.paid.fee) : p.payPending ? 'Payment dey go…' : 'Awaiting payment') + (p.connected ? '' : ' · Disconnected')
+        : p.bot ? 'Bot player · always ready' : room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
       (room.mode === 'pass' && myId === room.hostId && p.id !== room.hostId ? '<button class="btn small ghost" data-remove-local="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') +
       (p.bot && myId === room.hostId ? '<button class="btn small ghost" data-remove-bot="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') + '</div>';
   }).join('');
@@ -1757,11 +1938,45 @@ function renderLobby(room) {
   $('chaosNote').textContent = room.settings.chaos
     ? 'CHAOS MODE ON: one seat go be Nepo (+₦500,000 and a free deed), one seat go be Lapo (₦1,000,000 start, first rent forgiven). Seats are picked when the game starts, nobody is ambushed after.'
     : '';
+  // Paid table lobby: the entry panel. Every seated human pays their
+  // own seat; my Pay button shows only while my seat is unpaid, and the
+  // panel explains the one rule that gates the start.
+  const paidBox = $('paidBox');
+  if (room.paid) {
+    paidBox.classList.remove('hidden');
+    const mePaid = room.players.find((p) => p.id === myId);
+    const unpaidCount = room.players.filter((p) => !p.bot && !p.paidSeat).length;
+    let paidHtml = '<div class="paid-panel">' +
+      '<div class="paid-panel-head">' + window.icon('card', 16) + ' Paid table · ' + esc(room.paid.city) + ' · ' + fmtN(room.paid.fee) + ' entry</div>' +
+      '<p class="caption">Every seat must pay ' + fmtN(room.paid.fee) + ' before the game fit start. Winner takes the prize, house keeps 10 percent. If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>';
+    if (room.paid.mode === 'off') {
+      paidHtml += '<p class="caption" style="margin-top:8px;">Payments never set up yet. The house still dey finish the setup, so nobody fit pay for this table yet.</p>';
+    } else if (!spectator && mePaid && !mePaid.bot && !mePaid.paidSeat && !mePaid.payPending) {
+      paidHtml += '<button class="btn gold block" id="paySeatBtn" style="margin-top:10px;">Pay ' + fmtN(room.paid.fee) + (room.paid.testMode ? ' · Test mode' : room.paid.mode === 'redirect' ? ' with Paystack' : '') + '</button>';
+    } else if (!spectator && mePaid && mePaid.payPending) {
+      paidHtml += '<p class="caption" style="margin-top:8px;">Your payment dey go…</p>';
+    } else if (!spectator && mePaid && mePaid.paidSeat) {
+      paidHtml += '<p class="caption" style="margin-top:8px;">You don pay your entry.' + (unpaidCount ? ' Waiting for ' + unpaidCount + ' more seat' + (unpaidCount === 1 ? '' : 's') + ' to pay.' : ' Everybody don pay.') + '</p>';
+    }
+    paidHtml += '</div>';
+    paidBox.innerHTML = paidHtml;
+    const payBtn = $('paySeatBtn');
+    if (payBtn) payBtn.addEventListener('click', () => {
+      payBtn.disabled = true;
+      if (room.paid.mode === 'redirect') initializePayment();
+      else send('pay_seat', {});
+    });
+  } else {
+    paidBox.classList.add('hidden');
+    paidBox.innerHTML = '';
+  }
   const isHost = myId === room.hostId;
   $('startBtn').style.display = isHost || room.mode === 'pass' ? '' : 'none';
-  $('startBtn').disabled = room.players.length < 2;
+  $('startBtn').disabled = room.players.length < 2 || !!(room.paid && !room.paid.allPaid);
   $('startBtn').innerHTML = window.icon('play', 18) + ' Start game (' + room.players.length + ' players)';
-  $('lobbyHint').textContent = room.players.length < 2
+  $('lobbyHint').textContent = room.paid && !room.paid.allPaid
+    ? 'Paid table: the game starts when every seat don pay the ' + fmtN(room.paid.fee) + ' entry.'
+    : room.players.length < 2
     ? 'You need at least 2 players. Share the code make your people join.'
     : isHost ? 'Everybody don enter? Start when ready.' : 'Waiting for the host to start the game.';
   // Lesson 1: the host is inside the grace window. The room is alive and
@@ -1773,7 +1988,7 @@ function renderLobby(room) {
   // Bots (the owner's ask): right after the host creates a room, ask once:
   // "Wanna play with bot?" The host can still add bots later with the Add
   // bot button, up to 4 seats total. Pass and play rooms never see bots.
-  const canBots = room.mode !== 'pass' && isHost && room.players.length < 4;
+  const canBots = room.mode !== 'pass' && !room.paid && isHost && room.players.length < 4;
   let botAsked = false;
   try { botAsked = !!sessionStorage.getItem('kolopolyBotAsked:' + room.code); } catch (e) { /* private mode */ }
   $('botPrompt').classList.toggle('hidden', !(canBots && !botAsked && !room.players.some((p) => p.bot)));
@@ -3341,6 +3556,7 @@ function renderEnd(room) {
     (room.endReason === 'resignation' ? '<p class="end-reason">Won by resignation.</p>' : '') +
     (room.endReason === 'abandoned' ? '<p class="end-reason">Everybody leave the table, so the room close.</p>' : '') +
     (room.endReason === 'host' ? '<p class="end-reason">The host end the room.</p>' : '') +
+    (room.prize ? '<p class="end-prize">' + esc(room.prize.winnerName) + ' win ' + fmtN(room.prize.winner) + ' from the ' + fmtN(room.prize.pot) + ' pot · ' + esc(room.prize.city) + ' table, ' + fmtN(room.prize.fee) + ' entry, ' + room.prize.players + ' players. House keep ' + fmtN(room.prize.house) + '.' + (room.prize.testMode ? ' Test mode: no real money move.' : '') + '</p>' : '') +
     '<div class="end-tables">' +
       '<section class="end-panel"><h3 class="end-panel-title">The table</h3><p class="end-panel-sub">Net worth, highest first</p>' +
         '<ol class="end-board">' + rows + '</ol></section>' +

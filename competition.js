@@ -3,8 +3,8 @@
 // One row per city (name, venue, entry fee, flagship) and one winner
 // share per table size. Every money number in the paid game reads from
 // here at use time; nothing about fees or shares is hardcoded anywhere
-// else. This module is settings plumbing only: no live game reads it
-// yet, and it never moves money.
+// else. The game host reads the ladder to price a paid room and to
+// settle its prize at the end; this module itself never moves money.
 // The Node host keeps the settings in a JSON file beside the retention
 // shelf. The Worker host keeps the same shape in the Lobby Durable
 // Object and shares the defaults, validation and money table below.
@@ -15,15 +15,27 @@ const TABLE_SIZES = [2, 3, 4, 5, 6];
 const MAX_FEE = 100000000;
 const MAX_CITIES = 12;
 
+// Owner ruling (2026-11-20): exactly one paid table is open at launch,
+// the ₦200 table, and the open table is Lagos: the default board is all
+// Lagos streets, so the starter paid table wears the board's own name.
+// Every other rung stays on the ladder as a closed row (open: false):
+// the settings, the desk and the money table all keep them, the Play
+// to Earn view shows them as coming soon, and the game host refuses to
+// create a paid room for a closed city. The progression past Lagos can
+// be re-cut when the owner opens the next rung.
 const DEFAULT_CITIES = [
-  { id: 'ibadan', city: 'Ibadan', venue: 'The Brown Roof', fee: 200, flagship: false },
-  { id: 'enugu', city: 'Enugu', venue: 'Coal City Hall', fee: 500, flagship: false },
-  { id: 'kano', city: 'Kano', venue: 'Ancient City Walls', fee: 1000, flagship: false },
-  { id: 'port-harcourt', city: 'Port Harcourt', venue: 'The Creek', fee: 2500, flagship: false },
-  { id: 'lagos', city: 'Lagos', venue: 'Eko Atlantic Towers', fee: 5000, flagship: false },
-  { id: 'aso-rock', city: 'Aso Rock, Abuja', venue: 'The Summit', fee: 25000, flagship: true }
+  { id: 'lagos', city: 'Lagos', venue: 'Lagos', fee: 200, flagship: false, open: true },
+  { id: 'ibadan', city: 'Ibadan', venue: 'The Brown Roof', fee: 500, flagship: false, open: false },
+  { id: 'enugu', city: 'Enugu', venue: 'Coal City Hall', fee: 1000, flagship: false, open: false },
+  { id: 'kano', city: 'Kano', venue: 'Ancient City Walls', fee: 2500, flagship: false, open: false },
+  { id: 'port-harcourt', city: 'Port Harcourt', venue: 'The Creek', fee: 5000, flagship: false, open: false },
+  { id: 'aso-rock', city: 'Aso Rock, Abuja', venue: 'The Summit', fee: 25000, flagship: true, open: false }
 ];
-const DEFAULT_SPLITS = { 2: 80, 3: 75, 4: 70, 5: 65, 6: 60 };
+// Owner ruling (2026-11-20): the house takes 10 percent flat, so the
+// winner share is 90 percent at every table size. Admins can still edit
+// the shares later from the ops desk; validation only asks that shares
+// never grow as the table gets bigger, and a flat line passes.
+const DEFAULT_SPLITS = { 2: 90, 3: 90, 4: 90, 5: 90, 6: 90 };
 
 function defaultSettings() {
   return {
@@ -86,7 +98,7 @@ function validateCompetition(input) {
     ids.add(id);
     const flagship = row.flagship === true;
     if (flagship) flagships += 1;
-    cities.push({ id, city, venue, fee, flagship });
+    cities.push({ id, city, venue, fee, flagship, open: row.open === true });
   }
   if (flagships > 1) {
     return bad('Only one table can be the flagship. Nothing was saved.');
@@ -131,6 +143,7 @@ function competitionTable(settings) {
     venue: row.venue,
     fee: row.fee,
     flagship: row.flagship,
+    open: !!row.open,
     sizes: TABLE_SIZES.map((players) => {
       const pot = row.fee * players;
       const winner = Math.round(pot * s.splits[players] / 100);

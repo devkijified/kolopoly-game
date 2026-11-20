@@ -293,15 +293,18 @@ async function competitionDesk() {
     check('competition opens with the house key', first.status === 200 && first.json && first.json.ok === true);
     check('the seeded ladder is served before any save', first.json.saved === false && first.json.settings.cities.length === 6);
     const ibadan = first.json.settings.cities.find((c) => c.id === 'ibadan');
+    const lagosSeed = first.json.settings.cities.find((c) => c.id === 'lagos');
     const summit = first.json.settings.cities.find((c) => c.flagship);
-    check('seeded fees match the settled ladder', ibadan && ibadan.fee === 200 && ibadan.venue === 'The Brown Roof'
+    check('seeded fees match the settled ladder', lagosSeed && lagosSeed.fee === 200 && lagosSeed.open === true
+      && ibadan && ibadan.fee === 500 && ibadan.venue === 'The Brown Roof' && ibadan.open === false
+      && first.json.settings.cities.filter((c) => c.open).length === 1
       && summit && summit.city === 'Aso Rock, Abuja' && summit.fee === 25000 && summit.venue === 'The Summit');
-    check('seeded shares step down by table size', first.json.settings.splits['2'] === 80 && first.json.settings.splits['3'] === 75
-      && first.json.settings.splits['4'] === 70 && first.json.settings.splits['5'] === 65 && first.json.settings.splits['6'] === 60);
+    check('seeded shares are the flat 90 percent', first.json.settings.splits['2'] === 90 && first.json.settings.splits['3'] === 90
+      && first.json.settings.splits['4'] === 90 && first.json.settings.splits['5'] === 90 && first.json.settings.splits['6'] === 90);
     const lagos6 = sizeOf(first.json, 'lagos', 6);
-    check('money table: Lagos at 6 players', !!lagos6 && lagos6.pot === 30000 && lagos6.winner === 18000 && lagos6.house === 12000, JSON.stringify(lagos6));
+    check('money table: Lagos at 6 players', !!lagos6 && lagos6.pot === 1200 && lagos6.winner === 1080 && lagos6.house === 120, JSON.stringify(lagos6));
     const ibadan2 = sizeOf(first.json, 'ibadan', 2);
-    check('money table: Ibadan at 2 players', !!ibadan2 && ibadan2.pot === 400 && ibadan2.winner === 320 && ibadan2.house === 80, JSON.stringify(ibadan2));
+    check('money table: Ibadan at 2 players', !!ibadan2 && ibadan2.pot === 1000 && ibadan2.winner === 900 && ibadan2.house === 100, JSON.stringify(ibadan2));
 
     const defaults = JSON.parse(JSON.stringify(first.json.settings));
     const noAuth = await request(base, 'POST', '/ops/competition', { json: defaults });
@@ -336,7 +339,7 @@ async function competitionDesk() {
 
     const afterBad = await request(base, 'GET', '/ops/competition', { headers: bearer });
     check('refused saves leave the ladder untouched', afterBad.json.saved === false
-      && afterBad.json.settings.cities.find((c) => c.id === 'lagos').fee === 5000);
+      && afterBad.json.settings.cities.find((c) => c.id === 'lagos').fee === 200);
 
     const edited = JSON.parse(JSON.stringify(defaults));
     edited.cities.find((c) => c.id === 'lagos').fee = 6000;

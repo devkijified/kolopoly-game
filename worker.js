@@ -8,6 +8,8 @@ import hostMod from './game-host.js';
 import retentionMod from './retention.js';
 import recordsMod from './server-records.js';
 import competitionMod from './competition.js';
+import prizeLedgerMod from './prize-ledger.js';
+import payProviderMod from './pay-provider.js';
 import push from './push-webcrypto.js';
 import deskHtml from './ops/desk.html';
 import deskCss from './ops/desk.css';
@@ -17,6 +19,7 @@ const { createGameHost } = hostMod;
 const { createRetention } = retentionMod;
 const { createRecords } = recordsMod;
 const { validateCompetition, normalizeCompetition, defaultSettings, competitionTable } = competitionMod;
+const { cleanEntry } = prizeLedgerMod;
 
 const BUILD_FILES = [
   'public/index.html',
@@ -40,7 +43,7 @@ const SESSION_MS = 4 * 60 * 60 * 1000;
 const FAIL_WINDOW_MS = 15 * 60 * 1000;
 const FAIL_LIMIT = 5;
 const GLOBAL_LIMIT = 20;
-const OPS_ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/unlock', '/ops/lock']);
+const OPS_ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/prizes', '/ops/unlock', '/ops/lock']);
 
 let cachedBuild = '';
 
@@ -239,6 +242,7 @@ export class RoomDO {
     this.host = null;
     this.roomCode = '';
     this.shelf = { api: null, ops: [] };
+    this.prizeOut = [];
     this.jobs = [];
     this.dirty = false;
     this.deleted = null;
@@ -302,7 +306,27 @@ export class RoomDO {
     if (this.host) return;
     const self = this;
     const records = createRecords(this.env);
+    // Paid tables: the ladder lives in the Lobby Durable Object (the
+    // ops desk saves it there). Fetch it once as this room wakes; the
+    // game host reads it in memory from there. If the fetch fails, the
+    // seeded ladder stands, never a crash.
+    let ladder = null;
+    try {
+      const res = await this.env.LOBBY.get(this.lobbyId()).fetch('https://lobby.internal/ladder');
+      const data = await res.json();
+      ladder = data && data.settings ? data.settings : null;
+    } catch (e) { ladder = null; }
+    const competition = competitionMod.createCompetition({ memory: true, db: ladder });
+    const prizeLedger = {
+      add(entry) { self.prizeOut.push(entry); self.dirty = true; return entry; },
+      list() { return []; },
+      view() { return { ok: true, entries: [], totals: { prize: 0, house: 0, refundDue: 0, testMode: 0 } }; }
+    };
+    const payProvider = payProviderMod.createPayProvider({ secretKey: this.env.PAYSTACK_SECRET_KEY, test: this.test() });
     this.host = createGameHost({
+      competition,
+      prizeLedger,
+      payProvider,
       test: this.test(),
       afkFast: this.test() && this.env.KP_AFK_FAST === '1',
       fixedCode: this.roomCode || null,
@@ -498,6 +522,13 @@ export class RoomDO {
         body: JSON.stringify(ops)
       });
     }
+    if (this.prizeOut.length) {
+      const entries = this.prizeOut.splice(0);
+      await this.env.LOBBY.get(this.lobbyId()).fetch('https://lobby.internal/prizes', {
+        method: 'POST',
+        body: JSON.stringify({ entries })
+      });
+    }
     await this.schedule();
     if (this.jobs.length) {
       const jobs = this.jobs.splice(0);
@@ -539,6 +570,35 @@ export class LobbyDO {
     if (url.pathname === '/registry') {
       const reg = await this.registry();
       return json(reg);
+    }
+    // Paid tables plumbing. Rooms read the saved ladder from here (the
+    // ops desk writes it to this object's storage), and hand their
+    // prize ledger entries back here for the desk to read.
+    if (url.pathname === '/ladder') {
+      const stored = await this.state.storage.get('competition');
+      const kept = normalizeCompetition(stored);
+      return json({ ok: true, settings: kept || null });
+    }
+    if (url.pathname === '/prizes' && request.method === 'POST') {
+      let body = {};
+      try { body = await request.json(); } catch (e) { body = {}; }
+      const incoming = Array.isArray(body.entries) ? body.entries.map(cleanEntry).filter(Boolean) : [];
+      if (incoming.length) {
+        const existing = (await this.state.storage.get('prizes')) || [];
+        const merged = existing.concat(incoming).slice(-5000);
+        await this.state.storage.put('prizes', merged);
+      }
+      return json({ ok: true });
+    }
+    if (url.pathname === '/api/competition') {
+      const stored = await this.state.storage.get('competition');
+      const kept = normalizeCompetition(stored);
+      const settings = kept || defaultSettings();
+      const payProvider = payProviderMod.createPayProvider({ secretKey: this.env.PAYSTACK_SECRET_KEY, test: isTest(this.env) });
+      return json({
+        ok: true, saved: !!kept, settings, table: competitionTable(settings),
+        testMode: !!payProvider.testMode, provider: payProvider.name
+      }, 200, { 'Cache-Control': 'no-cache' });
     }
     if (OPS_ROUTES.has(url.pathname) || url.pathname.startsWith('/ops')) return this.ops(request, url);
     return new Response('Kolopoly lobby', { status: 200 });
@@ -805,6 +865,18 @@ export class LobbyDO {
       await this.state.storage.put('competition', out.settings);
       return json({ ok: true, saved: true, settings: out.settings, table: competitionTable(out.settings) }, 200, headers);
     }
+    if (request.method === 'GET' && route === '/ops/prizes') {
+      if (!(await authed())) return json({ ok: false, error: 'unauthorized', message: 'That key no open this desk.' }, 401, headers);
+      const entries = (await this.state.storage.get('prizes')) || [];
+      const totals = { prize: 0, house: 0, refundDue: 0, testMode: 0 };
+      for (const e of entries) {
+        if (e.kind === 'prize') totals.prize += e.amount;
+        else if (e.kind === 'house') totals.house += e.amount;
+        else if (e.kind === 'refund-due') totals.refundDue += e.amount;
+        if (e.testMode) totals.testMode += 1;
+      }
+      return json(scrub({ ok: true, entries, totals }, token), 200, headers);
+    }
     return json({ ok: false, error: 'method' }, 405, headers);
   }
 }
@@ -912,6 +984,11 @@ export default {
       const routed = new URL(request.url);
       routed.pathname = '/api/room/' + code;
       return env.ROOM.get(env.ROOM.idFromName(code)).fetch(new Request(routed.toString(), request));
+    }
+    if (path === '/api/competition') {
+      // The price list for the landing page door. The ladder lives in
+      // the Lobby Durable Object, so the read goes there.
+      return env.LOBBY.get(env.LOBBY.idFromName('global')).fetch(request);
     }
     if (path.startsWith('/api/retention') || path.startsWith('/api/push') || path.startsWith('/api/test/')) {
       return env.RETENTION.get(env.RETENTION.idFromName('shelf')).fetch(request);
