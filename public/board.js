@@ -340,7 +340,7 @@ const KPBoard = {
     const centerPhase = document.getElementById('centerPhase');
     if (centerPhase) {
       centerPhase.textContent = state.inf
-        ? 'Phase ' + state.inf.phase + ': ' + state.inf.phaseName + ' · Index ' + state.inf.index + 'x · Pure water ₦' + [50, 100, 200, 500][state.inf.phase - 1] + ' · Salary ' + D.fmtN(state.inf.salary)
+        ? 'Phase ' + state.inf.phase + ': ' + state.inf.phaseName + ' · Index ' + state.inf.index + 'x · Pure water ₦' + [50, 70, 100, 140, 250, 500, 1000][state.inf.phase - 1] + ' · Salary ' + D.fmtN(state.inf.salary)
         : '';
     }
     this.renderTokens(state);
