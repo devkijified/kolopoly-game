@@ -5,6 +5,9 @@
 // tick() the host calls (setInterval on Node, an alarm on the Worker).
 const D = require('./public/game-data.js');
 const { BotBrain, BOT_NAMES } = require('./bot.js');
+const { createCompetition, competitionTable } = require('./competition.js');
+const { createPrizeLedger } = require('./prize-ledger.js');
+const { createPayProvider } = require('./pay-provider.js');
 
 function randomHex(n) {
   const bytes = new Uint8Array(n);
@@ -47,6 +50,91 @@ function createGameHost(deps) {
   const AFK_FAST = deps.afkFast != null ? !!deps.afkFast : false;
   const retention = deps.retention || noopRetention;
   const records = deps.records || noopRecords;
+  // Paid tables (phase 1). Three seams, each with a safe default so a
+  // host that wires nothing still runs: the ladder defaults to the
+  // seeded competition settings in memory, the prize ledger defaults
+  // to memory, and the payment provider defaults to test mode, which
+  // confirms seats without moving any real money. Real collection
+  // stays off until a real provider is wired behind pay-provider.js.
+  const competition = deps.competition || createCompetition({ memory: true });
+  const prizeLedger = deps.prizeLedger || createPrizeLedger({ memory: true });
+  const payProvider = deps.payProvider || createPayProvider({ test: TEST });
+  // Email accounts (paid play only). Free play never touches this.
+  // Where real money can move (any provider mode but test), creating,
+  // joining and paying at a paid table all require a signed-in
+  // account, so payments and prizes stay attached to a person, not a
+  // phone. In test mode an account is welcome but optional. A host
+  // with no auth wired fails closed wherever an account is required.
+  const auth = deps.auth || null;
+  const accountRequired = payProvider.mode !== 'test';
+  const SIGNIN_MESSAGE = 'Sign in with your email first. Paid tables need an account, so your money and your record stay yours.';
+  function authAccount(msg) {
+    if (!auth || !msg || !msg.authToken) return null;
+    try { return auth.verifyToken(msg.authToken); } catch (e) { return null; }
+  }
+  function cityRow(cityId) {
+    if (!cityId) return null;
+    const s = competition.settings();
+    return (s.cities || []).find((c) => c.id === cityId) || null;
+  }
+  function unpaidHumans(room) {
+    return room.players.filter((p) => !p.bot && !p.paidSeat);
+  }
+  // A paid seat that leaves before its game starts is owed its entry
+  // fee back. The ledger remembers it as refund-due; the game itself
+  // never sends money anywhere. The seat's paid flag clears as the
+  // entry is written, so no road can refund the same seat twice.
+  function refundSeat(room, p) {
+    if (!room.paid || room.paidGameStarted || !p || p.bot || !p.paidSeat) return;
+    p.paidSeat = false;
+    try {
+      prizeLedger.add({
+        roomCode: room.code, playerId: p.id, name: p.name,
+        amount: room.paidFee, kind: 'refund-due', cityId: room.cityId,
+        accountId: p.accountId || null, email: p.accountEmail || null,
+        at: now(), testMode: !!p.paidTestMode
+      });
+    } catch (e) { /* the ledger never blocks a room closing */ }
+  }
+  // Room death before the start refunds every paid seat still seated.
+  // Seats that already left were refunded on their way out (the leave
+  // handler splices them out of the room before the room can die).
+  function settleRefunds(room) {
+    if (!room.paid || room.paidGameStarted || room.refundsSettled) return;
+    room.refundsSettled = true;
+    for (const p of room.players) refundSeat(room, p);
+  }
+  // A finished paid game pays out on paper: the winner's prize and the
+  // house share, computed from the ladder for the city and the number
+  // of seats the game actually started with. Exactly once per game.
+  function settlePrize(room, winner) {
+    if (!room.paid || room.prizeSettled) return;
+    const table = competitionTable(competition.settings());
+    const row = table.find((r) => r.id === room.cityId);
+    if (!row) return;
+    const size = row.sizes.find((s) => s.players === room.paidSeatsAtStart) || row.sizes[row.sizes.length - 1];
+    if (!size) return;
+    room.prizeSettled = true;
+    room.prize = {
+      cityId: room.cityId, city: row.city, venue: row.venue, fee: row.fee,
+      players: size.players, pot: size.pot, winner: size.winner, house: size.house,
+      winnerId: winner.id, winnerName: winner.name, testMode: !!room.paidTestMode
+    };
+    try {
+      prizeLedger.add({
+        roomCode: room.code, playerId: winner.id, name: winner.name,
+        amount: size.winner, kind: 'prize', cityId: room.cityId,
+        accountId: winner.accountId || null, email: winner.accountEmail || null,
+        at: now(), testMode: !!room.paidTestMode
+      });
+      prizeLedger.add({
+        roomCode: room.code, playerId: null, name: 'House',
+        amount: size.house, kind: 'house', cityId: room.cityId,
+        at: now(), testMode: !!room.paidTestMode
+      });
+    } catch (e) { /* the ledger never blocks the close */ }
+    pushFeed(room, 'info', 'Paid table don settle: ' + winner.name + ' win ' + D.fmtN(size.winner) + ' from the ' + D.fmtN(size.pot) + ' pot. House keep ' + D.fmtN(size.house) + '.' + (room.paidTestMode ? ' Test mode: no real money move.' : ''), { playerId: winner.id, amount: size.winner });
+  }
   const AUCTION_MS = TEST ? 4000 : 20000;
   const MAX_PLAYERS = 6;
   const ROOM_GRACE_MS = TEST ? 3000 : 600000;
@@ -65,6 +153,7 @@ let tradeCounter = 0;
 function dropRoom(code) {
   const room = rooms.get(code);
   if (room) {
+    settleRefunds(room);
     for (const p of room.players) {
       if (p.botBrain) { try { p.botBrain.kill(); } catch (e) { /* already stopped */ } }
     }
@@ -416,7 +505,9 @@ function newPlayer(name, token, colorIdx) {
     hustleHeat: 0, hustleFails: 0, hustleWins: 0, hustleShieldTurn: -1,
     peakCash: D.START_CASH, purchases: [], salaryNote2: false,
     resigned: false,
-    lastActive: 0, afkWarn: 0, afkTaken: false, humanName: null
+    lastActive: 0, afkWarn: 0, afkTaken: false, humanName: null,
+    paidSeat: false, paidRef: null, paidTestMode: false, payPending: false,
+    accountId: null, accountEmail: null
   };
 }
 // A persistent per-device id (localStorage UUID on the client). It lets a
@@ -488,7 +579,14 @@ function newRoom(code, isPublic, mode, settings) {
     feed: [], feedSeq: 0, message: '', messageSeq: 0, banner: null,
     winner: null, endTable: null, recordSaved: false, startedAt: null, createdAt: now(),
     endReason: null, emptyAt: null, pauseSince: null, pauseClockMs: null,
-    afkTakeovers: 0
+    afkTakeovers: 0,
+    // Paid table state (free rooms keep paid false and never touch it):
+    // the city this room was priced from, the fee snapshot from creation
+    // day, and the settlement guards that keep prize and refund writes
+    // exactly once.
+    paid: false, cityId: null, paidCity: null, paidVenue: null, paidFee: 0,
+    paidTestMode: false, paidSeatsAtStart: 0, paidGameStarted: false,
+    prizeSettled: false, refundsSettled: false, prize: null
   };
 }
 function connectedSolvent(room) {
@@ -512,6 +610,14 @@ function publicRoom(room) {
     pauseClockMs: room.pauseClockMs != null ? room.pauseClockMs : null,
     endReason: room.endReason || null,
     settings: room.settings,
+    paid: room.paid ? {
+      cityId: room.cityId, city: room.paidCity, venue: room.paidVenue,
+      fee: room.paidFee, testMode: !!room.paidTestMode, provider: payProvider.name,
+      mode: payProvider.mode || 'test', paymentsReady: (payProvider.mode || 'test') !== 'off',
+      accountRequired,
+      allPaid: unpaidHumans(room).length === 0
+    } : null,
+    prize: room.prize || null,
     turnPlayerId: room.turnPlayerId, phase: room.phase,
     dice: room.dice, doublesCount: room.phase ? (curPlayer(room) ? curPlayer(room).doublesCount : 0) : 0,
     buySpace: room.buySpace, buyPrice: room.buyPrice, pot: room.pot,
@@ -596,6 +702,7 @@ function publicRoom(room) {
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
       isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
+      paidSeat: !!p.paidSeat, payPending: !!p.payPending,
       inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
       lifelineUsed: !!p.lifelineUsed, hustleAttempts: p.hustleAttempts || 0,
@@ -1440,6 +1547,10 @@ function endGame(room, winner, why) {
   pushFeed(room, 'gameEnd', winner.name + ' wins Kolopoly with net worth ' + D.fmtN(netWorth(room, winner)) + '.', { playerId: winner.id, amount: netWorth(room, winner) });
   if (finishing) {
     try { retention.noteDay('tablesFinished'); } catch (e) { /* the ledger never blocks the close */ }
+    // Paid table: settle the prize and the house share on paper. This
+    // covers every road into endGame: last landlord standing, the
+    // Final Reckoning horn, the host ending the room, the clock.
+    settlePrize(room, winner);
     // Shelf v2: every seated human played a match today. The Day 7
     // kolo chest checks this mark; the records store cannot answer
     // per player and day, so the shelf keeps the mark itself.
@@ -1669,6 +1780,15 @@ function startGame(room) {
   room.turnPlayerId = startId;
   room.status = 'playing';
   room.startedAt = now();
+  // Paid table: freeze the seat count the prize will be priced on, and
+  // mark the game as started so a later room death can never mistake
+  // this table for an abandoned lobby and refund seats twice over.
+  if (room.paid) {
+    room.paidSeatsAtStart = room.players.length;
+    room.paidGameStarted = true;
+    room.prizeSettled = false;
+    room.prize = null;
+  }
   for (const p of room.players) { if (!p.bot) { p.lastActive = room.startedAt; p.afkWarn = 0; p.afkTaken = false; } }
   room.afkTakeovers = 0;
   room.gameEndsAt = room.settings.timed ? now() + 3600 * 1000 : null;  const first = curPlayer(room);
@@ -2783,9 +2903,36 @@ function handleConnection(ws) {
       const name = cleanName(msg.name);
       if (!name) return fail('Type your display name first.');
       const mode = msg.mode === 'pass' ? 'pass' : 'online';
+      // Paid table: a city id prices the room from the ladder. No city
+      // id means a free room, exactly as before. A city id this ladder
+      // does not know is refused, never guessed at.
+      let city = null;
+      if (msg.cityId != null && String(msg.cityId).trim() !== '') {
+        city = cityRow(String(msg.cityId).trim());
+        if (!city) return fail('That paid table no dey the ladder. Pick another city.');
+        // Owner ruling: one paid table is open at launch (the Lagos
+        // ₦200 table). Closed rungs stay on the ladder for later, but
+        // no paid room can be created for them, by any client.
+        if (!city.open) return fail('That paid table never open yet. Na only the open table fit run now.');
+        if (mode === 'pass') return fail('Paid tables na online only. Everybody pay from their own phone.');
+      }
+      let acct = null;
+      if (city) {
+        acct = authAccount(msg);
+        if (accountRequired && !acct) return fail(SIGNIN_MESSAGE);
+      }
       const room = newRoom(makeCode(), false, mode, sanitizeSettings(msg.settings, false));
+      if (city) {
+        room.paid = true;
+        room.cityId = city.id;
+        room.paidCity = city.city;
+        room.paidVenue = city.venue;
+        room.paidFee = city.fee;
+        room.paidTestMode = !!payProvider.testMode;
+      }
       const player = newPlayer(name, pickToken(room, msg.token), 0);
       player.clientId = cleanClientId(msg.clientId);
+      if (acct) { player.accountId = acct.accountId; player.accountEmail = acct.email; }
       player.ws = ws; player.local = mode === 'pass';
       room.players.push(player);
       room.hostId = player.id;
@@ -2844,6 +2991,18 @@ function handleConnection(ws) {
       const room = rooms.get(code);
       if (!room) return fail('No room with that code. Check the code and try again.');
       if (room.mode === 'pass') return fail('That room dey play for one phone. You no fit join from another phone.');
+      // Paid room: the seat belongs to an account. Where an account is
+      // required, no token means no seat. With one, the same email on
+      // any device reclaims its seat here, payment state included.
+      let joinAcct = null;
+      if (room.paid) {
+        joinAcct = authAccount(msg);
+        if (accountRequired && !joinAcct) return fail(SIGNIN_MESSAGE);
+        if (joinAcct) {
+          const priorAcct = room.players.find((p) => p.accountId && p.accountId === joinAcct.accountId);
+          if (priorAcct) { bindSeat(ctx, ws, room, priorAcct, send); return; }
+        }
+      }
       // A returning device reclaims its seat (same deeds, cash, turn state)
       // instead of duplicating in the lobby or spectating its own game.
       const joinClientId = cleanClientId(msg.clientId);
@@ -2857,6 +3016,7 @@ function handleConnection(ws) {
         if (room.players.length >= MAX_PLAYERS) return fail('That room is full. Rooms hold 6 players.');
         const player = newPlayer(name, pickToken(room, msg.token), room.players.length);
         player.clientId = joinClientId;
+        if (joinAcct) { player.accountId = joinAcct.accountId; player.accountEmail = joinAcct.email; }
         player.ws = ws;
         room.players.push(player);
         ctx.room = room; ctx.player = player; ctx.spectator = false;
@@ -2920,6 +3080,7 @@ function handleConnection(ws) {
     }
     if (msg.type === 'add_bot') {
       if (!ctx.player || ctx.player.id !== room.hostId) return fail('Only the host fit add a bot.');
+      if (room.paid) return fail('Bots no dey sit for paid table. Na real people pay and play here.');
       if (room.mode === 'pass') return fail('Pass and play no dey use bot. Na una dey the same phone.');
       if (room.status !== 'lobby') return fail('Bots fit only join before the game starts.');
       if (room.players.length >= BOT_SEAT_CAP) return fail('Bots fit only fill the room reach ' + BOT_SEAT_CAP + ' seats.');
@@ -2945,8 +3106,53 @@ function handleConnection(ws) {
       if (!ctx.player || ctx.player.id !== room.hostId) return fail('Only the host can start the game.');
       if (room.status !== 'lobby') return fail('The game don already start.');
       if (room.players.length < 2) return fail('You need at least 2 players to start.');
+      if (room.paid) {
+        const waiting = unpaidHumans(room);
+        if (waiting.length) {
+          return fail('Paid table: ' + waiting.map((p) => p.name).join(', ') + ' never pay the ' + D.fmtN(room.paidFee) + ' entry yet. Everybody must pay before the game fit start.');
+        }
+      }
       startGame(room);
       broadcast(room);
+      return;
+    }
+    // Paid table: a seated human pays their own entry through the
+    // payment seam. The provider answers async; the seat only flips to
+    // paid on a confirmed ok, and a second tap while one payment is in
+    // flight is ignored so a seat can never pay twice.
+    if (msg.type === 'pay_seat') {
+      if (!ctx.player || ctx.spectator) return fail('Spectators fit only watch.');
+      if (!room.paid) return fail('This table na free. No payment needed.');
+      if (room.status !== 'lobby') return fail('Payment na for before the game start.');
+      const me = ctx.player;
+      if (me.bot) return fail('Bots no dey pay. Bots no dey sit for paid table.');
+      if (accountRequired && !me.accountId) return fail(SIGNIN_MESSAGE);
+      if (me.paidSeat) return fail('You don pay your entry already.');
+      if (me.payPending) return;
+      me.payPending = true;
+      broadcast(room);
+      let attempt;
+      try {
+        attempt = payProvider.paySeat({ roomCode: room.code, playerId: me.id, name: me.name, amount: room.paidFee, cityId: room.cityId });
+      } catch (e) {
+        attempt = Promise.resolve({ ok: false, message: 'Payment no go through. Try again.' });
+      }
+      Promise.resolve(attempt).then((res) => {
+        me.payPending = false;
+        if (!rooms.has(room.code) || room.status !== 'lobby') return;
+        if (res && res.ok) {
+          me.paidSeat = true;
+          me.paidRef = res.ref || null;
+          me.paidTestMode = !!res.testMode;
+          setMessage(room, me.name + ' don pay the ' + D.fmtN(room.paidFee) + ' entry.' + (res.testMode ? ' Test mode: no real money move.' : ''));
+        } else {
+          send({ type: 'error', message: (res && res.message) || 'Payment no go through. Try again.' });
+        }
+        broadcast(room);
+      }).catch(() => {
+        me.payPending = false;
+        if (rooms.has(room.code)) broadcast(room);
+      });
       return;
     }
     if (msg.type === 'play_again') {
@@ -2972,6 +3178,14 @@ function handleConnection(ws) {
       room.paused = false; room.pauseSince = null; room.pauseClockMs = null;
       room.dealOfGame = null; room.interestLine = null; room.firstBankruptId = null;
       room.dice = null;
+      // Paid table: every game na its own competition, so a rematch
+      // starts unpaid again. The settled prize stays in the ledger;
+      // only the room's live settlement state resets.
+      if (room.paid) {
+        room.paidGameStarted = false; room.paidSeatsAtStart = 0;
+        room.prizeSettled = false; room.prize = null;
+        for (const p of room.players) { p.paidSeat = false; p.paidRef = null; p.payPending = false; }
+      }
       setMessage(room, 'Back to the lobby. The host fit start a new game with the same players.');
       broadcast(room);
       return;
@@ -2988,6 +3202,7 @@ function handleConnection(ws) {
         if (lr.mode === 'pass') {
           dropRoom(lr.code);
         } else if (lr.status === 'lobby') {
+          refundSeat(lr, lp);
           const ix = lr.players.indexOf(lp);
           if (ix >= 0) lr.players.splice(ix, 1);
           if (!lr.players.some((p) => !p.bot)) {
@@ -3033,10 +3248,9 @@ function handleConnection(ws) {
       if (room.paused) return fail('The game is paused, waiting for players.');
       const good = String(msg.good || '');
       // Shelf v2 second-chance goods (Rent Shield, Bail Card) are
-      // free-table goods only, by shape. Paid rooms do not exist yet,
-      // so room.paid is never set today; the refusal is wired ahead
-      // of the flag, and retention.spendV2 carries the same guard
-      // for the day the v2 spend path lands.
+      // free-table goods only, by shape. Paid rooms set room.paid at
+      // creation (create_room with a city id), so this refusal is
+      // live: the goods never work at a paid table.
       if ((good === 'rentShield' || good === 'bailCard') && room.paid) {
         return fail('That good na for free table only. E no dey work for paid table.');
       }
@@ -3800,6 +4014,14 @@ function handleConnection(ws) {
         p.hustleWins = p.hustleWins || 0;
         p.hustleShieldTurn = p.hustleShieldTurn == null ? -1 : p.hustleShieldTurn;
         if (p.eliminatedPhase === undefined) p.eliminatedPhase = null;
+        // Paid seat fields default for snapshots written before paid
+        // tables existed: an old seat reads as unpaid, never mid-pay.
+        p.paidSeat = !!p.paidSeat;
+        p.paidRef = p.paidRef || null;
+        p.paidTestMode = !!p.paidTestMode;
+        p.payPending = false;
+        p.accountId = p.accountId || null;
+        p.accountEmail = p.accountEmail || null;
         return p;
       });
       // An open Hustle never survives a host move: its money has not moved
@@ -3825,6 +4047,19 @@ function handleConnection(ws) {
       room.turnCount = room.turnCount || 0;
       if (room.hornRanking === undefined) room.hornRanking = null;
       if (room.hornDebt === undefined) room.hornDebt = null;
+      // Paid table fields default for snapshots written before paid
+      // tables existed: free, unpriced, unsettled.
+      if (room.paid === undefined) room.paid = false;
+      if (room.cityId === undefined) room.cityId = null;
+      if (room.paidCity === undefined) room.paidCity = null;
+      if (room.paidVenue === undefined) room.paidVenue = null;
+      if (room.paidFee === undefined) room.paidFee = 0;
+      if (room.paidTestMode === undefined) room.paidTestMode = false;
+      if (room.paidSeatsAtStart === undefined) room.paidSeatsAtStart = 0;
+      if (room.paidGameStarted === undefined) room.paidGameStarted = !!room.paid && room.status !== 'lobby';
+      if (room.prizeSettled === undefined) room.prizeSettled = false;
+      if (room.refundsSettled === undefined) room.refundsSettled = false;
+      if (room.prize === undefined) room.prize = null;
       if (room.inf && room.inf.v !== 2) {
         // Old four-phase snapshot: keep the table and the current phase,
         // restart the current phase with its new listed length, and run
@@ -3901,9 +4136,29 @@ function handleConnection(ws) {
     return soon;
   }
 
+  // The settle door for real payments. The server's one settle funnel
+  // (webhook, verify, sweep) calls this after a payment is confirmed;
+  // the seat flips to paid exactly here, never from a client claim.
+  // Idempotent: a seat already paid, a room already started, or a seat
+  // that is gone all answer false and change nothing.
+  function settlePaidSeat(roomCode, sel, info) {
+    const room = rooms.get(String(roomCode || ''));
+    if (!room || !room.paid || room.status !== 'lobby') return false;
+    const seat = room.players.find((p) =>
+      (sel && sel.playerId != null && p.id === Number(sel.playerId)) ||
+      (sel && sel.accountId && p.accountId === sel.accountId));
+    if (!seat || seat.bot || seat.paidSeat) return false;
+    seat.paidSeat = true;
+    seat.paidRef = (info && info.ref) || null;
+    seat.paidTestMode = false;
+    setMessage(room, seat.name + ' don pay the ' + D.fmtN(room.paidFee) + ' entry.');
+    broadcast(room);
+    return true;
+  }
+
   return {
     rooms, tick, handleConnection, exportState, importState, nextWake, pokeBots,
-    publicRoom, dropRoom, TEST
+    publicRoom, dropRoom, settlePaidSeat, TEST
   };
 }
 

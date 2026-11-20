@@ -17,7 +17,7 @@ const OPS_DIR = path.join(__dirname, 'ops');
 const DESK_HTML = fs.readFileSync(path.join(OPS_DIR, 'desk.html'), 'utf8');
 const DESK_CSS = fs.readFileSync(path.join(OPS_DIR, 'desk.css'));
 const DESK_JS = fs.readFileSync(path.join(OPS_DIR, 'desk.js'));
-const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/unlock', '/ops/lock']);
+const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/prizes', '/ops/unlock', '/ops/lock']);
 const QUERY_KEYS = ['token', 'key', 'password', 'secret', 'kp_admin_token'];
 const STRIP_KEYS = new Set([
   'clientId', 'reconnectToken', 'reconnect', 'privateKey', 'publicKey',
@@ -46,6 +46,7 @@ function createOps(opts) {
   const rooms = opts.rooms;
   const retention = opts.retention;
   const competition = opts.competition;
+  const prizes = opts.prizes;
   const bootAt = Date.now();
   const buckets = new Map();
   const globalBucket = { n: 0, windowEnd: 0, lockedUntil: 0 };
@@ -490,6 +491,33 @@ function createOps(opts) {
     sendJson(res, 200, scrub(competition.view(), currentToken()));
   }
 
+  // The prize ledger, read only: every prize, house share and
+  // refund-due the paid tables have written, with totals. Same auth
+  // and rate limit shape as the competition view.
+  function prizesView(req, res) {
+    const key = clientKey(req);
+    if (rateLimited(key) && bearerValue(req) && !sessionValid(bearerValue(req)) && !readCookie(req, 'kp_ops')) {
+      tokenMatches(bearerValue(req));
+      sendJson(res, 429, { ok: false, error: 'locked', message: 'Too many tries. The desk is quiet for a while.' });
+      return;
+    }
+    const auth = authenticate(req);
+    if (!auth.ok) {
+      if (auth.guess) recordFail(key);
+      const status = rateLimited(key) && auth.guess ? 429 : 401;
+      const message = status === 429
+        ? 'Too many tries. The desk is quiet for a while.'
+        : 'That key no open this desk.';
+      sendJson(res, status, { ok: false, error: status === 429 ? 'locked' : 'unauthorized', message });
+      return;
+    }
+    if (!prizes) {
+      sendJson(res, 503, { ok: false, error: 'locked', message: 'The prize ledger is not wired on this host.' });
+      return;
+    }
+    sendJson(res, 200, scrub(prizes.view(), currentToken()));
+  }
+
   function readJsonBody(req, limit) {
     return new Promise((resolve, reject) => {
       const chunks = [];
@@ -585,6 +613,10 @@ function createOps(opts) {
     }
     if (req.method === 'POST' && route === '/ops/competition') {
       await competitionSave(req, res);
+      return;
+    }
+    if (req.method === 'GET' && route === '/ops/prizes') {
+      prizesView(req, res);
       return;
     }
     if (req.method === 'POST' && route === '/ops/unlock') {

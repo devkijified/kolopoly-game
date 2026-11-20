@@ -324,18 +324,21 @@ describe('worker ops competition ladder', () => {
     const summit = body.settings.cities.find((c) => c.flagship);
     expect(summit.city).toBe('Aso Rock, Abuja');
     expect(summit.fee).toBe(25000);
-    expect(body.settings.splits['2']).toBe(80);
-    expect(body.settings.splits['6']).toBe(60);
+    expect(body.settings.splits['2']).toBe(90);
+    expect(body.settings.splits['6']).toBe(90);
     const lagos = body.table.find((row) => row.id === 'lagos');
+    expect(lagos.open).toBe(true);
+    expect(lagos.fee).toBe(200);
+    expect(body.table.filter((row) => row.id !== 'lagos').every((row) => row.open === false)).toBe(true);
     const six = lagos.sizes.find((s) => s.players === 6);
-    expect(six.pot).toBe(30000);
-    expect(six.winner).toBe(18000);
-    expect(six.house).toBe(12000);
+    expect(six.pot).toBe(1200);
+    expect(six.winner).toBe(1080);
+    expect(six.house).toBe(120);
     const ibadan = body.table.find((row) => row.id === 'ibadan');
     const two = ibadan.sizes.find((s) => s.players === 2);
-    expect(two.pot).toBe(400);
-    expect(two.winner).toBe(320);
-    expect(two.house).toBe(80);
+    expect(two.pot).toBe(1000);
+    expect(two.winner).toBe(900);
+    expect(two.house).toBe(100);
     expect(JSON.stringify(body)).not.toContain('test-house-key');
   });
 
@@ -373,8 +376,8 @@ describe('worker ops competition ladder', () => {
     const kano = reread.body.table.find((row) => row.id === 'kano');
     const kanoFour = kano.sizes.find((s) => s.players === 4);
     expect(kanoFour.pot).toBe(6000);
-    expect(kanoFour.winner).toBe(4200);
-    expect(kanoFour.house).toBe(1800);
+    expect(kanoFour.winner).toBe(5400);
+    expect(kanoFour.house).toBe(600);
   });
 });
 
