@@ -1303,7 +1303,10 @@ const PHASE_LOOKS = [
   { key: 0xffd9a0, int: 1.55, bg: 0x2a1a0e },
   { key: 0xffc98a, int: 1.50, bg: 0x2e1c0e },
   { key: 0xff9a6a, int: 1.45, bg: 0x35200f },
-  { key: 0xff8a5a, int: 1.35, bg: 0x26150a }
+  { key: 0xff8a5a, int: 1.35, bg: 0x26150a },
+  { key: 0xff7a4a, int: 1.28, bg: 0x200f08 },
+  { key: 0xff6a3d, int: 1.20, bg: 0x1a0a06 },
+  { key: 0xff5a30, int: 1.12, bg: 0x140604 }
 ];
 class GameScene {
   constructor() {
@@ -1852,7 +1855,7 @@ class GameScene {
     this.syncTray(state);
     this.syncedOnce = true;
     // phase relight targets
-    const look = PHASE_LOOKS[state.inf ? state.inf.phase - 1 : 0];
+    const look = PHASE_LOOKS[state.inf ? state.inf.phase - 1 : 0] || PHASE_LOOKS[PHASE_LOOKS.length - 1];
     this.phaseTarget = { key: new THREE.Color(look.key), int: look.int, bg: new THREE.Color(look.bg) };
     if (state.status === 'countdown' && !this.countedFor) { this.countedFor = state.code; }
     if (state.status === 'playing') this.countedFor = null;
