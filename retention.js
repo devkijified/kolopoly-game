@@ -3,7 +3,12 @@
 // The shelf is cowries, kola, yams and cloth. It is not table cash,
 // not deeds, and it does not touch the board, the modes, or the economy.
 // Identity is the same pair the table already uses: clientId, and the
-// seat reconnect token once a room has linked them.
+// seat reconnect token once a room has linked them. Where the host
+// wires email accounts in, a verified account token outranks the
+// pair: the shelf then lives under the account shelf id (acct:
+// plus the account id), on any phone, and the first time an account
+// arrives together with a device shelf, that device shelf is
+// adopted into the account shelf once (see claimDeviceShelf).
 //
 // Shelf v2 (the kolo shelf) lives in the same store, behind a v=2 ask
 // on the same endpoints: daily pieces fill a kolo that breaks into a
@@ -180,6 +185,19 @@ function cleanToken(v) {
   const s = String(v || '');
   return /^[a-f0-9]{24}$/i.test(s) ? s.toLowerCase() : null;
 }
+// Account shelf ids: the account id (a_ plus 20 hex digits, the
+// shape auth.js derives from the email) behind an acct: prefix, so
+// an account shelf and a device shelf can never collide in the
+// store, whatever a client sends.
+function acctShelfId(accountId) {
+  const s = String(accountId || '');
+  return /^a_[a-f0-9]{20}$/.test(s) ? 'acct:' + s : null;
+}
+function cleanShelfId(v) {
+  const s = String(v || '');
+  if (/^acct:a_[a-f0-9]{20}$/.test(s)) return s;
+  return cleanClientId(s);
+}
 function cleanName(v) {
   const s = String(v || '').trim().slice(0, 20);
   return s || '';
@@ -190,6 +208,10 @@ function createRetention(opts) {
   const test = !!opts.test;
   const memory = !!opts.memory;
   const file = memory ? null : (opts.file || path.join(__dirname, 'data', 'retention.json'));
+  // Email accounts, where the host wires them (the Node server
+  // does; the worker does not yet, so there the shelf stays keyed
+  // by device exactly as before).
+  const auth = opts.auth || null;
   const pushLib = opts.push || nodePush();
   const loadVapid = pushLib.loadVapid;
   const sendWebPush = pushLib.sendWebPush;
@@ -239,6 +261,7 @@ function createRetention(opts) {
   function blank(id) {
     return {
       clientId: id,
+      claimedBy: null,
       name: '',
       inventory: { cowries: 0, kola: 0, yams: 0, cloth: 0 },
       lastClaimDay: null,
@@ -469,8 +492,104 @@ function createRetention(opts) {
     return normalize(db.players[id]);
   }
 
+  // Fold a device shelf into an account shelf, once, at adoption.
+  // The merge is conservative on purpose: nothing doubles. Postcard
+  // counts take the fuller page per card, album completions union,
+  // the streak run and the total days take the max (the same days
+  // must never count twice), kolo pieces sum but stop at a full
+  // kolo, second-chance hands join and stop at the held cap, entry
+  // tickets take the max and never pass one waiting, cosmetic
+  // pieces take the fuller item, and the old v1 goods take the
+  // fuller hand per good.
+  function mergeDeviceInto(acct, dev) {
+    for (const g of GOODS) {
+      acct.inventory[g] = Math.max(acct.inventory[g] || 0, dev.inventory[g] || 0);
+    }
+    acct.claimCount = Math.max(acct.claimCount || 0, dev.claimCount || 0);
+    if (dev.lastClaimDay && (!acct.lastClaimDay || dev.lastClaimDay > acct.lastClaimDay)) {
+      acct.lastClaimDay = dev.lastClaimDay;
+    }
+    if (!acct.name && dev.name) acct.name = dev.name;
+    if (!acct.push && dev.push) acct.push = dev.push;
+    acct.playedDays = Object.assign({}, dev.playedDays || {}, acct.playedDays || {});
+    const av = v2Of(acct);
+    const dv = v2Of(dev);
+    for (const [season, page] of Object.entries(dv.album)) {
+      if (!av.album[season]) av.album[season] = {};
+      for (const card of ALBUM) {
+        const n = page[card.id] || 0;
+        if (n > (av.album[season][card.id] || 0)) av.album[season][card.id] = n;
+      }
+    }
+    for (const [season, day] of Object.entries(dv.albumComplete)) {
+      if (!av.albumComplete[season] || day < av.albumComplete[season]) av.albumComplete[season] = day;
+    }
+    if (dv.streak.count > av.streak.count) {
+      av.streak = { lastDay: dv.streak.lastDay, count: dv.streak.count, graceWeek: dv.streak.graceWeek };
+    } else if (dv.streak.count === av.streak.count && dv.streak.lastDay
+      && (!av.streak.lastDay || dv.streak.lastDay > av.streak.lastDay)) {
+      av.streak.lastDay = dv.streak.lastDay;
+      if (dv.streak.graceWeek) av.streak.graceWeek = dv.streak.graceWeek;
+    }
+    av.totalDays = Math.max(av.totalDays, dv.totalDays);
+    av.kolo.pieces = Math.min(SHELF_V2.piecesNeeded, av.kolo.pieces + dv.kolo.pieces);
+    av.kolo.completePending = av.kolo.completePending || dv.kolo.completePending;
+    const today = lagosDay(new Date());
+    pruneSecondChance(av, today);
+    pruneSecondChance(dv, today);
+    av.secondChance = av.secondChance.concat(dv.secondChance)
+      .sort((a, b) => (a.expiresDay < b.expiresDay ? 1 : -1))
+      .slice(0, SHELF_V2.secondChanceCap);
+    av.ticket = liveTicket(av, today) || liveTicket(dv, today);
+    av.pendingTickets = Math.min(1, Math.max(av.pendingTickets, dv.pendingTickets));
+    for (const item of SHELF_V2.cosmeticItems) {
+      av.cosmetics.pieces[item.id] = Math.max(av.cosmetics.pieces[item.id] || 0, dv.cosmetics.pieces[item.id] || 0);
+    }
+    for (const s of dv.cosmetics.tokenSeasons) {
+      if (!av.cosmetics.tokenSeasons.includes(s)) av.cosmetics.tokenSeasons.push(s);
+    }
+    av.claims = Math.max(av.claims, dv.claims);
+    av.milestonesPaid = [...new Set(av.milestonesPaid.concat(dv.milestonesPaid))];
+    if (dv.conversionDone) av.conversionDone = true;
+    if (dv.converted) av.converted = true;
+  }
+  // Adopt a device shelf into an account shelf. Runs at most once
+  // per device: the device record is emptied and marked with the
+  // account that claimed it, so no second account can claim it and
+  // it cannot be claimed twice. After the claim, device-only reads
+  // of that record see an empty shelf; the account holds everything.
+  function claimDeviceShelf(acctId, deviceId) {
+    if (!acctId || !deviceId || deviceId === acctId) return false;
+    const dev = db.players[deviceId];
+    if (!dev || typeof dev !== 'object') return false;
+    if (dev.claimedBy) return false;
+    const acct = ensure(acctId);
+    mergeDeviceInto(acct, normalize(dev));
+    const fresh = blank(deviceId);
+    fresh.claimedBy = acctId;
+    db.players[deviceId] = fresh;
+    save();
+    return true;
+  }
+
+  function accountFrom(body) {
+    if (!auth || !body || !body.authToken) return null;
+    try { return auth.verifyToken(String(body.authToken)); } catch (e) { return null; }
+  }
   function resolve(body) {
     body = body || {};
+    // A verified account outranks the device pair: the shelf is the
+    // account shelf, and a device shelf riding along in the same
+    // request is adopted into it, once.
+    const acct = accountFrom(body);
+    if (acct && acct.accountId) {
+      const id = acctShelfId(acct.accountId);
+      if (id) {
+        const cid = cleanClientId(body.clientId);
+        if (cid) claimDeviceShelf(id, cid);
+        return { id, token: cleanToken(body.token), accountId: acct.accountId };
+      }
+    }
     const sentId = body.clientId != null && String(body.clientId) !== '';
     const sentTok = body.token != null && String(body.token) !== '';
     const cid = cleanClientId(body.clientId);
@@ -491,6 +610,26 @@ function createRetention(opts) {
     info = info || {};
     const cid = cleanClientId(info.clientId);
     const tok = cleanToken(info.token);
+    // A signed-in seat links its shelf to the account: the device
+    // shelf is adopted on first contact, and the seat token binds
+    // to the account shelf from then on.
+    const acctId = acctShelfId(info.accountId);
+    if (acctId) {
+      if (cid) claimDeviceShelf(acctId, cid);
+      const p = ensure(acctId);
+      const name = cleanName(info.name);
+      if (name) p.name = name;
+      if (tok) {
+        db.tokens[tok] = acctId;
+        p.tokens = Array.isArray(p.tokens) ? p.tokens : [];
+        if (!p.tokens.includes(tok)) {
+          p.tokens.push(tok);
+          if (p.tokens.length > 8) p.tokens.shift();
+        }
+      }
+      save();
+      return p;
+    }
     if (!cid) return null;
     const p = ensure(cid);
     const name = cleanName(info.name);
@@ -571,7 +710,7 @@ function createRetention(opts) {
   // Debit the shelf. The table calls this when a seated player spends.
   // Claim stays goods-only. A short shelf does not go negative.
   function take(clientId, good) {
-    const id = cleanClientId(clientId);
+    const id = cleanShelfId(clientId);
     const use = USES[good];
     if (!id || !use) return { ok: false, error: 'good' };
     if (!db.players[id]) return { ok: false, error: 'short' };
@@ -589,7 +728,7 @@ function createRetention(opts) {
     };
   }
   function restore(clientId, good, qty) {
-    const id = cleanClientId(clientId);
+    const id = cleanShelfId(clientId);
     const use = USES[good];
     if (!id || !use || !db.players[id]) return;
     const p = normalize(db.players[id]);
@@ -941,7 +1080,7 @@ function createRetention(opts) {
   // so no caller passes paid today; the condition is wired now, with
   // the item, so the rule predates the first paid table.
   function spendV2(clientId, kind, ctx) {
-    const id = cleanClientId(clientId);
+    const id = cleanShelfId(clientId);
     if (!id || !SECOND_CHANCE[kind]) return { ok: false, error: 'good' };
     if (!db.players[id] || !db.players[id].v2) return { ok: false, error: 'short' };
     const p = db.players[id];
@@ -965,7 +1104,7 @@ function createRetention(opts) {
     const d = validDay(day) ? String(day) : lagosDay(new Date());
     let changed = false;
     for (const raw of clientIds || []) {
-      const id = cleanClientId(raw);
+      const id = cleanShelfId(raw);
       if (!id || !db.players[id]) continue;
       const p = db.players[id];
       if (!p.playedDays || typeof p.playedDays !== 'object') p.playedDays = {};
@@ -1076,7 +1215,7 @@ function createRetention(opts) {
 
   function onSeatWaiting(player) {
     if (!player || player.bot || player.resigned || player.leftConfirmed) return;
-    const id = cleanClientId(player.clientId);
+    const id = acctShelfId(player.accountId) || cleanClientId(player.clientId);
     if (!id) return;
     deliver(id, 'waiting', {}).catch(() => {});
   }
@@ -1087,8 +1226,10 @@ function createRetention(opts) {
     if (!hit.length) return;
     for (const n of hit) room.potMarks[n] = true;
     for (const p of room.players || []) {
-      if (!p || p.bot || p.connected || p.resigned || !p.clientId) continue;
-      deliver(p.clientId, 'pot', {}).catch(() => {});
+      if (!p || p.bot || p.connected || p.resigned) continue;
+      const id = acctShelfId(p.accountId) || cleanClientId(p.clientId);
+      if (!id) continue;
+      deliver(id, 'pot', {}).catch(() => {});
     }
   }
   async function sweepDrops(day) {
@@ -1266,6 +1407,11 @@ function createRetention(opts) {
 
   const TEST_ROUTES = new Set(['/api/test/nudge', '/api/test/sweep', '/api/test/push-roundtrip']);
 
+  function bearerOf(headers) {
+    const m = /^Bearer\s+(\S+)$/i.exec(String((headers && headers.authorization) || ''));
+    return m ? m[1] : '';
+  }
+
   function handle(req, res) {
     const clean = (req.url || '').split('?')[0];
     const query = (() => { try { return new URL(req.url, 'http://localhost').searchParams; } catch (e) { return new URLSearchParams(); } })();
@@ -1286,7 +1432,7 @@ function createRetention(opts) {
       if (req.method === 'GET' && clean === '/api/retention') {
         const picked = dayFrom({ day: query.get('day') }, null);
         if (picked.error) { sendJson(res, 400, { ok: false, error: picked.error }); return; }
-        const who = resolve({ clientId: query.get('clientId'), token: query.get('token') });
+        const who = resolve({ clientId: query.get('clientId'), token: query.get('token'), authToken: query.get('authToken') || bearerOf(req.headers) });
         if (who.error) { sendJson(res, 400, { ok: false, error: who.error }); return; }
         if (String(query.get('v') || '') === '2') {
           const view = publicViewV2(who.id, picked.day);
@@ -1299,6 +1445,7 @@ function createRetention(opts) {
       }
       if (req.method !== 'POST') { sendJson(res, 405, { ok: false, error: 'method' }); return; }
       const body = await readBody(req);
+      if (!body.authToken) { const b = bearerOf(req.headers); if (b) body.authToken = b; }
       if (clean === '/api/retention/claim') { const out = String(body.v) === '2' ? claimV2(body) : claim(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/retention/gift') { const out = gift(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/push/subscribe') { const out = subscribe(body); sendJson(res, out.status, out.body); return; }
@@ -1366,7 +1513,7 @@ function createRetention(opts) {
       if (request.method === 'GET' && clean === '/api/retention') {
         const picked = dayFrom({ day: query.get('day') }, null);
         if (picked.error) return json(400, { ok: false, error: picked.error });
-        const who = resolve({ clientId: query.get('clientId'), token: query.get('token') });
+        const who = resolve({ clientId: query.get('clientId'), token: query.get('token'), authToken: query.get('authToken') || bearerOf({ authorization: request.headers.get('authorization') }) });
         if (who.error) return json(400, { ok: false, error: who.error });
         if (String(query.get('v') || '') === '2') {
           const view = publicViewV2(who.id, picked.day);
@@ -1378,6 +1525,7 @@ function createRetention(opts) {
       if (request.method !== 'POST') return json(405, { ok: false, error: 'method' });
       const raw = await request.text();
       const body = raw ? JSON.parse(raw) : {};
+      if (!body.authToken) { const b = bearerOf({ authorization: request.headers.get('authorization') }); if (b) body.authToken = b; }
       if (clean === '/api/retention/claim') { const out = String(body.v) === '2' ? claimV2(body) : claim(body); return json(out.status, out.body); }
       if (clean === '/api/retention/gift') { const out = gift(body); return json(out.status, out.body); }
       if (clean === '/api/push/subscribe') { const out = subscribe(body); return json(out.status, out.body); }

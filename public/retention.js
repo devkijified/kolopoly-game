@@ -59,8 +59,14 @@
   function $(id) { return document.getElementById(id); }
   function setLine(text) { const el = $('marketLine'); if (el) el.textContent = text || ''; }
 
+  function authToken() {
+    try { return localStorage.getItem('kolopolyAuthToken') || ''; } catch (e) { return ''; }
+  }
   function identityBody() {
-    return { clientId: clientId(), token: seatToken(), name: playerName() };
+    const body = { clientId: clientId(), token: seatToken(), name: playerName() };
+    const t = authToken();
+    if (t) body.authToken = t;
+    return body;
   }
   async function post(url, extra) {
     const res = await fetch(url, {
@@ -254,7 +260,7 @@
       return;
     }
     try {
-      const res = await fetch('/api/retention?clientId=' + encodeURIComponent(id));
+      const res = await fetch('/api/retention?clientId=' + encodeURIComponent(id) + (authToken() ? '&authToken=' + encodeURIComponent(authToken()) : ''));
       const view = await res.json();
       if (!view || !view.ok) return;
       pushEnabled = !!(view.push && view.push.enabled);

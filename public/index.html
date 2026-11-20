@@ -41,6 +41,29 @@
   <button class="iconbtn" id="muteBtn" aria-label="Sound and voice on"></button>
 </header>
 
+<!-- ============================ SIGN IN ============================ -->
+<main class="view" id="view-signin">
+  <div class="signin-scene">
+    <div class="hero-type signin-brand">
+      <h1 class="display hero-wordmark">KOLO<span class="gold">POLY</span></h1>
+      <p class="hero-slogan">Break your kolo, buy the street.</p>
+    </div>
+    <section class="join-card signin-card">
+      <h2 class="signin-title">Sign in to play</h2>
+      <p class="signin-note">Kolopoly lives under your email. Your games, streak, kolo shelf and prizes stay on your account, on any phone. No password: we send a 6 digit code to your email.</p>
+      <label for="gateEmailIn">Email</label>
+      <input class="textin" id="gateEmailIn" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" maxlength="120">
+      <button class="btn block mt8" id="gateSendBtn" type="button">Send code</button>
+      <div id="gateCodeRow" class="hidden">
+        <label for="gateCodeIn">Sign-in code</label>
+        <input class="textin" id="gateCodeIn" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digit code" maxlength="6">
+        <button class="btn gold block mt8" id="gateVerifyBtn" type="button">Sign in</button>
+      </div>
+      <p class="paid-auth-msg" id="gateMsg"></p>
+    </section>
+  </div>
+</main>
+
 <!-- ============================ LANDING ============================ -->
 <main class="view active" id="view-landing">
   <div class="landing-hero">
@@ -371,6 +394,7 @@
     </div>
   </section>
   <p class="center"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords</button></p>
+  <p class="center account-line hidden" id="accountBar">Signed in as <span class="account-email" id="accountEmail"></span><br><button type="button" class="home-link" id="signOutBtn">Sign out</button></p>
 </main>
 
 <!-- ============================ LOBBY ============================ -->

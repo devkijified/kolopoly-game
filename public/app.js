@@ -1247,6 +1247,7 @@ $('createBtn').addEventListener('click', () => {
   entrySent = true;
   send('create_room', {
     name: myName(), token: selectedToken, clientId: CLIENT_ID, mode: selectedRoomMode,
+    authToken: authToken() || undefined,
     settings: createSettings()
   });
 });
@@ -1313,6 +1314,89 @@ async function verifyAuthCode() {
     renderPaidAuth();
   } catch (e) { msg.textContent = 'Sign in no go through. Try again.'; }
 }
+// ---------------------------------------------------------------------------
+// The sign-in gate scene. Where the server says signInRequired, the
+// game boots here, not on the landing: a full-screen scene with the
+// brand, the email field and the code field. A stored token is
+// checked against /api/auth/me first; a dead one clears and the
+// scene shows. Hosts without the gate never see any of this.
+// ---------------------------------------------------------------------------
+let gateRequired = false;
+let pendingGateEmail = '';
+function showSigninScene() {
+  showView('view-signin');
+  const emailIn = $('gateEmailIn');
+  if (emailIn && authEmail() && !emailIn.value) emailIn.value = authEmail();
+}
+function leaveSigninScene() {
+  showView('view-landing');
+  renderAccountBar();
+}
+function renderAccountBar() {
+  const bar = $('accountBar');
+  if (!bar) return;
+  if (authToken()) {
+    $('accountEmail').textContent = authEmail();
+    bar.classList.remove('hidden');
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+async function sendGateCode() {
+  const email = ($('gateEmailIn').value || '').trim();
+  const msg = $('gateMsg');
+  if (!email) { msg.textContent = 'Enter your email first.'; return; }
+  msg.textContent = 'Dey send your code…';
+  try {
+    const res = await fetch('/api/auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok) { msg.textContent = (data && data.message) || 'The code no send. Try again.'; return; }
+    pendingGateEmail = email;
+    $('gateCodeRow').classList.remove('hidden');
+    msg.textContent = 'Code sent. Check your email and enter the 6 digits.' + (data.devCode ? ' Test code: ' + data.devCode : '');
+    const codeIn = $('gateCodeIn');
+    if (codeIn) codeIn.focus();
+  } catch (e) { msg.textContent = 'The code no send. Check your connection and try again.'; }
+}
+async function verifyGateCode() {
+  const code = ($('gateCodeIn').value || '').trim();
+  const msg = $('gateMsg');
+  if (!pendingGateEmail) { msg.textContent = 'Ask for a code first.'; return; }
+  try {
+    const res = await fetch('/api/auth/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: pendingGateEmail, code }) });
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok) { msg.textContent = (data && data.message) || 'That code no correct.'; return; }
+    setAuth(data.token, data.email);
+    toast('You don sign in. Welcome.');
+    leaveSigninScene();
+  } catch (e) { msg.textContent = 'Sign in no go through. Try again.'; }
+}
+(function wireGate() {
+  const sendBtn = $('gateSendBtn');
+  if (sendBtn) sendBtn.addEventListener('click', sendGateCode);
+  const verifyBtn = $('gateVerifyBtn');
+  if (verifyBtn) verifyBtn.addEventListener('click', verifyGateCode);
+  const out = $('signOutBtn');
+  if (out) out.addEventListener('click', () => {
+    setAuth(null);
+    clearSeat();
+    renderAccountBar();
+    if (gateRequired) showSigninScene();
+    toast('You don sign out.');
+  });
+})();
+(function bootGate() {
+  renderAccountBar();
+  fetch('/api/competition').then((r) => r.json()).then(async (data) => {
+    if (!data || !data.signInRequired) return;
+    gateRequired = true;
+    if (!authToken()) { showSigninScene(); return; }
+    try {
+      const res = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + authToken() } });
+      if (res.status === 401) { setAuth(null); renderAccountBar(); showSigninScene(); }
+    } catch (e) { /* a network hiccup never traps a signed-in player */ }
+  }).catch(() => {});
+})();
 // Real payment: open the Paystack page for my seat. The reference is
 // kept on this phone so the return trip can ask the server to verify;
 // the seat itself only flips when the server settles, from the
@@ -1429,7 +1513,7 @@ $('quickBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
   clearSeat();
   entrySent = true;
-  send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID, gameMode: selectedGameMode });
+  send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID, gameMode: selectedGameMode, authToken: authToken() || undefined });
 });
 let joinSentFor = null;
 function tryJoin(code) {
@@ -1533,7 +1617,7 @@ if (inviteCode) {
 // State rendering
 // ---------------------------------------------------------------------------
 function showView(id) {
-  for (const v of ['view-landing', 'view-lobby', 'view-game']) $(v).classList.toggle('active', v === id);
+  for (const v of ['view-signin', 'view-landing', 'view-lobby', 'view-game']) $(v).classList.toggle('active', v === id);
   document.body.classList.toggle('in-game', id === 'view-game');
   if (id === 'view-game' && window.KPShell) window.KPShell.refresh('enter');
 }
@@ -3473,7 +3557,7 @@ function paintShelfBox(root) {
   if (shelfView) draw(shelfView);
   const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
   if (!id) { draw(shelfView); return; }
-  fetch('/api/retention?clientId=' + encodeURIComponent(id)).then((r) => r.json()).then((view) => {
+  fetch('/api/retention?clientId=' + encodeURIComponent(id) + (authToken() ? '&authToken=' + encodeURIComponent(authToken()) : '')).then((r) => r.json()).then((view) => {
     if (view && view.ok) { shelfView = view; draw(view); }
   }).catch(() => { if (!shelfView) draw(null); });
 }

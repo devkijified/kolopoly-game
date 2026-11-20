@@ -413,3 +413,20 @@ body:has(#view-game.active) { background: radial-gradient(120% 60% at 50% 100%, 
 .perk-line {
   margin: 6px 0 0; font-size: 12px; font-weight: 700; line-height: 1.4; color: #c9b998;
 }
+
+/* ---------- Sign-in gate scene: a full-screen game scene ---------- */
+body:has(#view-signin.active) { background: #0f1116; }
+.signin-scene { padding: 34px 18px 10px; text-align: center; }
+.signin-brand .hero-wordmark {
+  font-size: 44px; letter-spacing: 1px; color: #fff;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5), 0 0 30px rgba(255, 200, 87, 0.35);
+  animation: kpTitleIn 0.7s var(--g-ease-pop) both;
+}
+.signin-brand .hero-slogan { color: var(--g-gold); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); margin-top: 6px; }
+.signin-card { text-align: left; margin-top: 22px; }
+.signin-title { font-size: 22px; color: #fff; margin: 0 0 6px; }
+.signin-note { font-size: 14px; line-height: 1.5; color: var(--g-soft); margin: 0 0 6px; }
+.signin-card .btn { border-radius: 12px; }
+.account-line { font-size: 13px; color: var(--g-soft); margin: 4px 14px 26px; line-height: 1.6; }
+.account-line .account-email { color: var(--g-text); font-weight: 700; }
+.account-line .home-link { display: inline-block; width: auto; color: var(--g-gold); margin-top: 0; min-height: 30px; }

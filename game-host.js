@@ -59,15 +59,27 @@ function createGameHost(deps) {
   const competition = deps.competition || createCompetition({ memory: true });
   const prizeLedger = deps.prizeLedger || createPrizeLedger({ memory: true });
   const payProvider = deps.payProvider || createPayProvider({ test: TEST });
-  // Email accounts (paid play only). Free play never touches this.
-  // Where real money can move (any provider mode but test), creating,
-  // joining and paying at a paid table all require a signed-in
-  // account, so payments and prizes stay attached to a person, not a
-  // phone. In test mode an account is welcome but optional. A host
-  // with no auth wired fails closed wherever an account is required.
+  // Email accounts. Where real money can move (any provider mode
+  // but test), creating, joining and paying at a paid table require
+  // a signed-in account, so payments and prizes stay attached to a
+  // person, not a phone. In test mode an account is welcome but
+  // optional. A host with no auth wired fails closed wherever an
+  // account is required.
   const auth = deps.auth || null;
   const accountRequired = payProvider.mode !== 'test';
   const SIGNIN_MESSAGE = 'Sign in with your email first. Paid tables need an account, so your money and your record stay yours.';
+  // The full sign-in gate (owner ruling, 2026-11-21): the game
+  // itself lives under the email account. Where an account is
+  // required at all and this host has auth wired, EVERY seat needs
+  // one: free tables, pass and play hosts and quick play included,
+  // so the streak, the kolo shelf, the postcards and the records
+  // attach to the account, not the phone. Test mode stays open so
+  // the suites keep their meaning. A host with no auth wired (the
+  // Cloudflare worker today) cannot verify an account, so it stays
+  // name-only until it grows its own auth mirror; that is
+  // deliberate, not an oversight.
+  const signInRequired = accountRequired && !!auth;
+  const GATE_MESSAGE = 'Sign in with your email first. Your games, streak, kolo shelf and prizes live under your account, on any phone.';
   function authAccount(msg) {
     if (!auth || !msg || !msg.authToken) return null;
     try { return auth.verifyToken(msg.authToken); } catch (e) { return null; }
@@ -540,11 +552,19 @@ function bindSeat(ctx, ws, room, player, send) {
   send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken, rejoined: true });
   broadcast(room);
 }
-// The shelf key is the device clientId, with the seat reconnect token
-// as the second handle once this room has seen both.
+// The shelf key is the account shelf when the seat is signed in,
+// else the device clientId, with the seat reconnect token as the
+// second handle once this room has seen both. Account shelves carry
+// the acct: prefix, so the two namespaces can never collide in the
+// shelf store.
+function shelfIdOf(player) {
+  if (!player) return null;
+  if (player.accountId) return 'acct:' + player.accountId;
+  return player.clientId || null;
+}
 function noteIdentity(player) {
   if (!player || player.bot) return;
-  try { retention.link({ clientId: player.clientId, token: player.reconnectToken, name: player.name }); }
+  try { retention.link({ clientId: player.clientId, token: player.reconnectToken, name: player.name, accountId: player.accountId || null }); }
   catch (e) { /* the shelf never blocks a seat */ }
 }
 function newRoom(code, isPublic, mode, settings) {
@@ -1515,6 +1535,7 @@ function endGame(room, winner, why) {
   room.owambe = null; room.sapaOffer = null;
   room.endTable = room.players.map((p) => ({
     playerId: p.id, name: p.name, token: p.token, color: p.color, bot: !!p.bot,
+    accountId: p.accountId || null,
     netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt, resigned: !!p.resigned,
     phaseSurvived: room.inf ? (p.eliminatedPhase || room.inf.phase) : null,
     lifelineUsed: !!p.lifelineUsed, hustledTimes: p.hustledTimes || 0,
@@ -1555,7 +1576,7 @@ function endGame(room, winner, why) {
     // kolo chest checks this mark; the records store cannot answer
     // per player and day, so the shelf keeps the mark itself.
     try {
-      const playedIds = [...new Set(room.players.filter((p) => p && !p.bot && p.clientId).map((p) => p.clientId))];
+      const playedIds = [...new Set(room.players.filter((p) => p && !p.bot).map((p) => shelfIdOf(p)).filter(Boolean))];
       if (playedIds.length && retention.markPlayed) retention.markPlayed(playedIds);
     } catch (e) { /* the played mark never blocks the close */ }
     // Save the finished game to the records store, exactly once per game.
@@ -2916,10 +2937,14 @@ function handleConnection(ws) {
         if (!city.open) return fail('That paid table never open yet. Na only the open table fit run now.');
         if (mode === 'pass') return fail('Paid tables na online only. Everybody pay from their own phone.');
       }
-      let acct = null;
+      // The account rides every create. A paid table refuses
+      // without one wherever accounts are required; under the full
+      // sign-in gate, a free or pass and play create refuses too.
+      const acct = authAccount(msg);
       if (city) {
-        acct = authAccount(msg);
         if (accountRequired && !acct) return fail(SIGNIN_MESSAGE);
+      } else if (signInRequired && !acct) {
+        return fail(GATE_MESSAGE);
       }
       const room = newRoom(makeCode(), false, mode, sanitizeSettings(msg.settings, false));
       if (city) {
@@ -2947,6 +2972,10 @@ function handleConnection(ws) {
     if (msg.type === 'quick_join') {
       const name = cleanName(msg.name);
       if (!name) return fail('Type your display name first.');
+      // Under the full sign-in gate, quick play needs the account
+      // too, checked before any public room is found or made.
+      const quickAcct = authAccount(msg);
+      if (signInRequired && !quickAcct) return fail(GATE_MESSAGE);
       // Quick play only sits in a waiting public lobby of the mode the
       // player picked. An explicit Classic pick is Classic. Everything
       // else, including a missing pick, is Inflation, the default table.
@@ -2969,6 +2998,10 @@ function handleConnection(ws) {
         target = newRoom(deps.fixedCode || makeCode(), true, 'online', sanitizeSettings({ gameMode: wantMode }, true));
         rooms.set(target.code, target);
       }
+      if (quickAcct) {
+        const priorAcct = target.players.find((p) => p.accountId && p.accountId === quickAcct.accountId);
+        if (priorAcct) { bindSeat(ctx, ws, target, priorAcct, send); return; }
+      }
       const quickClientId = cleanClientId(msg.clientId);
       if (quickClientId) {
         const prior = target.players.find((p) => p.clientId && p.clientId === quickClientId);
@@ -2976,6 +3009,7 @@ function handleConnection(ws) {
       }
       const player = newPlayer(name, pickToken(target, msg.token), target.players.length);
       player.clientId = quickClientId;
+      if (quickAcct) { player.accountId = quickAcct.accountId; player.accountEmail = quickAcct.email; }
       player.ws = ws;
       target.players.push(player);
       if (!target.hostId) target.hostId = player.id;
@@ -2991,17 +3025,20 @@ function handleConnection(ws) {
       const room = rooms.get(code);
       if (!room) return fail('No room with that code. Check the code and try again.');
       if (room.mode === 'pass') return fail('That room dey play for one phone. You no fit join from another phone.');
-      // Paid room: the seat belongs to an account. Where an account is
-      // required, no token means no seat. With one, the same email on
-      // any device reclaims its seat here, payment state included.
-      let joinAcct = null;
+      // The seat belongs to an account. A paid room refuses without
+      // one wherever accounts are required; under the full sign-in
+      // gate, every room refuses, fresh seats and spectator joins
+      // alike. With an account, the same email on any device
+      // reclaims its seat here, payment state included.
+      const joinAcct = authAccount(msg);
       if (room.paid) {
-        joinAcct = authAccount(msg);
         if (accountRequired && !joinAcct) return fail(SIGNIN_MESSAGE);
-        if (joinAcct) {
-          const priorAcct = room.players.find((p) => p.accountId && p.accountId === joinAcct.accountId);
-          if (priorAcct) { bindSeat(ctx, ws, room, priorAcct, send); return; }
-        }
+      } else if (signInRequired && !joinAcct) {
+        return fail(GATE_MESSAGE);
+      }
+      if (joinAcct) {
+        const priorAcct = room.players.find((p) => p.accountId && p.accountId === joinAcct.accountId);
+        if (priorAcct) { bindSeat(ctx, ws, room, priorAcct, send); return; }
       }
       // A returning device reclaims its seat (same deeds, cash, turn state)
       // instead of duplicating in the lobby or spectating its own game.
@@ -3254,7 +3291,7 @@ function handleConnection(ws) {
       if ((good === 'rentShield' || good === 'bailCard') && room.paid) {
         return fail('That good na for free table only. E no dey work for paid table.');
       }
-      const shelfId = room.mode === 'pass' ? (ctx.player && ctx.player.clientId) : me.clientId;
+      const shelfId = room.mode === 'pass' ? (ctx.player && shelfIdOf(ctx.player)) : shelfIdOf(me);
       if (!shelfId) return fail('This phone no get a market shelf yet. Claim the drop first.');
       if (good === 'kola' && me.shelfRent) return fail('You already hold a kola rent cover. Land on a rent first.');
       if (good === 'yams' && me.shelfFee) return fail('You already hold a yam fee cover. Let the next fee land first.');
@@ -4158,7 +4195,7 @@ function handleConnection(ws) {
 
   return {
     rooms, tick, handleConnection, exportState, importState, nextWake, pokeBots,
-    publicRoom, dropRoom, settlePaidSeat, TEST
+    publicRoom, dropRoom, settlePaidSeat, TEST, accountRequired, signInRequired
   };
 }
 

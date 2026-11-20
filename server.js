@@ -54,14 +54,6 @@ function stampAsset(cleanUrl, data) {
   }
   return data;
 }
-const retention = createRetention({
-  test: TEST,
-  env: process.env,
-  file: process.env.KP_RETENTION_FILE || path.join(__dirname, 'data', 'retention.json')
-});
-if (!retention.vapid.enabled) {
-  console.log('Web Push is off until VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are set.');
-}
 if (!String(process.env.KP_ADMIN_TOKEN || '').trim()) {
   console.log('Ops locked until KP_ADMIN_TOKEN is set.');
 } else {
@@ -95,6 +87,18 @@ const mailer = createMailer({});
 if (mailer.testMode) console.log('Mail runs on the test transport: sign-in codes are logged, not sent. Set RESEND_API_KEY to send real mail.');
 const auth = createAuth({});
 if (auth.ephemeral) console.log('Email sign-in uses a boot secret: sessions reset when the server restarts. Set KP_AUTH_SECRET to keep them.');
+// The shelf is created after auth on purpose: with accounts wired
+// in, the shelf lives under the account, and a device shelf is
+// adopted into the account shelf at first signed-in contact.
+const retention = createRetention({
+  test: TEST,
+  env: process.env,
+  auth,
+  file: process.env.KP_RETENTION_FILE || path.join(__dirname, 'data', 'retention.json')
+});
+if (!retention.vapid.enabled) {
+  console.log('Web Push is off until VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are set.');
+}
 const paystack = createPaystack({});
 const payments = createPaymentStore({
   file: process.env.KP_PAYMENTS_FILE || path.join(__dirname, 'data', 'payments.json')
@@ -109,6 +113,9 @@ if (payProvider.mode === 'test') {
 } else {
   console.log('Paid tables: payments are not set up yet (no Paystack key on this host). Paid seats cannot be paid here.');
 }
+// The full sign-in gate, same derivation as the game host: real
+// payment modes plus wired auth means every table needs an account.
+const signInRequired = payProvider.mode !== 'test' && !!auth;
 const host = createGameHost({
   test: TEST,
   afkFast: TEST && process.env.KP_AFK_FAST === '1',
@@ -306,6 +313,7 @@ const server = http.createServer((req, res) => {
       provider: payProvider.name,
       mode: payProvider.mode,
       accountRequired: payProvider.mode !== 'test',
+      signInRequired,
       settings: competition.settings(),
       table: competition.view().table
     }));

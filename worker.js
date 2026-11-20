@@ -597,7 +597,10 @@ export class LobbyDO {
       const payProvider = payProviderMod.createPayProvider({ secretKey: this.env.PAYSTACK_SECRET_KEY, test: isTest(this.env) });
       return json({
         ok: true, saved: !!kept, settings, table: competitionTable(settings),
-        testMode: !!payProvider.testMode, provider: payProvider.name
+        testMode: !!payProvider.testMode, provider: payProvider.name,
+        // The worker has no auth mirror yet, so its gate stays off:
+        // shape parity with the Node host payload, value false.
+        signInRequired: false
       }, 200, { 'Cache-Control': 'no-cache' });
     }
     if (OPS_ROUTES.has(url.pathname) || url.pathname.startsWith('/ops')) return this.ops(request, url);
