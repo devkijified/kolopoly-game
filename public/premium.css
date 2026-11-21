@@ -807,3 +807,165 @@ body:has(#view-landing.active) #muteBtn.on {
   #view-landing .hero-scene { animation: none !important; }
   #view-landing .play-go::before { animation: none !important; }
 }
+
+/* ================= LANDING 3: CLEAN AND CALM =================
+   Owner ruling, 2026-11-21, on the Landing 2 frames: "bad design,
+   destroy those buttons and go cleaner." The bevelled slabs die on
+   the landing: flat fills, 1px borders, soft or no shadows, one
+   radius (14px), air between elements. QUICK PLAY is the one gold
+   moment, slimmer and flat, its pulse ring gone. Play to Earn stops
+   being a slab: a dark glass row with gold type, a small EARN tag
+   and a thin gold left edge. The mode control becomes one slim
+   segmented pill. The card loosens: no boxes inside boxes. Type
+   steps down a quarter to a third across the landing (wordmark 44
+   to 32, slogan to 14, QUICK PLAY 23 to 17, earn title 22 to 16,
+   mode labels to 13, card titles to 17, strip values 15 to 13);
+   the 12px floor stands and every contrast pair from the earlier
+   pass holds or rises. Landing only: the board, lobby, sheets and
+   the sign-in scene keep their skin. */
+
+/* ---------- Type steps down, labels calm down ---------- */
+#view-landing .hero-wordmark { font-size: 32px; }
+#view-landing .hero-slogan { font-size: 14px; letter-spacing: 0.2px; }
+#view-landing #welcomeCard .welcome-title { font-size: 17px; }
+#view-landing .invite-title { font-size: 17px; }
+#view-landing .strip-v { font-size: 13px; }
+#view-landing .rail-kicker {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.01em;
+  text-transform: none; color: var(--g-soft);
+}
+#view-landing .join-card label {
+  font-size: 13px; font-weight: 700; text-transform: none;
+  letter-spacing: 0.01em; color: var(--g-soft) !important;
+}
+
+/* ---------- Buttons: flat, light, one radius ---------- */
+#view-landing .btn {
+  border-radius: 14px; font-size: 14px; font-weight: 800;
+  text-transform: none; letter-spacing: 0.01em; text-shadow: none;
+  background: #ffc857; color: #1d1408;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.30);
+}
+#view-landing .btn::after { display: none; }
+#view-landing .btn:not(.ghost):not(.dark) { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.30); }
+#view-landing .btn.ghost, #view-landing .btn.dark {
+  background: rgba(255, 255, 255, 0.05); color: var(--g-text);
+  border: 1px solid rgba(255, 255, 255, 0.13); box-shadow: none;
+}
+#view-landing .btn:active, #view-landing .btn.kp-press {
+  transform: scale(0.98); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+#view-landing .btn.ghost:active, #view-landing .btn.dark:active,
+#view-landing .btn.ghost.kp-press, #view-landing .btn.dark.kp-press { box-shadow: none; }
+#view-landing .btn:disabled { box-shadow: none; }
+
+/* QUICK PLAY: the one gold moment, flat and slimmer. */
+#view-landing .play-actions { gap: 10px; margin-top: 12px; }
+#view-landing .play-actions .play-go, #view-landing #welcomeCard .play-go {
+  height: 54px; min-height: 54px; border-radius: 14px;
+  background: linear-gradient(180deg, #ffcf5e, #ffc233);
+  font-size: 17px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase;
+}
+#view-landing .play-go::before { display: none; }
+#view-landing .play-go:active { transform: scale(0.98); }
+
+/* Play to Earn: a clean premium row, dark glass with gold type. */
+#view-landing .earn-banner {
+  min-height: 0; padding: 12px 14px; gap: 10px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05); color: var(--g-text);
+  border: 1px solid rgba(255, 255, 255, 0.10); border-left: 3px solid var(--g-gold);
+  box-shadow: none;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+#view-landing #playToEarnBtn { min-height: 0; }
+#view-landing .earn-banner:active { transform: scale(0.99); box-shadow: none; }
+#view-landing .earn-tag {
+  background: var(--g-gold); color: #1d1408; box-shadow: none;
+  font-size: 12px; padding: 4px 8px; letter-spacing: 0.08em;
+}
+#view-landing .earn-title { font-size: 16px; color: var(--g-gold); }
+#view-landing .earn-sub { font-size: 13px; font-weight: 600; color: var(--g-soft); }
+
+/* CREATE ROOM and JOIN: quiet ghost buttons. */
+#view-landing .play-pair .btn, #view-landing #welcomeCard .home-secondary .btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: none; color: var(--g-text);
+  min-height: 48px; height: 48px; border-radius: 14px;
+}
+#view-landing .play-pair .btn:active, #view-landing #welcomeCard .home-secondary .btn:active {
+  transform: scale(0.98); box-shadow: none;
+}
+
+/* ---------- Mode picker: one slim segmented pill ---------- */
+#gameModeRow.mode-seg {
+  gap: 4px; padding: 4px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+#gameModeRow.mode-seg .mode-pick {
+  min-height: 0; padding: 7px 10px; border-radius: 10px; gap: 0;
+  background: transparent !important; border: none !important;
+  box-shadow: none !important;
+}
+#gameModeRow.mode-seg .mode-pick .t {
+  order: 1; font-size: 13px; font-weight: 800;
+  text-transform: none; letter-spacing: 0; color: var(--g-soft);
+}
+#gameModeRow.mode-seg .mode-badge {
+  order: 2; margin: 1px 0 0; padding: 0; background: none; box-shadow: none;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.05em; color: #e8a90c;
+}
+#gameModeRow.mode-seg .mode-pick.sel { background: rgba(255, 200, 87, 0.88) !important; }
+#gameModeRow.mode-seg .mode-pick.sel .t { color: #1d1408; }
+#gameModeRow.mode-seg .mode-pick.sel .mode-badge { color: #543800; }
+#gameModeRow.mode-seg .mode-pick:active { transform: scale(0.98); box-shadow: none !important; }
+
+/* The welcome card's mode picks wear the same slim pill. */
+#view-landing #welcomeCard .home-mode {
+  gap: 4px; padding: 4px; border-radius: 14px; margin-top: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+#view-landing #welcomeCard .home-mode-pick {
+  min-height: 46px; padding: 6px 10px; border: none; border-radius: 10px;
+  background: transparent; box-shadow: none;
+}
+#view-landing #welcomeCard .home-mode-pick .hm-t { font-size: 13px; color: var(--g-soft); }
+#view-landing #welcomeCard .home-mode-pick .hm-k { color: #e8a90c; }
+#view-landing #welcomeCard .home-mode-pick.sel { background: rgba(255, 200, 87, 0.88); box-shadow: none; }
+#view-landing #welcomeCard .home-mode-pick.sel .hm-t { color: #1d1408; }
+#view-landing #welcomeCard .home-mode-pick.sel .hm-k { color: #543800; }
+
+/* ---------- The card loosens up: no boxes inside boxes ---------- */
+#view-landing .play-card {
+  border-radius: 18px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
+}
+#view-landing #welcomeCard.play-card {
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
+}
+#view-landing #marketCard.market-open {
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
+}
+#view-landing .name-block {
+  background: transparent; box-shadow: none; border-radius: 0;
+  padding: 0; margin-bottom: 14px;
+}
+#view-landing .name-block label { margin: 0 0 2px; }
+#view-landing .name-block .textin {
+  background: transparent !important; box-shadow: none !important;
+  border: none !important; border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 0 !important; padding: 6px 0; font-size: 16px;
+}
+#view-landing .name-block .textin:focus {
+  box-shadow: none !important; border-bottom-color: var(--g-gold) !important;
+}
+#view-landing .settings-toggle {
+  background: transparent !important; border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0; box-shadow: none;
+  margin-top: 16px; padding: 13px 2px 2px;
+}
+#view-landing .settings-toggle .st-name { font-size: 13px; font-weight: 700; }
+#view-landing .settings-toggle .st-chev { border-color: rgba(244, 236, 220, 0.55); }
