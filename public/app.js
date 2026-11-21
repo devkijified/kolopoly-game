@@ -1142,6 +1142,7 @@ function buildTokenPickers() {
     selectedToken = b.dataset.token;
     try { localStorage.setItem('kolopolyToken', selectedToken); } catch (e) { }
     $('tokenGrid').querySelectorAll('[data-token]').forEach((x) => x.classList.toggle('sel', x === b));
+    paintAccountChip();
   }));
 }
 buildTokenPickers();
@@ -1198,6 +1199,14 @@ $('settingsToggle').addEventListener('click', () => {
 })();
 $('nameIn').value = localStorage.getItem('kolopolyName') || '';
 $('nameIn').addEventListener('change', () => localStorage.setItem('kolopolyName', $('nameIn').value.trim()));
+$('nameIn').addEventListener('input', () => paintAccountChip());
+$('accountChip').addEventListener('click', () => revealForm('nameIn'));
+$('joinToggleBtn').addEventListener('click', () => {
+  const row = $('joinRow');
+  const open = row.classList.toggle('hidden') === false;
+  $('joinToggleBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) $('codeIn').focus();
+});
 paintGameMode();
 // Create options persist beside the name, token, mode and audio keys.
 const OPT_IDS = ['optTimed', 'optDoubleStart', 'optNoRentJail', 'optFirstLap', 'optChaos', 'optVoice', 'optTimer', 'presetSel'];
@@ -1533,9 +1542,32 @@ function tokenArtFor(id) {
   const t = window.KP_DATA.TOKENS.find((x) => x.id === id) || window.KP_DATA.TOKENS[0];
   return window.tokenArt(t.id, 40);
 }
+// Top bar account chip: token art, player name, streak when the shelf
+// reports one. One tap opens the name and token editing (the join form).
+let chipStreak = 0;
+function paintAccountChip(v2) {
+  const chip = $('accountChip');
+  if (!chip) return;
+  if (v2 && v2.streak && typeof v2.streak.week === 'number') chipStreak = v2.streak.week;
+  const landing = $('view-landing');
+  const onLanding = !!(landing && landing.classList.contains('active'));
+  if (!onLanding) { chip.classList.add('hidden'); return; }
+  const name = rememberedName() || (($('nameIn') && $('nameIn').value.trim()) || '');
+  chip.innerHTML =
+    '<span class="chip-token">' + tokenArtFor(selectedToken) + '</span>' +
+    '<span class="chip-name">' + esc(name || 'New player') + '</span>' +
+    (chipStreak > 0 ? '<span class="chip-streak">' + chipStreak + 'd streak</span>' : '');
+  chip.classList.remove('hidden');
+}
+window.KPpaintAccountChip = paintAccountChip;
 function revealForm(focusId) {
   $('joinCard').classList.remove('hidden');
   $('welcomeCard').classList.add('hidden');
+  if (focusId === 'codeIn') {
+    $('joinRow').classList.remove('hidden');
+    $('joinToggleBtn').setAttribute('aria-expanded', 'true');
+  }
+  paintAccountChip();
   if (window.KPRetention) window.KPRetention.placeMarket();
   if (focusId) { const el = $(focusId); if (el) el.focus(); }
 }
@@ -1554,11 +1586,14 @@ function revealForm(focusId) {
   $('welcomeJoinCode').addEventListener('click', () => revealForm('codeIn'));
   $('welcomeChange').addEventListener('click', () => revealForm('nameIn'));
 })();
+paintAccountChip();
 // Invite link: one compact prompt, one tap into the lobby.
 let inviteInfo = null;
 if (inviteCode) {
   const code = inviteCode.trim().toUpperCase().slice(0, 4);
   $('codeIn').value = code;
+  $('joinRow').classList.remove('hidden');
+  $('joinToggleBtn').setAttribute('aria-expanded', 'true');
   $('inviteBanner').classList.add('show');
   const name = rememberedName();
   $('inviteTitle').textContent = 'You were invited to room ' + code;
@@ -1619,6 +1654,7 @@ if (inviteCode) {
 function showView(id) {
   for (const v of ['view-signin', 'view-landing', 'view-lobby', 'view-game']) $(v).classList.toggle('active', v === id);
   document.body.classList.toggle('in-game', id === 'view-game');
+  paintAccountChip();
   if (id === 'view-game' && window.KPShell) window.KPShell.refresh('enter');
 }
 function focusPlayer() {

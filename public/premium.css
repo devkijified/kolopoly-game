@@ -430,3 +430,149 @@ body:has(#view-signin.active) { background: #0f1116; }
 .account-line { font-size: 13px; color: var(--g-soft); margin: 4px 14px 26px; line-height: 1.6; }
 .account-line .account-email { color: var(--g-text); font-weight: 700; }
 .account-line .home-link { display: inline-block; width: auto; color: var(--g-gold); margin-top: 0; min-height: 30px; }
+
+/* ================= LANDING RESTRUCTURE + CONTRAST PASS =================
+   Owner orders, 2026-11-21: the landing is restructured (account chip,
+   segmented mode control, compact play stack, one shelf strip), landing
+   buttons stop being oversized slabs, and every washed out text pair in
+   the game is fixed by lightness only. Brand hues do not move. */
+
+/* ---------- Top bar: account chip, 44px targets ---------- */
+:root { --topbar-h: 64px; }
+.topbar .iconbtn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+.account-chip {
+  display: inline-flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0;
+  min-height: 44px; padding: 4px 10px 4px 5px; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(180deg, #262b35, #14161c); color: var(--g-text);
+  border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font: inherit; text-align: left;
+}
+.account-chip .chip-name { min-width: 0; }
+/* On the landing at phone widths the graphics button yields its slot to
+   the account chip; it stays in the lobby and game top bars. */
+@media (max-width: 700px) {
+  body:has(#view-landing.active) #tierBtn { display: none; }
+  body:has(#view-landing.active) .topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
+}
+.account-chip .chip-token { display: inline-flex; flex: none; width: 30px; height: 30px; align-items: center; justify-content: center; }
+.account-chip .chip-token svg, .account-chip .chip-token img { width: 30px; height: 30px; }
+.account-chip .chip-name { font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-chip .chip-streak { flex: none; font-size: 12px; font-weight: 800; color: var(--g-gold); white-space: nowrap; }
+
+/* ---------- Play stack sizing: primary at most 56, secondary at most 48 ---------- */
+#view-landing .play-go, #view-landing .play-actions .play-go { height: 52px; min-height: 52px; font-size: 21px; }
+#view-landing .play-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+#view-landing #playToEarnBtn { min-height: 52px; font-size: 17px; }
+.earn-line { margin: 1px 2px 0; font-size: 13px; font-weight: 700; color: var(--g-gold); }
+.play-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.play-pair .btn { min-height: 48px; }
+#welcomeCard .play-go { height: 52px; min-height: 52px; font-size: 20px; }
+#welcomeCard .home-secondary .btn { min-height: 48px; }
+#joinRow { margin-top: 10px; }
+.btn.small { min-height: 44px; }
+.btn:disabled { opacity: 0.72; }
+.account-line .home-link { min-height: 44px; }
+.toast .t-btn { min-height: 44px; }
+.landlords-row { margin: 10px 14px 0; }
+.landlords-row .btn { width: 100%; }
+
+/* ---------- Mode segmented control (join form) ---------- */
+#gameModeRow.mode-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#gameModeRow.mode-seg .mode-pick { min-height: 56px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+#gameModeRow.mode-seg .mode-pick .t { font-size: 16px; padding-right: 0; }
+#gameModeRow.mode-seg .mode-pick .d, #gameModeRow.mode-seg .mode-pick .mode-appeal { display: none; }
+#gameModeRow.mode-seg .mode-badge { position: static; display: inline-block; align-self: flex-start; margin: 0 0 2px; padding: 1px 7px; font-size: 12px; }
+
+/* ---------- Shelf strip: the landing shows one compact strip ---------- */
+#marketCard:not(.market-open) .shelf-head,
+#marketCard:not(.market-open) .market-shelf,
+#marketCard:not(.market-open) .shelf-tip,
+#marketCard:not(.market-open) #claimBtn { display: none; }
+#marketCard.market-open #shelfStrip { display: none; }
+.shelf-strip {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 48px;
+  margin-top: 10px; padding: 7px 10px; border-radius: 14px; cursor: pointer;
+  background: linear-gradient(180deg, #232833, #171a21); color: var(--g-text);
+  border: 1px solid rgba(255, 255, 255, 0.09); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  font: inherit; text-align: left;
+}
+.strip-cell { display: flex; flex-direction: column; gap: 0; min-width: 0; padding-right: 8px; border-right: 1px solid rgba(255, 255, 255, 0.09); }
+.strip-cell:last-of-type { border-right: none; }
+.strip-k { font-size: 12px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--g-soft); white-space: nowrap; }
+.strip-v { font-size: 15px; font-weight: 800; color: var(--g-text); white-space: nowrap; }
+.strip-claim { margin-left: auto; flex: none; background: var(--gold); color: #1d1408; font-size: 12px; font-weight: 900; padding: 4px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ---------- Contrast fixes: gold buttons and badges take dark text ---------- */
+.btn.gold { color: #1d1408; }
+.mode-badge { color: #1d1408; }
+
+/* ---------- Contrast fixes: shelf goods on their cream tiles ---------- */
+#view-landing .good-slot { color: #2b2018; }
+#view-landing .good-slot .good-k { color: #2b2018; }
+#view-landing .good-slot .good-cost { color: #5c4c3d; }
+#view-landing .good-slot .good-n { background: #2b2018; color: var(--gold); }
+#view-landing .good-slot .good-n.incoming { background: var(--gold); color: #1d1408; }
+.market-good { color: #2b2018; }
+.market-good .k { color: #5c4c3d; }
+.market-good .n { background: #2b2018; color: var(--gold); }
+
+/* ---------- Contrast fixes: welcome mode picks ---------- */
+#view-landing .home-mode-pick { color: #2b2018; }
+#view-landing .home-mode-pick .hm-t { color: #2b2018; }
+#view-landing .home-mode-pick .hm-k { color: #7a5200; }
+#view-landing .home-mode-pick:not(.sel) { background: #3a4152; color: #f4ecdc; }
+#view-landing .home-mode-pick:not(.sel) .hm-t { color: #f4ecdc; }
+#view-landing .home-mode-pick:not(.sel) .hm-k { color: #e8a90c; }
+
+/* ---------- Contrast fixes: paper cards keep dark ink ---------- */
+.auction-card, .ceremony-letter { --ink: #2b2018; --ink-soft: #5c4c3d; --line: rgba(59, 42, 18, 0.25); color: #2b2018; }
+.auction-card { --gold-deep: #8a5a00; }
+.swap-deed { --ink: #2b2018; --ink-soft: #5c4c3d; }
+.end-row.winner { --ink: #2b2018; --ink-soft: #5c4c3d; }
+.end-table .winner-row { --ink: #7a5200; --ink-soft: #5c4c3d; }
+.end-rank { background: #2b2018; color: var(--gold); }
+.end-flag { color: #5c4c3d; }
+
+/* ---------- Contrast fixes: green and red buttons ---------- */
+.btn.green { color: #07301d; }
+.btn.red { background: linear-gradient(180deg, #cf3f3f, #c23333); box-shadow: 0 3px 0 #8f2424; }
+.walletbar .actionbar .btn.red { background: linear-gradient(180deg, #cf3f3f, #c23333); }
+.heat-pill, .sapa-tag { background: #cf3f3f; }
+.rush-grab { color: #07301d; }
+
+/* ---------- Contrast fixes: red and green text on dark ---------- */
+.pchip.jailed .nm::after { color: #ff9a8a; }
+.chip .chip-time.urgent { color: #ff9a8a; }
+.turn-timer { color: #ff9a8a; }
+#view-landing .whisper-row .caption[data-state="blocked"], #view-landing .whisper-row .caption[data-state="unavailable"] { color: #ff9a8a; }
+#view-landing .whisper-row .caption[data-state="on"] { color: #7ff0b5; }
+#view-landing .whisper-row.is-on .whisper-name { color: #7ff0b5; }
+
+/* ---------- Contrast fixes: muted text on dark ---------- */
+.slot.empty { color: rgba(244, 236, 220, 0.78); }
+#view-game .caption, #view-game .meta { color: var(--g-soft); }
+.settings-toggle .st-hint { color: var(--g-soft); }
+#view-landing > p.landing-foot { color: var(--g-soft); }
+.mode-appeal { color: #e8a90c; }
+.feed-item .k { color: #e8a90c; }
+.sheet .overline, .modal-card .overline { color: var(--g-gold); }
+#muteBtn.on { color: #7a5200; }
+.bcenter .pot, .bcenter .logo .gold { color: #8a5a00; }
+.lobby-stage-fallback .ls-word { color: var(--g-text); }
+.lobby-stage-fallback .ls-word .gold { color: var(--g-gold); }
+.lobby-stage-fallback .ls-sub { color: var(--g-soft); }
+
+/* ---------- Contrast fixes: deed head on light group bands ---------- */
+.deed-kicker { background: rgba(20, 10, 4, 0.38); padding: 2px 7px; border-radius: 999px; display: inline-block; }
+.deed-head.light { color: #2b2018; }
+.deed-head.light .title { color: #2b2018; text-shadow: none; }
+.deed-head.light .deed-seal { color: rgba(43, 32, 24, 0.85); }
+.deed-head.light .deed-kicker { background: rgba(255, 255, 255, 0.42); }
+
+/* Short phones: tighten the play stack so the shelf strip still lands
+   inside the first screen at 360x740. Kept last so it wins its ties. */
+@media (max-width: 700px) {
+  #view-landing .play-actions { gap: 6px; }
+  #gameModeRow.mode-seg .mode-pick { min-height: 50px; }
+  .earn-line { margin-top: 0; }
+}

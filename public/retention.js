@@ -112,6 +112,7 @@
     const close = $('shelfClose');
     if (card) card.classList.toggle('market-open', !!on);
     if (close) close.classList.toggle('hidden', !on);
+    paintStrip();
   }
   function renderClaim(view) {
     const btn = $('claimBtn');
@@ -130,6 +131,44 @@
     }
     renderShelf(view.inventory, view.uses, view.canClaim ? view.nextDrop : null);
     paintShelfBtn(view);
+    lastView = view;
+    paintStrip();
+    if (window.KPpaintAccountChip) window.KPpaintAccountChip(v2view);
+  }
+
+  // The landing carries ONE compact shelf strip fed by the v2 view:
+  // kolo pieces, streak, a held ticket, postcards. The full shelf
+  // (v1 goods, claims, whispers) opens unchanged from the strip.
+  let v2view = null;
+  let lastView = null;
+  async function refreshV2() {
+    const id = clientId();
+    if (!id) return;
+    try {
+      const res = await fetch('/api/retention?v=2&clientId=' + encodeURIComponent(id) + (authToken() ? '&authToken=' + encodeURIComponent(authToken()) : ''));
+      const v = await res.json();
+      if (!v || !v.ok) return;
+      v2view = v;
+      paintStrip();
+      if (window.KPpaintAccountChip) window.KPpaintAccountChip(v2view);
+    } catch (e) { /* the strip can wait for the next open */ }
+  }
+  function paintStrip() {
+    const strip = $('shelfStrip');
+    if (!strip) return;
+    const card = $('marketCard');
+    if (!v2view || (card && card.classList.contains('market-open'))) { strip.classList.add('hidden'); return; }
+    const kolo = v2view.kolo || { pieces: 0, piecesNeeded: 7, ticket: null };
+    const streak = v2view.streak || { week: 0 };
+    const album = v2view.album || { owned: 0, size: 12 };
+    let cells =
+      '<span class="strip-cell"><span class="strip-k">Kolo</span><span class="strip-v">' + (kolo.pieces || 0) + '/' + (kolo.piecesNeeded || 7) + '</span></span>' +
+      '<span class="strip-cell"><span class="strip-k">Streak</span><span class="strip-v">' + (streak.week || 0) + 'd</span></span>';
+    if (kolo.ticket) cells += '<span class="strip-cell"><span class="strip-k">Ticket</span><span class="strip-v">Lagos ₦200</span></span>';
+    cells += '<span class="strip-cell"><span class="strip-k">Postcards</span><span class="strip-v">' + (album.owned || 0) + '/' + (album.size || 12) + '</span></span>';
+    if (lastView && lastView.canClaim) cells += '<span class="strip-claim">Claim</span>';
+    strip.innerHTML = cells;
+    strip.classList.remove('hidden');
   }
   // The phone rig can force a permission or a missing push stack when it
   // is proving the opt-in states. A real visit never sets these.
@@ -269,6 +308,7 @@
       serverMuted = !!(view.push && view.push.muted);
       serverDenied = !!(view.push && view.push.denied);
       renderClaim(view);
+      refreshV2();
       if (localMuted() && subscribed && !serverMuted) {
         await post('/api/push/mute', { muted: true });
         serverMuted = true;
@@ -409,12 +449,16 @@
     const join = $('joinCard');
     if (!market || !welcome || !join) return;
     if (!welcome.classList.contains('hidden')) {
-      const anchor = $('welcomePlay') || $('welcomeQuick') || $('welcomeCreate');
+      // Landing order: the shelf strip sits under the play stack.
+      const anchor = $('welcomeChange');
       if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(market, anchor);
       else welcome.appendChild(market);
     } else {
-      join.appendChild(market);
+      const anchor = join.querySelector('#joinRow') || join.querySelector('.play-actions');
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(market, anchor.nextSibling);
+      else join.appendChild(market);
     }
+    paintStrip();
   }
 
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -435,6 +479,8 @@
   });
   const shelfClose = $('shelfClose');
   if (shelfClose) shelfClose.addEventListener('click', () => setShelfOpen(false));
+  const shelfStrip = $('shelfStrip');
+  if (shelfStrip) shelfStrip.addEventListener('click', () => setShelfOpen(true));
   const box = $('optWhisper');
   if (box) box.addEventListener('change', () => {
     if (syncing) return;

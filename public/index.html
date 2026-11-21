@@ -33,6 +33,7 @@
 <header class="topbar">
   <div class="wordmark">KOLO<span class="gold">POLY</span></div>
   <div class="spacer"></div>
+  <button class="account-chip hidden" id="accountChip" type="button" aria-label="Your account: change name or token"></button>
   <span class="chip hidden" id="roomChip"></span>
   <span class="chip hidden" id="modePill"></span>
   <button class="iconbtn hidden" id="shelfBtn" type="button" aria-label="Today's market drop"></button>
@@ -296,20 +297,8 @@
     <label for="nameIn">Name</label>
     <input class="textin" id="nameIn" maxlength="20" placeholder="e.g. Adaeze" autocomplete="name">
 
-    <div class="play-actions">
-      <button class="btn play-go block" id="quickBtn">Quick play</button>
-      <button class="btn ghost block" id="createBtn">Create room</button>
-      <button class="btn gold block" id="playToEarnBtn">Play to Earn</button>
-    </div>
-
-    <label for="codeIn">Join with a code</label>
-    <div class="join-row home-join">
-      <input class="textin" id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text" spellcheck="false" enterkeyhint="go">
-      <button class="btn" id="joinBtn">Join</button>
-    </div>
-
     <label>Game mode</label>
-    <div class="mode-row" id="gameModeRow">
+    <div class="mode-row mode-seg" id="gameModeRow">
       <button type="button" class="mode-pick sel" data-gmode="inflation">
         <span class="mode-badge">MOST PLAYED</span>
         <span class="t">Inflation</span>
@@ -320,6 +309,24 @@
         <span class="t">Classic</span>
         <span class="d">The faithful game. Salary ₦200,000, printed rents, no loans, no immunity.</span>
       </button>
+    </div>
+
+    <div class="play-actions">
+      <button class="btn play-go block" id="quickBtn">Quick play</button>
+      <button class="btn gold block" id="playToEarnBtn">Play to Earn</button>
+      <p class="earn-line" id="earnLine">Lagos ₦200, winner takes ₦360</p>
+      <div class="play-pair">
+        <button class="btn ghost" id="createBtn">Create room</button>
+        <button class="btn ghost" id="joinToggleBtn" aria-expanded="false">Join</button>
+      </div>
+    </div>
+
+    <div id="joinRow" class="hidden">
+      <label for="codeIn">Join with a code</label>
+      <div class="join-row home-join">
+        <input class="textin" id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text" spellcheck="false" enterkeyhint="go">
+        <button class="btn" id="joinBtn">Join</button>
+      </div>
     </div>
 
     <label>Pick your token</label>
@@ -381,6 +388,7 @@
       <div class="shelf-head">
         <span class="shelf-kicker" id="marketTitle">Shelf</span>
       </div>
+      <button class="shelf-strip hidden" id="shelfStrip" type="button" aria-label="Open your shelf"></button>
       <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
       <p class="shelf-tip" id="marketLine"></p>
       <p class="shelf-tip" id="marketLanded"></p>
@@ -393,7 +401,7 @@
       </div>
     </div>
   </section>
-  <p class="center"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords</button></p>
+  <p class="center landlords-row"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords</button></p>
   <p class="center account-line hidden" id="accountBar">Signed in as <span class="account-email" id="accountEmail"></span><br><button type="button" class="home-link" id="signOutBtn">Sign out</button></p>
 </main>
 

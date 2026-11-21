@@ -91,6 +91,16 @@ function bandColorFor(i, sp) {
     : i === 0 ? '#e8a90c' : i === D.PARKING_INDEX ? '#e8a90c' : i === D.JAIL_INDEX || i === D.GOTOJAIL_INDEX ? '#8c2f2f'
     : sp.type === 'card' ? (sp.deck === 'wahala' ? '#d64545' : '#3f7fbf') : '#b8a888';
 }
+// Light bands (sky, gold, sand) take dark deed-head text; the rest keep
+// white. Same weighted luminance the trade grid uses for deed names.
+function bandIsLight(hex) {
+  const h = String(hex || '').replace('#', '');
+  if (h.length < 6) return false;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55;
+}
 // One scene per space identity. Group fallbacks first, hand picks on top.
 const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'buka', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', olive: 'danfo', darkblue: 'mansion' };
 function artFor(i, sp) {
@@ -495,7 +505,7 @@ const KPBoard = {
     const band = bandColorFor(i, sp);
     const head =
       '<div class="grab"></div><div class="deed-doc">' +
-      '<div class="deed-head" style="background:' + band + '">' +
+      '<div class="deed-head' + (bandIsLight(band) ? ' light' : '') + '" style="background:' + band + '">' +
       '<div class="deed-seal">' + SEAL_SVG + '</div>' +
       '<div class="deed-head-tx"><div class="deed-kicker">KOLOPOLY LAND REGISTRY · TITLE DEED</div>' +
       '<h3 class="title">' + esc(sp.name) + '</h3>';
