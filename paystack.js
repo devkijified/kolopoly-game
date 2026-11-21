@@ -21,14 +21,28 @@ function createPaystack(opts) {
   const enabled = !!secret;
 
   async function call(method, route, body) {
-    const res = await fetch(base + route, {
-      method,
-      headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined
-    });
-    let data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
-    return { httpOk: !!res.ok, data };
+    // A stalled connection must never hold a player's tap hostage:
+    // each attempt gets 12 seconds, and a network failure (no response
+    // at all) earns exactly one retry. An HTTP response, good or bad,
+    // is always final.
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(base + route, {
+          method,
+          headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(12000)
+        });
+        let data = null;
+        try { data = await res.json(); } catch (e) { data = null; }
+        return { httpOk: !!res.ok, data };
+      } catch (e) {
+        lastErr = e;
+        console.log('Paystack call failed (' + method + ' ' + route + ', attempt ' + (attempt + 1) + '): ' + (e && e.name ? e.name : 'error'));
+      }
+    }
+    throw lastErr || new Error('paystack unreachable');
   }
 
   // Open a transaction for one seat. Amount is kobo, always computed
@@ -45,6 +59,7 @@ function createPaystack(opts) {
       });
       const d = out.data && out.data.data;
       if (!out.httpOk || !out.data || out.data.status !== true || !d || !d.authorization_url) {
+        console.log('Paystack initialize refused: ' + (out.data && out.data.message ? out.data.message : 'no message'));
         return { ok: false, error: 'initialize', message: 'Paystack no open the payment. Try again.' };
       }
       return { ok: true, authorizationUrl: d.authorization_url, reference: d.reference || info.reference };

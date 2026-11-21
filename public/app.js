@@ -2084,7 +2084,7 @@ function renderLobby(room) {
     const payBtn = $('paySeatBtn');
     if (payBtn) payBtn.addEventListener('click', () => {
       payBtn.disabled = true;
-      if (room.paid.mode === 'redirect') initializePayment();
+      if (room.paid.mode === 'redirect') { payBtn.textContent = 'Opening Paystack…'; initializePayment(); }
       else send('pay_seat', {});
     });
   } else {
