@@ -2094,7 +2094,7 @@ function renderLobby(room) {
   const isHost = myId === room.hostId;
   $('startBtn').style.display = isHost || room.mode === 'pass' ? '' : 'none';
   $('startBtn').disabled = room.players.length < 2 || !!(room.paid && !room.paid.allPaid);
-  $('startBtn').innerHTML = window.icon('play', 18) + ' Start game (' + room.players.length + ' players)';
+  $('startBtn').innerHTML = window.icon('play', 18) + ' Start game (' + room.players.length + (room.players.length === 1 ? ' player)' : ' players)');
   $('lobbyHint').textContent = room.paid && !room.paid.allPaid
     ? 'Paid table: the game starts when every seat don pay the ' + fmtN(room.paid.fee) + ' entry.'
     : room.players.length < 2

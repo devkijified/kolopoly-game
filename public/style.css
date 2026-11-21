@@ -246,7 +246,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .paid-panel {
   margin: 12px 0 0; padding: 14px; border-radius: 16px;
   background: #fff3d1; border: 1px solid var(--gold);
+  color: #2a1f08;
 }
+.paid-panel .caption, .lobby-wrap .paid-panel .caption { color: #5c4a22; }
 .paid-panel-head { font-family: 'Aeonik Pro', sans-serif; font-weight: 700; font-size: var(--fs-lead); margin-bottom: 4px; }
 .end-prize { margin: 0 0 10px; font-weight: 700; font-size: 14px; }
 .paid-auth { display: grid; gap: 8px; margin: 10px 0 12px; }
