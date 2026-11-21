@@ -1583,6 +1583,7 @@ function revealForm(focusId) {
   $('joinCard').classList.add('hidden');
   $('welcomeCreate').addEventListener('click', () => { $('nameIn').value = name; $('createBtn').click(); });
   $('welcomeQuick').addEventListener('click', () => { $('nameIn').value = name; $('quickBtn').click(); });
+  $('welcomeEarn').addEventListener('click', () => { $('nameIn').value = name; $('playToEarnBtn').click(); });
   $('welcomeJoinCode').addEventListener('click', () => revealForm('codeIn'));
   $('welcomeChange').addEventListener('click', () => revealForm('nameIn'));
 })();

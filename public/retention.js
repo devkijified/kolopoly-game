@@ -448,16 +448,11 @@
     const welcome = $('welcomeCard');
     const join = $('joinCard');
     if (!market || !welcome || !join) return;
-    if (!welcome.classList.contains('hidden')) {
-      // Landing order: the shelf strip sits under the play stack.
-      const anchor = $('welcomeChange');
-      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(market, anchor);
-      else welcome.appendChild(market);
-    } else {
-      const anchor = join.querySelector('#joinRow') || join.querySelector('.play-actions');
-      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(market, anchor.nextSibling);
-      else join.appendChild(market);
-    }
+    // Landing order: the shelf card sits directly under whichever home
+    // card is showing (the welcome card for a remembered player, the
+    // join card otherwise), above the token rail.
+    const home = !welcome.classList.contains('hidden') ? welcome : join;
+    if (home.parentNode) home.parentNode.insertBefore(market, home.nextSibling);
     paintStrip();
   }
 

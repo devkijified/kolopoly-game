@@ -576,3 +576,234 @@ body:has(#view-signin.active) { background: #0f1116; }
   #gameModeRow.mode-seg .mode-pick { min-height: 50px; }
   .earn-line { margin-top: 0; }
 }
+
+/* ================= LANDING 2: MODERN GAME HOME =================
+   Owner ruling, 2026-11-21: the landing still read as a website form.
+   It is now a game home screen in the big-mobile-game pattern: a
+   full-bleed dusk scene across the top half, floating glass HUD pills,
+   the wordmark and slogan riding on the scene, ONE raised play card
+   overlapping the scene seam, QUICK PLAY as the single hero action,
+   Play to Earn as a gold banner card nobody can miss, the shelf as a
+   glass strip card, and tokens on a picker rail. Zero form chrome.
+   Every contrast pair from the pass above is kept or raised. */
+
+/* ---------- HUD: the top bar floats over the scene on the landing ---------- */
+body:has(#view-landing.active) .topbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 40;
+  height: auto; min-height: calc(58px + env(safe-area-inset-top, 0px));
+  padding-top: max(8px, env(safe-area-inset-top, 0px)); padding-bottom: 6px;
+  background: linear-gradient(180deg, rgba(10, 8, 5, 0.42), rgba(10, 8, 5, 0));
+  border-bottom: none; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+body:has(#view-landing.active) .topbar .wordmark { display: none; }
+body:has(#view-landing.active) .topbar .spacer { display: none; }
+body:has(#view-landing.active) .account-chip {
+  flex: 0 1 auto; max-width: 54%; margin-right: auto;
+  background: rgba(13, 14, 19, 0.60); border: 1px solid rgba(255, 255, 255, 0.17);
+  backdrop-filter: blur(10px) saturate(1.25); -webkit-backdrop-filter: blur(10px) saturate(1.25);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+body:has(#view-landing.active) .topbar .iconbtn {
+  border-radius: 999px; width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+  background: rgba(13, 14, 19, 0.60); border: 1px solid rgba(255, 255, 255, 0.17);
+  backdrop-filter: blur(10px) saturate(1.25); -webkit-backdrop-filter: blur(10px) saturate(1.25);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+body:has(#view-landing.active) #muteBtn.on {
+  background: linear-gradient(180deg, #ffe08c, #f0a90e); color: #1d1408;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+@media (orientation: portrait) {
+  #view-landing.active { min-height: 100dvh; }
+}
+
+/* ---------- Scene: full bleed, taller, a slow ken-burns drift ---------- */
+#view-landing .landing-hero { position: relative; }
+#view-landing .hero-scene {
+  position: relative; inset: auto;
+  height: clamp(336px, 47dvh, 470px);
+  border-radius: 0;
+  transform-origin: 50% 62%;
+  animation: kpKenBurns 24s ease-in-out infinite alternate;
+}
+#view-landing .hero-scene.hs-off { animation-play-state: paused; }
+@keyframes kpKenBurns {
+  from { transform: scale(1.04) translate(0, 0); }
+  to { transform: scale(1.11) translate(-1.4%, -1.6%); }
+}
+/* The bottom edge melts into the page background, never to cream. */
+#view-landing .hs-fade {
+  height: 112px;
+  background: linear-gradient(180deg, rgba(11, 12, 16, 0) 0%, rgba(11, 12, 16, 0.55) 55%, #0b0c10 100%);
+}
+/* The sun and the kolo cluster clear the HUD and the play card seam. */
+#view-landing .hs-sun { top: 78px; }
+#view-landing .hs-kolo-zone { bottom: 36px; }
+
+/* ---------- Wordmark and slogan ride on the scene, lower third ---------- */
+#view-landing .hero-type {
+  position: absolute; left: 0; right: 0; bottom: 42px; z-index: 2;
+  padding: 0 18px; text-align: center; pointer-events: none;
+}
+#view-landing .hero-type::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -30px; bottom: -48px; z-index: -1;
+  background: linear-gradient(180deg, rgba(12, 8, 3, 0), rgba(12, 8, 3, 0.50) 46%, rgba(12, 8, 3, 0.80));
+}
+#view-landing .hero-wordmark {
+  position: relative; color: #fff8ea; font-size: 44px; line-height: 1;
+  text-shadow: 0 3px 0 rgba(60, 32, 0, 0.6), 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+#view-landing .hero-wordmark .gold { color: var(--g-gold); }
+#view-landing .hero-slogan {
+  position: relative; color: #ffd97a; margin: 7px 0 0;
+  text-shadow: 0 2px 0 rgba(60, 32, 0, 0.55), 0 4px 18px rgba(0, 0, 0, 0.65);
+}
+
+/* ---------- Play card: one raised card over the scene seam ---------- */
+#view-landing .play-card {
+  position: relative; z-index: 3;
+  margin: -24px 14px 0; padding: 16px; border-radius: 20px;
+  box-shadow: var(--g-drop), var(--g-bevel), inset 0 2px 0 var(--g-rim);
+}
+#view-landing #welcomeCard.play-card {
+  margin: -24px 14px 0; padding: 16px;
+  background: var(--g-panel);
+  box-shadow: var(--g-drop), var(--g-bevel), inset 0 2px 0 var(--g-rim);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+#view-landing #welcomeCard .home-mode { margin-top: 10px; }
+#view-landing #welcomeCard .home-mode-pick { min-height: 56px; border-radius: 12px; }
+#view-landing #welcomeCard .earn-banner { margin-top: 10px; }
+#view-landing #welcomeCard .home-secondary { margin-top: 10px; }
+#view-landing #welcomeCard .home-secondary .btn { min-height: 48px; }
+
+/* The name is the first block inside the card, a game callsign field,
+   never a labelled form section standing above the card. */
+#view-landing .name-block {
+  background: linear-gradient(180deg, #0c0e13, #13151b);
+  border-radius: 14px; padding: 9px 12px 11px; margin-bottom: 12px;
+  box-shadow: inset 0 2px 9px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+#view-landing .name-block label { margin: 0 0 3px; font-size: 12px; }
+#view-landing .name-block .textin {
+  background: transparent !important; border-radius: 0 !important;
+  box-shadow: none !important; padding: 5px 0; font-size: 17px;
+}
+#view-landing .name-block .textin:focus { box-shadow: inset 0 -2px 0 var(--g-gold) !important; }
+
+/* QUICK PLAY: the single hero action, 60px, with a soft pulsing ring. */
+#view-landing .play-actions .play-go, #view-landing #welcomeCard .play-go {
+  height: 60px; min-height: 60px; font-size: 23px; border-radius: 14px;
+}
+#view-landing .play-go::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  animation: kpPulseRing 2.4s ease-out infinite;
+}
+@keyframes kpPulseRing {
+  0% { box-shadow: 0 0 0 0 rgba(255, 200, 87, 0.45); }
+  70% { box-shadow: 0 0 0 13px rgba(255, 200, 87, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 200, 87, 0); }
+}
+
+/* Play to Earn: a gold banner card, not a button among buttons. */
+#view-landing .earn-banner {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 76px; padding: 12px 14px; border: none; border-radius: 16px;
+  background: linear-gradient(120deg, #ffdf8e 0%, #ffc857 48%, #f0a90e 100%);
+  color: #1d1408; font: inherit; text-align: left; cursor: pointer; position: relative;
+  box-shadow: 0 6px 0 #a8740a, 0 16px 28px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 -2px 0 rgba(0, 0, 0, 0.10);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.15s ease;
+}
+#view-landing #playToEarnBtn { min-height: 76px; }
+#view-landing .earn-banner:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 #a8740a, 0 6px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.earn-tag {
+  flex: none; background: #1d1408; color: #ffc857;
+  font-size: 12px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 6px 10px; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.earn-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.earn-title {
+  font-family: 'Aeonik Pro', 'Figtree', sans-serif;
+  font-size: 22px; font-weight: 700; line-height: 1.05; letter-spacing: 0.01em;
+}
+.earn-sub { font-size: 13px; font-weight: 800; color: #2e2004; line-height: 1.25; }
+
+/* CREATE ROOM and JOIN: a glass pair inside the card. */
+#view-landing .play-pair .btn, #view-landing #welcomeCard .home-secondary .btn {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: var(--g-text); border-radius: 12px; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+#view-landing .play-pair .btn:active, #view-landing #welcomeCard .home-secondary .btn:active {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+/* ---------- Shelf: a glass strip card under the play card ---------- */
+/* The market card now stands on its own, so it carries the dark panel
+   variables the join card used to lend it. */
+#view-landing #marketCard {
+  margin: 12px 14px 0;
+  --ink: var(--g-text); --ink-soft: var(--g-soft); --line: rgba(255, 255, 255, 0.10);
+}
+#view-landing #marketCard:not(.market-open) {
+  background: transparent; box-shadow: none; padding: 0; border: none;
+}
+#view-landing #marketCard.market-open {
+  background: var(--g-panel); border-radius: 18px; padding: 14px;
+  box-shadow: var(--g-drop), var(--g-bevel);
+}
+#view-landing .shelf-strip {
+  min-height: 56px; margin-top: 0; border-radius: 16px; padding: 9px 12px;
+  background: linear-gradient(180deg, rgba(38, 43, 54, 0.85), rgba(20, 22, 28, 0.88));
+  backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.09);
+}
+
+/* ---------- Token rail: big art tiles, one sideways picker rail ---------- */
+.token-rail { margin: 16px 14px 0; }
+.rail-kicker {
+  font-size: 12px; font-weight: 900; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--g-gold); margin: 0 2px 6px;
+}
+#view-landing .token-grid {
+  display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden;
+  padding: 4px 2px 10px; scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+#view-landing .token-pick {
+  flex: 0 0 auto; width: 78px; min-height: 86px; padding: 10px 4px 8px;
+  border-radius: 16px; scroll-snap-align: start; gap: 6px;
+}
+#view-landing .token-pick .tokart { width: 44px; height: 44px; }
+
+/* ---------- Whispers: a slim glass row under the rail ---------- */
+#view-landing .whisper-row {
+  margin: 12px 14px 0; padding: 10px 12px; min-height: 52px;
+  background: linear-gradient(180deg, rgba(38, 43, 54, 0.68), rgba(20, 22, 28, 0.74));
+  border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 16px;
+  backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+#view-landing .whisper-name { color: var(--g-soft); }
+#view-landing .landlords-row { margin-top: 12px; }
+
+/* ---------- Landscape split: keep the composition calm ---------- */
+@media (orientation: landscape) and (min-width: 700px) {
+  #view-landing .hero-scene { height: 220px; animation: none; }
+  #view-landing .hero-type { position: static; pointer-events: auto; }
+  #view-landing .hero-type::before { display: none; }
+  #view-landing .play-card, #view-landing #welcomeCard.play-card { margin-top: 12px; }
+}
+
+/* ---------- Reduced motion: no drift, no pulse ---------- */
+@media (prefers-reduced-motion: reduce) {
+  #view-landing .hero-scene { animation: none !important; }
+  #view-landing .play-go::before { animation: none !important; }
+}

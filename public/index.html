@@ -268,7 +268,7 @@
     <button class="btn ghost block mt8" id="inviteChangeBtn">Change name or token</button>
   </div>
 
-  <section class="join-card home-return hidden" id="welcomeCard">
+  <section class="join-card home-return play-card hidden" id="welcomeCard">
     <div class="home-who">
       <span class="invite-token" id="welcomeToken"></span>
       <h2 class="welcome-title" id="welcomeTitle"></h2>
@@ -285,6 +285,13 @@
         </button>
       </div>
       <button class="btn play-go block" id="welcomeQuick">Quick play</button>
+      <button class="earn-banner" id="welcomeEarn" type="button">
+        <span class="earn-tag">Earn</span>
+        <span class="earn-main">
+          <span class="earn-title">Play to Earn</span>
+          <span class="earn-sub">Lagos ₦200, winner takes ₦360</span>
+        </span>
+      </button>
     </div>
     <div class="home-secondary">
       <button class="btn ghost" id="welcomeCreate">Create room</button>
@@ -293,11 +300,12 @@
     <button type="button" class="home-link" id="welcomeChange">Name or token</button>
   </section>
 
-  <section class="join-card" id="joinCard">
-    <label for="nameIn">Name</label>
-    <input class="textin" id="nameIn" maxlength="20" placeholder="e.g. Adaeze" autocomplete="name">
+  <section class="join-card play-card" id="joinCard">
+    <div class="name-block">
+      <label for="nameIn">Your name</label>
+      <input class="textin" id="nameIn" maxlength="20" placeholder="e.g. Adaeze" autocomplete="name">
+    </div>
 
-    <label>Game mode</label>
     <div class="mode-row mode-seg" id="gameModeRow">
       <button type="button" class="mode-pick sel" data-gmode="inflation">
         <span class="mode-badge">MOST PLAYED</span>
@@ -313,8 +321,13 @@
 
     <div class="play-actions">
       <button class="btn play-go block" id="quickBtn">Quick play</button>
-      <button class="btn gold block" id="playToEarnBtn">Play to Earn</button>
-      <p class="earn-line" id="earnLine">Lagos ₦200, winner takes ₦360</p>
+      <button class="earn-banner" id="playToEarnBtn" type="button">
+        <span class="earn-tag">Earn</span>
+        <span class="earn-main">
+          <span class="earn-title">Play to Earn</span>
+          <span class="earn-sub" id="earnLine">Lagos ₦200, winner takes ₦360</span>
+        </span>
+      </button>
       <div class="play-pair">
         <button class="btn ghost" id="createBtn">Create room</button>
         <button class="btn ghost" id="joinToggleBtn" aria-expanded="false">Join</button>
@@ -328,9 +341,6 @@
         <button class="btn" id="joinBtn">Join</button>
       </div>
     </div>
-
-    <label>Pick your token</label>
-    <div class="token-grid" id="tokenGrid"></div>
 
     <button type="button" class="settings-toggle" id="settingsToggle" aria-expanded="false" aria-controls="roomSettings">
       <span class="st-name">Room settings</span>
@@ -384,23 +394,30 @@
         </select>
       </div>
     </div>
-    <div class="market-drop" id="marketCard">
-      <div class="shelf-head">
-        <span class="shelf-kicker" id="marketTitle">Shelf</span>
-      </div>
-      <button class="shelf-strip hidden" id="shelfStrip" type="button" aria-label="Open your shelf"></button>
-      <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
-      <p class="shelf-tip" id="marketLine"></p>
-      <p class="shelf-tip" id="marketLanded"></p>
-      <button class="btn block" type="button" id="claimBtn">Claim</button>
-      <button class="btn ghost block mt8 hidden" type="button" id="shelfClose">Close</button>
-      <div class="whisper-row">
-        <span class="whisper-name">Whispers</span>
-        <span class="caption" id="whisperCap"></span>
-        <label class="switch"><input type="checkbox" id="optWhisper" aria-label="Whispers"><span class="track"></span></label>
-      </div>
-    </div>
   </section>
+
+  <div class="market-drop" id="marketCard">
+    <div class="shelf-head">
+      <span class="shelf-kicker" id="marketTitle">Shelf</span>
+    </div>
+    <button class="shelf-strip hidden" id="shelfStrip" type="button" aria-label="Open your shelf"></button>
+    <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
+    <p class="shelf-tip" id="marketLine"></p>
+    <p class="shelf-tip" id="marketLanded"></p>
+    <button class="btn block" type="button" id="claimBtn">Claim</button>
+    <button class="btn ghost block mt8 hidden" type="button" id="shelfClose">Close</button>
+  </div>
+
+  <section class="token-rail" aria-label="Pick your token">
+    <p class="rail-kicker">Pick your token</p>
+    <div class="token-grid" id="tokenGrid"></div>
+  </section>
+
+  <div class="whisper-row">
+    <span class="whisper-name">Whispers</span>
+    <span class="caption" id="whisperCap"></span>
+    <label class="switch"><input type="checkbox" id="optWhisper" aria-label="Whispers"><span class="track"></span></label>
+  </div>
   <p class="center landlords-row"><button type="button" class="btn small ghost" id="recordsBtn">Top landlords</button></p>
   <p class="center account-line hidden" id="accountBar">Signed in as <span class="account-email" id="accountEmail"></span><br><button type="button" class="home-link" id="signOutBtn">Sign out</button></p>
 </main>
