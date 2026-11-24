@@ -23,9 +23,26 @@
     for (let i = 0; i < n; i++) s += '★';
     return gold ? s + ' GOLD' : s;
   }
+  const STICKER_FILE = {
+    'lekki-toll': 'lekki-toll-gate',
+    carter: 'carter-bridge',
+    'third-mainland': 'third-mainland-bridge',
+    balogun: 'balogun-market',
+    suya: 'suya-spot',
+    'computer-village': 'computer-village',
+    tbs: 'tafawa-balewa-square',
+    'national-theatre': 'national-theatre',
+    'eko-atlantic': 'eko-atlantic',
+    danfo: 'danfo',
+    molue: 'molue',
+    okada: 'okada',
+    kirikiri: 'kirikiri',
+    'owambe-hall': 'owambe-hall',
+    'marina-lights': 'marina-lights'
+  };
   function art(id) {
-    const draw = window.KPStickerArt && window.KPStickerArt[id];
-    return '<span class="st-art">' + (draw || '') + '</span>';
+    const file = STICKER_FILE[id] || id;
+    return '<span class="st-art"><img alt="" width="512" height="512" decoding="async" loading="lazy" src="/stickers/' + file + '.webp"></span>';
   }
   let lastRewards = null;
   function paintShelf(rewards) {
