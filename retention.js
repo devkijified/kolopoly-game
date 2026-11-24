@@ -272,7 +272,8 @@ function createRetention(opts) {
       lastNudgeAt: {},
       lastDropNudgeDay: null,
       playedDays: {},
-      v2: null
+      v2: null,
+      installed: false
     };
   }
   function normalize(p) {
@@ -285,6 +286,7 @@ function createRetention(opts) {
     p.claimCount = Math.max(0, Math.floor(Number(p.claimCount) || 0));
     if (!p.playedDays || typeof p.playedDays !== 'object') p.playedDays = {};
     if (p.v2 === undefined) p.v2 = null;
+    p.installed = !!p.installed;
     return p;
   }
 
@@ -511,6 +513,7 @@ function createRetention(opts) {
     }
     if (!acct.name && dev.name) acct.name = dev.name;
     if (!acct.push && dev.push) acct.push = dev.push;
+    if (dev.installed) acct.installed = true;
     acct.playedDays = Object.assign({}, dev.playedDays || {}, acct.playedDays || {});
     const av = v2Of(acct);
     const dv = v2Of(dev);
@@ -673,6 +676,7 @@ function createRetention(opts) {
         yams: p.inventory.yams,
         cloth: p.inventory.cloth
       },
+      installed: !!p.installed,
       push: {
         enabled: vapid.enabled,
         publicKey: vapid.publicKey,
@@ -889,6 +893,7 @@ function createRetention(opts) {
       conversion: conv
         ? { goods: conv.goods, pieces: conv.pieces, postcards: conv.postcards.slice(), day: conv.day }
         : null,
+      installed: !!p.installed,
       push: {
         enabled: vapid.enabled,
         publicKey: vapid.publicKey,
@@ -1132,6 +1137,21 @@ function createRetention(opts) {
     return { endpoint, keys: { p256dh, auth } };
   }
 
+  function markInstalled(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const p = ensure(who.id);
+    bindToken(who);
+    p.installed = true;
+    p.installedAt = Date.now();
+    save();
+    return { status: 200, body: { ok: true, installed: true } };
+  }
+  function accountInstalled(accountId) {
+    const id = acctShelfId(accountId);
+    if (!id || !db.players[id]) return false;
+    return !!normalize(db.players[id]).installed;
+  }
   function subscribe(body) {
     const who = resolve(body);
     if (who.error) return { status: 400, body: { ok: false, error: who.error } };
@@ -1379,6 +1399,7 @@ function createRetention(opts) {
       || clean === '/api/push/mute'
       || clean === '/api/push/denied'
       || clean === '/api/push/unsubscribe'
+      || clean === '/api/account/installed'
       || (test && (clean === '/api/test/nudge' || clean === '/api/test/sweep' || clean === '/api/test/push-roundtrip'));
   }
 
@@ -1456,6 +1477,7 @@ function createRetention(opts) {
       if (clean === '/api/push/mute') { const out = mute(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/push/denied') { const out = denied(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/account/installed') { const out = markInstalled(body); sendJson(res, out.status, out.body); return; }
       if (test && clean === '/api/test/nudge') {
         const who = resolve(body);
         if (who.error) { sendJson(res, 400, { ok: false, error: who.error }); return; }
@@ -1536,6 +1558,7 @@ function createRetention(opts) {
       if (clean === '/api/push/mute') { const out = mute(body); return json(out.status, out.body); }
       if (clean === '/api/push/denied') { const out = denied(body); return json(out.status, out.body); }
       if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); return json(out.status, out.body); }
+      if (clean === '/api/account/installed') { const out = markInstalled(body); return json(out.status, out.body); }
       if (test && clean === '/api/test/nudge') {
         const who = resolve(body);
         if (who.error) return json(400, { ok: false, error: who.error });
@@ -1570,6 +1593,7 @@ function createRetention(opts) {
     onSeatWaiting,
     onPot,
     sweepDrops,
+    accountInstalled,
     noteDay,
     opsSummary,
     testLog,

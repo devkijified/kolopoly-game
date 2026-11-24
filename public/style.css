@@ -39,7 +39,10 @@
   --app-h: 100svh;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; overflow-x: clip; max-width: 100%; }
+@supports not (overflow: clip) {
+  html, body { overflow-x: hidden; }
+}
 body {
   font-family: 'Figtree', system-ui, sans-serif;
   font-size: var(--fs-body);
@@ -68,6 +71,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   padding: 10px max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left)); height: var(--topbar-h);
   background: rgba(245, 239, 226, 0.94); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
+  max-width: 100%; min-width: 0; overflow: hidden;
 }
 .wordmark { font-family: 'Aeonik Pro', sans-serif; font-size: 22px; letter-spacing: 0.5px; }
 .wordmark .gold { color: var(--gold-deep); }
@@ -226,7 +230,10 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .slot { min-width: 0; }
 .slot .seat-copy { min-width: 0; flex: 1; }
 .slot .meta { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
-.settings-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.settings-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; max-width: 100%; min-width: 0; }
+.settings-chips .chip, .chip-salary {
+  white-space: normal; overflow-wrap: anywhere; max-width: 100%; min-width: 0;
+}
 
 /* Paid tables (Play to Earn): the city ladder sheet and the lobby panel */
 .paid-city {
@@ -254,7 +261,61 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   color: #f4ecdc;
 }
 .paid-panel .caption, .lobby-wrap .paid-panel .caption { color: #c9bfae; }
-.paid-panel-head { font-family: 'Aeonik Pro', sans-serif; font-weight: 700; font-size: var(--fs-lead); margin-bottom: 4px; color: #ffc857; display: flex; align-items: center; gap: 6px; }
+.paid-panel-head { font-family: 'Aeonik Pro', sans-serif; font-weight: 700; font-size: var(--fs-lead); margin-bottom: 4px; color: #ffc857; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.pay-hint {
+  margin: 10px 0 0; padding: 10px 12px; border-radius: 12px;
+  background: #12151b; color: #f4ecdc; font-size: 13.5px; font-weight: 700; line-height: 1.45;
+  border: 1px solid rgba(255, 200, 87, 0.4);
+}
+.wallet-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.wallet-row .btn { min-height: 44px; }
+.whisper-row .caption[data-state="ios"] {
+  white-space: normal; overflow-wrap: anywhere; max-width: 100%;
+  background: #171a21; color: #f4ecdc; padding: 4px 8px; border-radius: 8px;
+}
+.install-sheet {
+  position: fixed; z-index: 130;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  margin: 0 auto; max-width: 420px;
+  background: #171a21; color: #f4ecdc;
+  border: 1px solid rgba(255, 200, 87, 0.55);
+  border-radius: 18px; padding: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.install-sheet .title, .install-title { font-family: 'Aeonik Pro', sans-serif; color: #ffc857; font-size: 22px; margin: 0; }
+.install-kicker { margin: 0 0 4px; font-size: 12px; font-weight: 800; letter-spacing: 0.8px; color: #e9c77a; }
+.install-sheet .btn, .install-card .btn { min-height: 48px; font-size: 16px; }
+.install-card {
+  margin-top: 12px; padding: 12px 14px; border-radius: 14px; text-align: left;
+  background: #171a21; color: #f4ecdc; border: 1px solid rgba(255, 200, 87, 0.45);
+}
+.install-note { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--ink-soft); text-align: center; }
+.install-guide { position: relative; margin-top: 12px; min-height: 148px; }
+.ig-step { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; font-weight: 800; }
+.ig-step p, .ig-row { margin: 0; color: #f4ecdc; }
+.ig-bar, .ig-row {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 180px; min-height: 52px; padding: 8px 14px; border-radius: 14px;
+  background: #11141a; border: 1px solid rgba(255, 200, 87, 0.35);
+}
+.ig-share { width: 28px; height: 28px; color: #ffc857; }
+.ig-arrow {
+  width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent;
+  border-bottom: 12px solid #ffc857;
+}
+.ig-plus { font-size: 22px; color: #ffc857; font-weight: 800; }
+.ig-1 { animation: igShow 4.2s ease-in-out infinite; }
+.ig-2 { animation: igShow 4.2s ease-in-out infinite; animation-delay: -2.1s; }
+.ig-1 .ig-bar { animation: igPoint 4.2s ease-in-out infinite; }
+@keyframes igShow { 0%, 42% { opacity: 1; } 50%, 92% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes igPoint { 0%, 42% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(255, 200, 87, 0.45); } 20% { transform: translateY(-4px); box-shadow: 0 0 0 6px rgba(255, 200, 87, 0.15); } }
+@media (prefers-reduced-motion: reduce) {
+  .ig-1, .ig-2, .ig-1 .ig-bar { animation: none; }
+  .ig-step { position: relative; inset: auto; opacity: 1; }
+  .install-guide { min-height: 0; display: grid; gap: 8px; }
+}
 .paid-panel .btn:disabled { opacity: 1; filter: saturate(0.85) brightness(0.92); cursor: progress; }
 .pay-spin {
   display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -3px;
@@ -1936,7 +1997,7 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 }
 .whisper-row .grow { flex: 1; min-width: 0; }
 .whisper-name { font-weight: 800; font-size: 14px; }
-.whisper-row .caption { margin-top: 2px; }
+.whisper-row .caption { margin-top: 2px; min-width: 0; white-space: normal; }
 .retention-sheet {
   position: fixed; z-index: 96;
   left: max(12px, env(safe-area-inset-left));

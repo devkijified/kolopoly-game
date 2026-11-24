@@ -80,7 +80,14 @@ function createPaystack(opts) {
       const out = await call('GET', '/transaction/verify/' + encodeURIComponent(reference));
       const d = out.data && out.data.data;
       if (!out.httpOk || !d) return { ok: false, error: 'verify' };
-      return { ok: true, status: String(d.status || ''), amountKobo: Number(d.amount) || 0, currency: String(d.currency || 'NGN').toUpperCase(), reference: d.reference || reference };
+      return {
+        ok: true,
+        status: String(d.status || ''),
+        channel: String(d.channel || ''),
+        amountKobo: Number(d.amount) || 0,
+        currency: String(d.currency || 'NGN').toUpperCase(),
+        reference: d.reference || reference
+      };
     } catch (e) {
       return { ok: false, error: 'verify' };
     }

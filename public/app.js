@@ -166,6 +166,7 @@ function clearSeat() {
   try { releaseWakeLock(); } catch (e) { }
   try { stopHeartbeat(); } catch (e) { }
   try { hideConnBanner(); } catch (e) { }
+  try { dismissPayConfirm(); } catch (e) { }
 }
 function loadSeat() {
   try {
@@ -1497,9 +1498,40 @@ async function initializePayment() {
 // this tab's storage in case the URL lost it. The page asks the server
 // to verify (the server asks Paystack; the client's word never counts)
 // and shows a game-style confirm card until the answer lands.
-let payConfirm = null; // { state: 'checking' | 'paid' | 'failed' | 'refund', ref }
-function showPayConfirm(state, text) {
-  payConfirm = Object.assign({}, payConfirm || {}, { state, text });
+let payConfirm = null; // { state, text, ref, url, room }
+let payCheckBusy = false;
+let payGen = 0;
+function dismissPayConfirm() {
+  payGen += 1;
+  payCheckBusy = false;
+  payConfirm = null;
+  payOpen = null;
+  try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+  const el = $('payConfirmCard');
+  if (el) { el.classList.remove('show'); el.innerHTML = ''; }
+}
+function payRefOk(ref) { return /^kp[0-9a-z]{6,40}$/.test(ref || ''); }
+function readReturnRef() {
+  let ref = '';
+  try {
+    const q = new URLSearchParams(location.search);
+    ref = q.get('reference') || q.get('trxref') || '';
+    if (q.has('paid') || q.has('reference') || q.has('trxref') || q.has('_kp')) {
+      q.delete('paid'); q.delete('reference'); q.delete('trxref'); q.delete('_kp');
+      const rest = q.toString();
+      history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+    }
+  } catch (e) {}
+  try { ref = ref || sessionStorage.getItem('kolopolyPayRef') || ''; } catch (e) {}
+  return payRefOk(ref) ? ref : '';
+}
+function transferWaitingCopy() {
+  const fee = state && state.paid ? fmtN(state.paid.fee) : '₦200';
+  return 'Send the ' + fee + ' from your app to the account Paystack showed. It confirms automatically.';
+}
+function showPayConfirm(stateName, text, extra) {
+  extra = extra || {};
+  payConfirm = Object.assign({}, payConfirm || {}, { state: stateName, text, room: (state && state.code) || '' }, extra);
   let el = $('payConfirmCard');
   if (!el) {
     el = document.createElement('div');
@@ -1509,56 +1541,115 @@ function showPayConfirm(state, text) {
     el.setAttribute('aria-live', 'polite');
     document.body.appendChild(el);
   }
-  const icon = state === 'paid' ? window.icon('check', 22) : state === 'checking' ? '<span class="p2e-spin" aria-hidden="true"></span>' : window.icon('card', 22);
-  el.className = 'p2e-confirm show ' + state;
-  el.innerHTML = '<div class="p2e-confirm-ico">' + icon + '</div><div class="p2e-confirm-body"><div class="p2e-confirm-title">' +
-    (state === 'paid' ? 'Seat paid' : state === 'checking' ? 'Confirming with Paystack' : state === 'refund' ? 'Your entry is coming back' : 'Payment no land') +
-    '</div><div class="p2e-confirm-text">' + esc(text || '') + '</div></div>' +
-    (state === 'checking' ? '' : '<button class="p2e-confirm-x" type="button" aria-label="Close">' + window.icon('close', 16) + '</button>');
+  const titles = {
+    paid: 'Seat paid',
+    checking: 'Confirming with Paystack',
+    refund: 'Your entry is coming back',
+    incomplete: 'Payment not completed',
+    waiting: 'Waiting for your transfer',
+    failed: 'Payment no land'
+  };
+  // No spinner. A transfer that is still in flight stays on the waiting
+  // card with Check again; the one verify call is not a loop.
+  const icon = stateName === 'paid' ? window.icon('check', 22) : window.icon('card', 22);
+  const actions = [];
+  if (stateName === 'incomplete') {
+    actions.push(['payAgain', 'Try again']);
+    actions.push(['payOther', 'Choose another way']);
+  } else if (stateName === 'waiting') {
+    actions.push(['payCheck', payCheckBusy ? 'Checking…' : 'Check again']);
+  }
+  el.className = 'p2e-confirm show ' + stateName + (actions.length ? ' has-actions' : '');
+  el.innerHTML = '<div class="p2e-confirm-row"><div class="p2e-confirm-ico">' + icon + '</div><div class="p2e-confirm-body"><div class="p2e-confirm-title">' +
+    esc(titles[stateName] || 'Payment') + '</div><div class="p2e-confirm-text">' + esc(text || '') + '</div></div>' +
+    (stateName === 'checking' || actions.length ? '' : '<button class="p2e-confirm-x" type="button" aria-label="Close">' + window.icon('close', 16) + '</button>') +
+    '</div>' +
+    (actions.length ? '<div class="p2e-confirm-actions">' + actions.map((a) => '<button class="btn gold" type="button" data-pay="' + a[0] + '"' + (a[0] === 'payCheck' && payCheckBusy ? ' disabled' : '') + '>' + esc(a[1]) + '</button>').join('') + '</div>' : '');
   const x = el.querySelector('.p2e-confirm-x');
   if (x) x.addEventListener('click', () => { el.classList.remove('show'); });
-  if (state === 'paid') setTimeout(() => { if (payConfirm && payConfirm.state === 'paid') el.classList.remove('show'); }, 4500);
+  el.querySelectorAll('[data-pay]').forEach((b) => b.addEventListener('click', () => {
+    const act = b.getAttribute('data-pay');
+    if (act === 'payCheck') { checkPayOnce(payConfirm && payConfirm.ref); return; }
+    el.classList.remove('show');
+    if (act === 'payOther' && payConfirm && payConfirm.url) { window.location.assign(payConfirm.url); return; }
+    initializePayment().catch(() => payFail(state && state.code, 'Payment no open. Try again. Nothing was charged.'));
+  }));
+  if (stateName === 'paid') setTimeout(() => { if (payConfirm && payConfirm.state === 'paid') el.classList.remove('show'); }, 4500);
 }
-(function pollReturnPayment() {
-  let ref = '';
+function gatewayIsTransfer(data) {
+  const g = String((data && data.gateway) || '').toLowerCase();
+  const ch = String((data && data.channel) || '').toLowerCase();
+  if (ch === 'bank_transfer' || ch === 'dedicated_nuban') return true;
+  return g === 'pending' || g === 'ongoing' || g === 'processing' || g === 'queued';
+}
+async function checkPayOnce(ref) {
+  if (!payRefOk(ref) || payCheckBusy) return;
+  const gen = payGen;
+  payCheckBusy = true;
+  if (!payConfirm || payConfirm.state === 'checking') showPayConfirm('checking', 'Hold on small. Paystack dey confirm your entry.', { ref });
+  else showPayConfirm(payConfirm.state, payConfirm.text, { ref, busy: true });
+  const ctl = new AbortController();
+  const killer = setTimeout(() => ctl.abort(), 8000);
+  let res = null;
+  let data = null;
   try {
-    const q = new URLSearchParams(location.search);
-    ref = q.get('reference') || q.get('trxref') || '';
-    if (q.has('paid') || q.has('reference') || q.has('trxref')) {
-      // Clean the address so a refresh or a shared link never replays it.
-      q.delete('paid'); q.delete('reference'); q.delete('trxref');
-      const rest = q.toString();
-      history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
-    }
-  } catch (e) {}
-  try { ref = ref || sessionStorage.getItem('kolopolyPayRef') || ''; } catch (e) {}
-  if (!/^kp[0-9a-z]{6,40}$/.test(ref)) return;
-  showPayConfirm('checking', 'Hold on small. Paystack dey confirm your ' + 'entry.');
-  let tries = 0;
-  const done = (state, text) => {
-    clearInterval(timer);
+    res = await fetch('/api/payments/status?reference=' + encodeURIComponent(ref), { cache: 'no-store', signal: ctl.signal });
+    data = await res.json().catch(() => null);
+  } catch (e) {
+    res = null;
+  } finally {
+    clearTimeout(killer);
+    payCheckBusy = false;
+  }
+  if (gen !== payGen) return;
+  if (!res || !data) {
     try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
-    showPayConfirm(state, text);
-    try { if (state === 'paid') { sfx.coin && sfx.coin(); } } catch (e) {}
-  };
-  const tick = async () => {
-    tries += 1;
-    try {
-      const res = await fetch('/api/payments/status?reference=' + encodeURIComponent(ref));
-      const data = await res.json().catch(() => null);
-      if (res.status === 404) { done('failed', 'This phone no know that payment. If money left your account, the house go see am and return it.'); return; }
-      if (data && data.status === 'paid' && (data.seat === 'refund-due' || data.seat === 'refunded' || data.seat === 'mismatch')) {
-        done('refund', 'Paystack confirm the money, but that seat no dey again. Your entry is queued to come back to you.');
-        return;
-      }
-      if (data && data.status === 'paid') { done('paid', 'Paystack confirm am. Your seat is paid, wait for the host to start.'); return; }
-      if (data && data.status === 'failed') { done('failed', 'That payment no go through. Nothing was taken. Tap Pay to try again.'); return; }
-    } catch (e) {}
-    if (tries >= 30) done('failed', 'Paystack never confirm yet. If you paid, your seat go update by itself within a few minutes.');
-  };
-  const timer = setInterval(tick, 2500);
-  setTimeout(tick, 600);
-})();
+    showPayConfirm('incomplete', 'Payment not completed. Nothing was charged.', { ref });
+    return;
+  }
+  if (res.status === 404) {
+    try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+    showPayConfirm('failed', 'This phone no know that payment. If money left your account, the house go see am and return it.', { ref });
+    return;
+  }
+  if (gen !== payGen) return;
+  if (data.status === 'paid' && (data.seat === 'refund-due' || data.seat === 'refunded' || data.seat === 'mismatch')) {
+    try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+    showPayConfirm('refund', 'Paystack confirm the money, but that seat no dey again. Your entry is queued to come back to you.', { ref });
+    return;
+  }
+  if (data.status === 'paid') {
+    try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+    showPayConfirm('paid', 'Paystack confirm am. Your seat is paid, wait for the host to start.', { ref });
+    try { sfx.coin && sfx.coin(); } catch (e) {}
+    return;
+  }
+  if (data.status === 'failed') {
+    try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+    showPayConfirm('incomplete', 'Payment not completed. Nothing was charged.', { ref, url: data.authorizationUrl || null });
+    return;
+  }
+  // A bank transfer that has not landed stays here, with a button, until
+  // the webhook seats the player. Anything else (abandoned OPay, a verify
+  // that never answered) is not completed. It does not keep spinning.
+  if (data.status === 'pending' && gatewayIsTransfer(data)) {
+    showPayConfirm('waiting', transferWaitingCopy(), { ref, url: data.authorizationUrl || null });
+    return;
+  }
+  try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+  showPayConfirm('incomplete', 'Payment not completed. Nothing was charged.', { ref, url: data.authorizationUrl || null });
+}
+function pollReturnPayment() {
+  const ref = readReturnRef();
+  if (!ref) return;
+  checkPayOnce(ref);
+}
+pollReturnPayment();
+window.addEventListener('pageshow', (ev) => {
+  if (!ev.persisted) return;
+  const ref = readReturnRef();
+  if (ref && (!payConfirm || payConfirm.state === 'checking' || payConfirm.state === 'waiting')) checkPayOnce(ref);
+});
 // ---------------------------------------------------------------------------
 // Winnings: the prize and refund locker for the signed-in account, and
 // the bank the prizes go to. The account number is checked against the
@@ -1580,9 +1671,39 @@ const PAYOUT_WORDS = {
   test: ['Test mode, no money', 'muted']
 };
 let payoutBanks = null;
+let walletSummary = null;
+let walletAskedAt = 0;
+function walletOwedKobo(data) {
+  return ((data && data.payouts) || []).filter((r) => r.kind === 'prize' && !/^(paid|paid-manual|test)$/.test(r.status)).reduce((t, r) => t + (r.amountKobo || 0), 0);
+}
+function paintWalletNote() {
+  const owed = walletSummary ? walletOwedKobo(walletSummary) : 0;
+  const queued = walletSummary ? (walletSummary.payouts || []).filter((r) => r.status === 'ready' || r.status === 'sending' || r.status === 'awaiting-bank' || r.status === 'review').length : 0;
+  const paidN = walletSummary ? (walletSummary.payouts || []).filter((r) => r.status === 'paid' || r.status === 'paid-manual').length : 0;
+  let line = '';
+  if (!authToken()) line = 'Sign in, then open Wallet, to see money the house owes you.';
+  else if (!walletSummary) line = 'Wallet holds your prize and any entry that comes back.';
+  else if (owed > 0) line = fmtN(owed / 100) + ' coming to you' + (queued ? ' · ' + queued + ' queued' : '') + (paidN ? ' · ' + paidN + ' paid' : '') + '.';
+  else if (paidN) line = 'Nothing queued. ' + paidN + ' payout' + (paidN === 1 ? '' : 's') + ' already paid to your bank.';
+  else line = 'Nothing owed yet. Win a paid table and the prize lands in Wallet.';
+  const lobby = $('lobbyWalletNote');
+  if (lobby) lobby.textContent = line;
+  const end = $('endWalletNote');
+  if (end) end.textContent = line;
+}
+function kickWallet() {
+  if (!authToken()) { paintWalletNote(); return; }
+  if (Date.now() - walletAskedAt < 12000 && walletSummary) { paintWalletNote(); return; }
+  walletAskedAt = Date.now();
+  fetch('/api/payouts/mine', { headers: { Authorization: 'Bearer ' + authToken() } })
+    .then((r) => r.json())
+    .then((data) => { if (data && data.ok) { walletSummary = data; paintWalletNote(); } })
+    .catch(() => {});
+}
 async function openWinnings(focusBank) {
   const sheet = $('paidSheet');
-  sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('crown', 18) + ' Your winnings</h3>' +
+  sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('crown', 18) + ' Wallet</h3>' +
+    '<p class="caption">This is where a prize or a refund comes back. Add your bank and the house sends the money. Queued means it is waiting. Paid means it has landed.</p>' +
     '<div id="winBody" class="p2e-win"><p class="caption">Loading your locker…</p></div>' +
     '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
   $('paidScrim').classList.add('show');
@@ -1891,6 +2012,14 @@ function onState(room) {
   }
   const meNow = room.players.find((p) => p.id === myId);
   if (meNow && meNow.token) { try { localStorage.setItem('kolopolyToken', meNow.token); } catch (e) { } }
+  // A transfer can land while this phone is sitting on the waiting card.
+  // The webhook seats the player and the room broadcast is the witness.
+  if (payConfirm && payConfirm.room && room.code && payConfirm.room !== room.code) dismissPayConfirm();
+  if (meNow && meNow.paidSeat && payConfirm && (payConfirm.state === 'waiting' || payConfirm.state === 'checking' || payConfirm.state === 'incomplete')) {
+    try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+    showPayConfirm('paid', 'Paystack confirm am. Your seat is paid, wait for the host to start.', { ref: payConfirm.ref });
+    try { sfx.coin && sfx.coin(); } catch (e) {}
+  }
   if (prev && prev.auction && !room.auction && room.status === 'playing') { logSfx('gavel', null, 'state'); sfx.gavel(); }
   // KP14: a fresh high bid ticks softly; the turn arriving at THIS seat
   // gets the two-note rise. Both are render beats of this state push.
@@ -2260,7 +2389,9 @@ function renderLobby(room) {
   if (room.settings.noRentInJail) chips.push('No rent while in Kirikiri');
   if (room.settings.firstLapNoBuy) chips.push('First lap: no buying');
   chips.push('Turn timer: ' + (room.settings.turnTimerSec ? room.settings.turnTimerSec + 's' : 'off'));
-  $('lobbySettings').innerHTML = chips.map((c) => '<span class="chip">' + esc(c) + '</span>').join('');
+  $('lobbySettings').innerHTML = chips.map((c, i) => '<span class="chip' + (i === 0 ? ' chip-salary' : '') + '">' + esc(c) + '</span>').join('');
+  paintWalletNote();
+  kickWallet();
   $('chaosNote').textContent = room.settings.chaos
     ? 'CHAOS MODE ON: one seat go be Nepo (+₦500,000 and a free deed), one seat go be Lapo (₦1,000,000 start, first rent forgiven). Seats are picked when the game starts, nobody is ambushed after.'
     : '';
@@ -2278,7 +2409,8 @@ function renderLobby(room) {
       (room.settings && room.settings.gameMode === 'inflation'
         ? 'The game runs on the seven inflation phases and nobody fit end am early.'
         : 'The game runs on the 60 minute clock and nobody fit end am early.') +
-      ' If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>';
+      ' If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>' +
+      '<p class="pay-hint">If you use OPay Business (or your bank app won\'t open), choose \'Pay with Transfer\' in Paystack and send the ' + fmtN(room.paid.fee) + ' from your app to the account shown; it confirms automatically.</p>';
     if (room.paid.mode === 'off') {
       paidHtml += '<p class="caption" style="margin-top:8px;">Payments never set up yet. The house still dey finish the setup, so nobody fit pay for this table yet.</p>';
     } else if (!spectator && mePaid && !mePaid.bot && !mePaid.paidSeat && !mePaid.payPending) {
@@ -2362,6 +2494,8 @@ $('botAdd2').addEventListener('click', () => { send('add_bot', {}); setTimeout((
 $('botNone').addEventListener('click', () => dismissBotPrompt());
 $('addBotBtn').addEventListener('click', () => send('add_bot', {}));
 $('leaveLobbyBtn').addEventListener('click', () => { send('leave', {}); clearSeat(); setTimeout(() => location.reload(), 250); });
+const lobbyWalletBtn = $('lobbyWalletBtn');
+if (lobbyWalletBtn) lobbyWalletBtn.addEventListener('click', () => openWinnings(false));
 
 // ---------------------------------------------------------------------------
 // Game rendering
@@ -3904,12 +4038,20 @@ function renderEnd(room) {
     (room.interestLine ? '<p class="end-note">' + esc(room.interestLine) + '</p>' : '') +
     (room.bankerGhost ? '<p class="end-note">Banker: ' + esc(room.bankerGhost) + ', wey inflation first catch. The ghost run the announcements, no money power.</p>' : '') +
     infEndHtml +
+    '<p class="end-note" id="endWalletNote">Wallet holds your prize and any entry that comes back. Add your bank there and the house sends it.</p>' +
+    (window.KPRetention && window.KPRetention.endInstallHtml ? window.KPRetention.endInstallHtml() : '') +
     '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
+    '<button class="btn" id="endWallet">Wallet</button>' +
     '<button class="btn green" id="endAgain">Play again</button></div>' +
     '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
   o.classList.add('show');
   const collect = $('endCollect');
-  if (collect) collect.addEventListener('click', () => openWinnings(true));
+  if (collect) collect.addEventListener('click', () => openWinnings(false));
+  const endWallet = $('endWallet');
+  if (endWallet) endWallet.addEventListener('click', () => openWinnings(false));
+  paintWalletNote();
+  kickWallet();
+  if (window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
   $('endShare').addEventListener('click', () => {
     openShare('final', {
       rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0, bot: !!(r.bot || r.afkTaken) })),

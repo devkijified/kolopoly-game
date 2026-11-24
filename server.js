@@ -342,8 +342,15 @@ function settlePayment(reference, via, outcome) {
 async function verifyAndSettle(reference, via) {
   payments.touch(reference);
   const v = await paystack.verify(reference);
-  if (v.ok) return settlePayment(reference, via, { status: v.status, amountKobo: v.amountKobo, currency: v.currency });
-  return { ok: false, reason: 'verify' };
+  if (v.ok) {
+    const settled = settlePayment(reference, via, { status: v.status, amountKobo: v.amountKobo, currency: v.currency });
+    // gateway is Paystack's own word (abandoned, pending, success).
+    // The record stays pending on abandoned so a late transfer webhook
+    // can still seat the player. channel tells a bank transfer apart
+    // from a checkout the player walked away from.
+    return Object.assign({}, settled, { gateway: v.status || '', channel: v.channel || '' });
+  }
+  return { ok: false, reason: 'verify', gateway: '', channel: '' };
 }
 // The reconcile sweep: a payment whose webhook never arrived and
 // whose player never came back still settles, by asking Paystack
@@ -502,7 +509,7 @@ const server = http.createServer((req, res) => {
   if (cleanUrl === '/api/auth/me' && req.method === 'GET') {
     const acct = auth.verifyToken(bearerOf(req));
     if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
-    sendJson(res, 200, { ok: true, accountId: acct.accountId, email: acct.email });
+    sendJson(res, 200, { ok: true, accountId: acct.accountId, email: acct.email, installed: retention.accountInstalled(acct.accountId) });
     return;
   }
   // Open a Paystack transaction for the caller's own seat. The amount
@@ -559,9 +566,18 @@ const server = http.createServer((req, res) => {
       const ref = new URL(req.url, 'http://localhost').searchParams.get('reference') || '';
       const rec = payments.get(ref);
       if (!rec) { sendJson(res, 404, { ok: false, error: 'unknown', message: 'That payment no dey.' }); return; }
-      if (rec.status === 'pending' && paystack.enabled) await verifyAndSettle(ref, 'verify');
+      let gateway = '';
+      let channel = '';
+      if (rec.status === 'pending' && paystack.enabled) {
+        const looked = await verifyAndSettle(ref, 'verify');
+        gateway = looked.gateway || '';
+        channel = looked.channel || '';
+      }
       const fresh = payments.get(ref);
-      sendJson(res, 200, { ok: true, reference: ref, status: fresh.status, seat: fresh.seat || null, roomCode: fresh.roomCode });
+      sendJson(res, 200, {
+        ok: true, reference: ref, status: fresh.status, seat: fresh.seat || null, roomCode: fresh.roomCode,
+        gateway, channel, authorizationUrl: fresh.authorizationUrl || null
+      });
     })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false }); });
     return;
   }

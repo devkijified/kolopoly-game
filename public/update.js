@@ -19,7 +19,20 @@
   // '' is a fresh build. 'room' is a dead room on the same build.
   // 'fresh-room' is both: a restart took the room and shipped a new build.
   let note = '';
-  let reloadImpl = function () { window.location.reload(); };
+  // iOS Safari drops location.reload() after a return from Paystack
+  // (the page is still the bfcache copy, and a timer is not a tap).
+  // A cache-busting replace navigates for real. The seat stays in
+  // localStorage and the pay reference stays in sessionStorage.
+  function hardReload() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('_kp', Date.now().toString(36));
+      window.location.replace(url.toString());
+    } catch (e) {
+      window.location.reload();
+    }
+  }
+  let reloadImpl = hardReload;
   let hadController = !!('serviceWorker' in navigator && navigator.serviceWorker.controller);
   let loadedBuild = readBuild();
 
@@ -64,8 +77,10 @@
     reloading = true;
     try { reloadImpl(); }
     catch (e) {
-      try { window.location.reload(); } catch (e2) { /* the countdown already asked */ }
+      try { hardReload(); } catch (e2) { /* the countdown already asked */ }
     }
+    // If Safari swallowed the navigation, a later tap must be able to try again.
+    setTimeout(() => { reloading = false; }, 1500);
   }
   function beginReload() {
     if (!armed || closing) return;
@@ -118,12 +133,15 @@
       // The first claim of a cold tab is not a deploy. A worker that
       // reaches installed while one was already in control is.
       if (!hadController) return;
-      if (worker.state === 'installed') arm();
+      // A new worker is not itself a new game. The page that just loaded
+      // (or came back from Paystack) may already be that build. Ask the
+      // server before putting the banner up.
+      if (worker.state === 'installed') checkNow();
     });
   }
   function bind(reg) {
     registration = reg;
-    if (reg.waiting && hadController) arm();
+    if (reg.waiting && hadController) checkNow();
     watchWorker(reg.installing);
     reg.addEventListener('updatefound', () => watchWorker(reg.installing));
   }
@@ -152,18 +170,33 @@
   }
 
   const nowBtn = document.getElementById('updateNow');
-  if (nowBtn) nowBtn.addEventListener('click', () => beginReload());
+  if (nowBtn) nowBtn.addEventListener('click', () => {
+    // The countdown may already have asked, and iOS may have ignored it.
+    // A tap is a user gesture, so it always tries the navigation again.
+    if (closing) { reloading = false; finishReload(); return; }
+    beginReload();
+  });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!hadController) { hadController = true; return; }
-      arm();
+      checkNow();
     });
     navigator.serviceWorker.register('/sw.js').then(bind).catch(() => {});
   }
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') checkNow();
+  });
+  // Coming back from Paystack can restore a frozen page. Ask again,
+  // and if a reload already bounced, let the next tap or this check
+  // navigate with a fresh replace.
+  window.addEventListener('pageshow', (ev) => {
+    if (!ev.persisted) return;
+    reloading = false;
+    checkNow().then((stale) => {
+      if (stale && armed && left <= 0) { closing = false; beginReload(); }
+    }).catch(() => {});
   });
   // Landing checks often. A match that stays on screen still checks,
   // slower, so a home-screen table hears a deploy without a tab switch.
