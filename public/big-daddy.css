@@ -1,64 +1,110 @@
-/* Big Daddy: a corner pop. It never covers the dice, the clock, or a
-   paid-table countdown (those sit higher), and it does not take taps. */
-.bd-pop {
+/* Big Daddy on stage. The dim and the figure never take taps, so a
+   turn, the dice, and a timer keep working for the short time he is up. */
+.bd-stage {
   position: fixed;
+  inset: 0;
   z-index: 58;
-  left: max(8px, env(safe-area-inset-left));
-  bottom: calc(128px + env(safe-area-inset-bottom));
-  width: min(280px, calc(100% - 16px));
-  max-width: calc(100% - 16px);
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
   pointer-events: none;
-  color: #f4ecdc;
+  overflow: hidden;
 }
-.bd-pop.bd-right {
-  left: auto;
-  right: max(8px, env(safe-area-inset-right));
-  flex-direction: row-reverse;
+.bd-dim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 70% at 50% 78%, rgba(0, 0, 0, 0.08) 0%, rgba(0, 0, 0, 0.62) 72%);
 }
-.bd-pop.bd-show { animation: bdIn 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
-.bd-pop.bd-still { animation: bdFade 0.2s ease both; }
+.bd-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+}
+.bd-pop.bd-jail { align-items: flex-start; }
 .bd-fig {
-  flex: none;
-  width: 96px;
-  height: 120px;
+  height: 50vh;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
   object-position: center bottom;
-  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.45));
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.45));
+}
+.bd-pop.bd-jail .bd-fig {
+  height: 48vh;
+  max-width: none;
+  object-position: left bottom;
+  margin-left: -6vw;
 }
 .bd-bubble {
   position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #171a21;
-  border: 1px solid rgba(255, 200, 87, 0.55);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
-  font-size: 13.5px;
+  align-self: stretch;
+  margin: 0 4px 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #12151b;
+  color: #fff8ea;
+  border: 2px solid #ffc857;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  font-size: 19px;
   font-weight: 800;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 .bd-stamp {
   display: inline-block;
-  margin-bottom: 4px;
-  padding: 1px 7px;
-  border-radius: 6px;
+  margin-bottom: 6px;
+  padding: 2px 10px;
+  border-radius: 8px;
   background: #ffc857;
   color: #1a1408;
-  font-size: 12px;
-  letter-spacing: 1px;
+  font-size: 18px;
+  letter-spacing: 1.5px;
 }
-@keyframes bdIn {
-  0% { transform: translateY(28px) scale(0.86); opacity: 0; }
-  100% { transform: none; opacity: 1; }
+.bd-fx { position: absolute; inset: 0; overflow: hidden; }
+.bd-note, .bd-bit, .bd-pack {
+  position: absolute;
+  bottom: 28%;
+  font-weight: 800;
+  pointer-events: none;
 }
-@keyframes bdFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.bd-note { color: #d8ffe4; font-size: 18px; }
+.bd-bit { width: 10px; height: 14px; border-radius: 2px; }
+.bd-pack {
+  width: 54px; height: 42px; border-radius: 6px;
+  background: #9c2b3a; border: 2px solid #ffc857; bottom: 18%; right: 12%;
 }
+.bd-show .bd-fig { animation: bdSquash 0.62s cubic-bezier(0.2, 1.35, 0.36, 1) both; }
+.bd-show.bd-jail .bd-fig { animation: bdLean 0.62s cubic-bezier(0.2, 1.2, 0.36, 1) both; }
+.bd-show .bd-note { animation: bdFly 1.3s ease-out both; }
+.bd-show .bd-bit { animation: bdConfetti 1.4s ease-out both; }
+.bd-still .bd-fig { animation: bdFade 0.2s ease both; }
+.bd-still .bd-note, .bd-still .bd-bit, .bd-still .bd-pack { display: none; }
+@keyframes bdSquash {
+  0% { transform: translateY(108%) scale(0.78, 1.22); }
+  58% { transform: translateY(0) scale(1.08, 0.88); }
+  78% { transform: translateY(0) scale(0.96, 1.06); }
+  100% { transform: none; }
+}
+@keyframes bdLean {
+  0% { transform: translateX(-110%) rotate(-7deg) scale(0.92, 1.04); }
+  62% { transform: translateX(0) rotate(2deg); }
+  100% { transform: none; }
+}
+@keyframes bdFly {
+  0% { transform: translateY(20px) rotate(-8deg); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(-46vh) rotate(18deg); opacity: 0; }
+}
+@keyframes bdConfetti {
+  0% { transform: translateY(10px); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateY(-40vh) rotate(160deg); opacity: 0; }
+}
+@keyframes bdFade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .bd-pop.bd-show { animation: bdFade 0.2s ease both; }
+  .bd-show .bd-fig, .bd-show.bd-jail .bd-fig { animation: bdFade 0.2s ease both; }
+  .bd-note, .bd-bit, .bd-pack { display: none; }
 }

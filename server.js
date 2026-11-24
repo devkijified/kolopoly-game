@@ -38,6 +38,7 @@ const BUILD_FILES = [
   'public/big-daddy.js',
   'public/big-daddy.css',
   'public/rewards-ui.js',
+  'public/sticker-art.js',
   'public/rewards-ui.css',
   'public/mascot/daddy-money.webp',
   'public/mascot/daddy-deed.webp',

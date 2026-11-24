@@ -17,13 +17,40 @@
 }
 .album-grid, .pack-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .sticker {
-  flex: 1 1 100px; min-width: 0; text-align: left; padding: 8px;
-  border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #12151b; color: #f4ecdc; font-weight: 800;
+  position: relative;
+  flex: 1 1 96px; min-width: 0; text-align: center; padding: 8px 6px 8px;
+  border-radius: 16px; border: 3px solid #f6ead2;
+  background: #1a140c; color: #f4ecdc; font-weight: 800;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35);
 }
-.sticker.missing { opacity: 0.45; }
-.sticker.gold { border-color: #ffc857; color: #ffc857; }
-.st-name { display: block; font-size: 13px; }
-.st-stars, .st-n { font-size: 12px; }
+.st-art { display: block; width: 64px; height: 64px; margin: 0 auto 4px; }
+.st-art svg { width: 100%; height: 100%; display: block; }
+.sticker.missing .st-art { filter: brightness(0) saturate(0); opacity: 0.55; }
+.sticker.missing { color: #8a8074; }
+.st-q {
+  position: absolute; left: 50%; top: 28px; transform: translateX(-50%);
+  font-size: 22px; color: #f6ead2;
+}
+.st-badge {
+  position: absolute; top: 6px; right: 6px; min-width: 18px; height: 18px;
+  border-radius: 999px; background: #ffc857; color: #1a1408; font-size: 12px; line-height: 18px;
+}
+.sticker.gold { border-color: #ffc857; }
+.sticker.gold::after {
+  content: ''; position: absolute; inset: 0; border-radius: 13px; pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 248, 220, 0.55) 48%, transparent 62%);
+  background-size: 220% 100%;
+  animation: foil 2.2s linear infinite;
+}
+@keyframes foil { from { background-position: 120% 0; } to { background-position: -40% 0; } }
+.pack-row .sticker { flex: 1 1 100%; }
+.pack-row .st-art { width: min(58vw, 220px); height: min(58vw, 220px); }
+.pack-flip { animation: cardFlip 0.45s ease both; }
+@keyframes cardFlip { from { transform: rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.st-name { display: block; font-size: 12px; }
+.st-stars { font-size: 11px; color: #e8a317; }
+@media (prefers-reduced-motion: reduce) {
+  .sticker.gold::after, .pack-flip { animation: none; }
+}
 .pack-kicker, .album-set { font-size: 13px; font-weight: 800; }
 .album-note { font-size: 13px; color: #cfc4b2; }
