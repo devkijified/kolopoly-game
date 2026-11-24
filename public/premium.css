@@ -461,7 +461,10 @@ body:has(#view-signin.active) { background: #0f1116; }
   body:has(#view-game.active) .topbar .wordmark { display: none; }
   body:has(#view-lobby.active) .topbar,
   body:has(#view-game.active) .topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
-  #roomChip, #modePill { min-width: 0; max-width: 38vw; overflow: hidden; }
+  body:has(#view-lobby.active) .topbar .spacer,
+  body:has(#view-game.active) .topbar .spacer { display: none; }
+  #roomChip, #modePill { min-width: 0; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-chip { max-width: 36vw; min-width: 0; overflow: hidden; }
 }
 .account-chip .chip-token { display: inline-flex; flex: none; width: 30px; height: 30px; align-items: center; justify-content: center; }
 .account-chip .chip-token svg, .account-chip .chip-token img { width: 30px; height: 30px; }
@@ -987,15 +990,18 @@ body:has(#view-landing.active) #muteBtn.on {
    --------------------------------------------------------------------- */
 .p2e-confirm {
   position: fixed; left: 50%; top: max(14px, env(safe-area-inset-top)); z-index: 90;
-  width: min(420px, calc(100vw - 24px)); transform: translate(-50%, -140%);
-  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  width: min(420px, calc(100vw - 24px)); max-width: calc(100vw - 24px); transform: translate(-50%, -140%);
+  display: flex; flex-direction: column; gap: 0; padding: 12px 14px;
   background: var(--g-panel); color: var(--g-text); border-radius: 14px;
   box-shadow: var(--g-drop), var(--g-bevel); border: 1px solid var(--g-rim);
   transition: transform 0.35s var(--g-ease-pop); pointer-events: none;
 }
+.p2e-confirm-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .p2e-confirm.show { transform: translate(-50%, 0); pointer-events: auto; }
-.p2e-confirm.failed, .p2e-confirm.refund { border-color: rgba(255, 140, 110, 0.7); }
-.p2e-confirm.paid { border-color: rgba(120, 220, 150, 0.8); }
+.p2e-confirm.failed, .p2e-confirm.refund, .p2e-confirm.incomplete { border-color: rgba(255, 140, 110, 0.7); }
+.p2e-confirm.paid, .p2e-confirm.waiting { border-color: rgba(120, 220, 150, 0.55); }
+.p2e-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.p2e-confirm-actions .btn { flex: 1 1 140px; min-height: 44px; }
 .p2e-confirm-ico { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: #11141a; color: var(--g-gold); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
 .p2e-confirm.paid .p2e-confirm-ico { color: #7be09a; }
 .p2e-confirm.failed .p2e-confirm-ico, .p2e-confirm.refund .p2e-confirm-ico { color: #ff9a7f; }

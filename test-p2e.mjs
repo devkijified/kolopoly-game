@@ -208,7 +208,7 @@ const stub = http.createServer((req, res) => {
       const n = (verifyCalls.get(ref) || 0) + 1;
       verifyCalls.set(ref, n);
       const t = txn.get(ref);
-      const answer = () => res.end(JSON.stringify(t ? { status: true, data: { status: t.status, amount: t.amount, currency: t.currency || 'NGN', reference: ref } } : { status: false, message: 'Transaction reference not found' }));
+      const answer = () => res.end(JSON.stringify(t ? { status: true, data: { status: t.status, amount: t.amount, currency: t.currency || 'NGN', reference: ref, channel: t.channel || '' } } : { status: false, message: 'Transaction reference not found' }));
       if (slowVerify.has(ref) && n === 1) { setTimeout(answer, 1500); return; }
       answer();
       return;
@@ -371,6 +371,11 @@ try {
     check('a stranger with no seat cannot open a payment for the table', forged.status === 403);
     const status0 = await api('GET', '/api/payments/status?reference=' + initA.body.reference);
     check('an opened but unpaid payment (Paystack says abandoned) stays pending', status0.body.status === 'pending', JSON.stringify(status0.body));
+    check('abandoned is named so the phone can stop spinning', status0.body.gateway === 'abandoned' && status0.body.status === 'pending', JSON.stringify(status0.body));
+    txn.set(initA.body.reference, { status: 'pending', amount: 20000, currency: 'NGN', channel: 'bank_transfer' });
+    const statusWait = await api('GET', '/api/payments/status?reference=' + initA.body.reference);
+    check('a transfer still in flight stays pending and names the channel', statusWait.body.status === 'pending' && statusWait.body.gateway === 'pending' && statusWait.body.channel === 'bank_transfer', JSON.stringify(statusWait.body));
+    txn.set(initA.body.reference, { status: 'abandoned', amount: 20000, currency: 'NGN' });
     // Forged and unsigned webhooks.
     txn.get(initA.body.reference).status = 'success';
     check('a forged signature is refused', (await webhook(chargeSuccess(initA.body.reference), { secret: 'sk_test_wrong' })) === 401);

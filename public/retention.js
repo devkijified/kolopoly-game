@@ -19,6 +19,8 @@
   let serverDenied = false;
   let asking = false;
   let syncing = false;
+  let deviceHasSub = false;
+  let installShown = false;
   let refreshed = false;
   let winPending = false;
   let claimPending = false;
@@ -190,8 +192,17 @@
     if (perm === 'granted') return false;
     return !!serverDenied;
   }
+  function iosNeedsHome() {
+    return ios() && !standalone();
+  }
   function whispersOn() {
-    return browserCanPush() && notificationPermission() === 'granted' && subscribed && !serverMuted && !localMuted() && !pushDenied();
+    if (iosNeedsHome()) return false;
+    if (!browserCanPush() || pushDenied() || localMuted() || serverMuted) return false;
+    // A live PushSubscription on this phone is the witness. iOS can
+    // report permission as "default" after a relaunch even when the
+    // subscription is still there.
+    if (deviceHasSub) return true;
+    return notificationPermission() === 'granted' && subscribed;
   }
   function canAskWhisper() {
     if (!pushEnabled || !browserCanPush()) return false;
@@ -214,7 +225,8 @@
     box.disabled = !clientId() || !pushEnabled || !canBrowser || denied;
     let state = '';
     if (cap) {
-      if (!pushEnabled) { cap.textContent = 'Off'; state = 'off'; }
+      if (iosNeedsHome()) { cap.textContent = 'Add to Home Screen to get alerts'; state = 'ios'; box.checked = false; box.disabled = false; }
+      else if (!pushEnabled) { cap.textContent = 'Off'; state = 'off'; }
       else if (!canBrowser) { cap.textContent = 'Unavailable'; state = 'unavailable'; }
       else if (denied) { cap.textContent = 'Blocked'; state = 'blocked'; }
       else if (muted) { cap.textContent = 'Muted'; state = 'muted'; }
@@ -313,11 +325,41 @@
         await post('/api/push/mute', { muted: true });
         serverMuted = true;
       }
+      if (view && view.installed) accountInstalled = true;
+      else if (localInstalled() && authToken()) rememberInstalled();
       renderSwitch();
+      paintInstallButton();
       refreshed = true;
+      adoptDeviceSubscription().then(() => { renderSwitch(); }).catch(() => {});
       if (winPending) maybeAsk('win');
       else if (claimPending) maybeAsk('claim');
     } catch (e) { /* the shelf can wait for the next open */ }
+  }
+
+  function deviceSubscription() {
+    if (!browserCanPush() || !('serviceWorker' in navigator)) return Promise.resolve(null);
+    const ready = navigator.serviceWorker.ready;
+    if (!ready || typeof ready.then !== 'function') return Promise.resolve(null);
+    return Promise.race([
+      ready.then((reg) => (reg && reg.pushManager ? reg.pushManager.getSubscription() : null)).catch(() => null),
+      new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+    ]);
+  }
+  async function adoptDeviceSubscription() {
+    if (iosNeedsHome()) return;
+    const sub = await deviceSubscription();
+    if (!sub || !sub.endpoint) return;
+    deviceHasSub = true;
+    if (localMuted() || serverMuted) return;
+    if (subscribed && !serverMuted) return;
+    try {
+      const out = await post('/api/push/subscribe', { subscription: sub.toJSON() });
+      if (out && out.ok) {
+        subscribed = true;
+        serverMuted = false;
+        serverDenied = false;
+      }
+    } catch (e) { /* the toggle still follows the phone */ }
   }
 
   function b64urlToBytes(s) {
@@ -459,6 +501,13 @@
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstall = e;
+    sawInstallPrompt = true;
+    androidAssumed = false;
+    paintInstallButton();
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstall = null;
+    rememberInstalled();
   });
 
   if ('serviceWorker' in navigator) {
@@ -479,8 +528,13 @@
   const box = $('optWhisper');
   if (box) box.addEventListener('change', () => {
     if (syncing) return;
+    if (iosNeedsHome()) {
+      box.checked = false;
+      showInstallSheet('alerts');
+      return;
+    }
     if (box.checked) enableWhispers().then((ok) => { if (!ok) renderSwitch(); });
-    else muteWhispers(true);
+    else { deviceHasSub = false; muteWhispers(true); }
   });
   function dismissSheet() {
     try { localStorage.setItem('kolopolyRetentionLater', String(Date.now() + SNOOZE_MS)); } catch (e) { /* still close */ }
@@ -595,6 +649,157 @@
     };
   }
 
+  const INSTALL_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+  const INSTALLED_KEY = 'kp_installed';
+  let accountInstalled = false;
+  let sawInstallPrompt = false;
+  let androidAssumed = false;
+  function installSnoozed() {
+    try { return Number(localStorage.getItem('kolopolyInstallLater') || 0) > Date.now(); } catch (e) { return false; }
+  }
+  function snoozeInstall() {
+    try { localStorage.setItem('kolopolyInstallLater', String(Date.now() + INSTALL_SNOOZE_MS)); } catch (e) { /* still close */ }
+  }
+  function localInstalled() {
+    try { return localStorage.getItem(INSTALLED_KEY) === '1'; } catch (e) { return false; }
+  }
+  function deviceKind() {
+    const ua = navigator.userAgent || '';
+    if (/iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ipad';
+    if (/iPhone|iPod/.test(ua)) return 'iphone';
+    if (/Android/i.test(ua)) return 'android';
+    return 'other';
+  }
+  function installCta() {
+    const k = deviceKind();
+    if (k === 'iphone') return 'Install on your iPhone';
+    if (k === 'ipad') return 'Install on your iPad';
+    if (k === 'android') return 'Install on your Android';
+    return 'Install Kolopoly';
+  }
+  function installGuideTitle() {
+    const k = deviceKind();
+    if (k === 'ipad') return 'Install Kolopoly on your iPad';
+    return 'Install Kolopoly on your iPhone';
+  }
+  function knownInstalled() {
+    return standalone() || localInstalled() || accountInstalled || (deviceKind() === 'android' && androidAssumed);
+  }
+  function installMode() {
+    if (standalone()) return 'hidden';
+    if (deviceKind() === 'android' && (localInstalled() || accountInstalled || androidAssumed)) return 'hidden';
+    if (ios() && (localInstalled() || accountInstalled)) return 'note';
+    if (localInstalled() || accountInstalled) return 'hidden';
+    return 'prompt';
+  }
+  function rememberInstalled() {
+    try { localStorage.setItem(INSTALLED_KEY, '1'); } catch (e) { /* storage can be closed */ }
+    accountInstalled = true;
+    const sheet = $('installSheet');
+    if (sheet) sheet.classList.add('hidden');
+    paintInstallButton();
+    const t = authToken();
+    if (!t) return;
+    fetch('/api/account/installed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
+      body: JSON.stringify(identityBody())
+    }).catch(() => {});
+  }
+  function shareIcon() {
+    return '<svg class="ig-share" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.2l4.2 4.2-1.4 1.4L13 6.9V15h-2V6.9L9.2 8.8 7.8 7.4 12 3.2zM5 13h2v6h10v-6h2v8H5v-8z"/></svg>';
+  }
+  function ensureInstallSheet() {
+    let sheet = $('installSheet');
+    if (sheet) return sheet;
+    sheet = document.createElement('div');
+    sheet.id = 'installSheet';
+    sheet.className = 'install-sheet hidden';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-labelledby', 'installTitle');
+    document.body.appendChild(sheet);
+    return sheet;
+  }
+  function showIosGuide() {
+    if (standalone() || installMode() !== 'prompt') return;
+    const sheet = ensureInstallSheet();
+    sheet.innerHTML = '<h2 class="title" id="installTitle">' + installGuideTitle() + '</h2>' +
+      '<div class="install-guide">' +
+        '<div class="ig-step ig-1"><div class="ig-bar"><span class="ig-arrow" aria-hidden="true"></span>' + shareIcon() + '</div><p>Tap Safari\'s share icon</p></div>' +
+        '<div class="ig-step ig-2"><div class="ig-row"><span class="ig-plus" aria-hidden="true">+</span><span>Add to Home Screen</span></div></div>' +
+      '</div>' +
+      '<button class="btn ghost block mt8" type="button" id="installLater">Not now</button>';
+    const later = $('installLater');
+    if (later) later.addEventListener('click', () => { snoozeInstall(); sheet.classList.add('hidden'); });
+    sheet.classList.remove('hidden');
+  }
+  async function fireAndroidInstall() {
+    if (!deferredInstall) return false;
+    const ev = deferredInstall;
+    deferredInstall = null;
+    try { ev.prompt(); await ev.userChoice; } catch (e) { /* the browser sheet can close itself */ }
+    paintInstallButton();
+    return true;
+  }
+  function showInstallSheet() {
+    if (installMode() !== 'prompt') return;
+    if (ios()) { showIosGuide(); return; }
+    fireAndroidInstall();
+  }
+  function paintInstallButton() {
+    const b = $('lobbyInstallBtn');
+    const mode = installMode();
+    if (b) {
+      b.textContent = installCta();
+      b.classList.toggle('hidden', mode !== 'prompt');
+      if (!b.dataset.wired) {
+        b.dataset.wired = '1';
+        b.addEventListener('click', () => showInstallSheet());
+      }
+    }
+    let note = $('lobbyInstallNote');
+    if (!note && b && b.parentNode) {
+      note = document.createElement('p');
+      note.id = 'lobbyInstallNote';
+      note.className = 'install-note hidden';
+      b.parentNode.insertBefore(note, b.nextSibling);
+    }
+    if (note) {
+      note.textContent = 'Open the Kolopoly app from your Home Screen';
+      note.classList.toggle('hidden', mode !== 'note');
+    }
+    const card = $('endInstall');
+    if (card && mode !== 'prompt') card.remove();
+  }
+  function maybeInstall(reason) {
+    paintInstallButton();
+    if (installMode() !== 'prompt' || installShown || installSnoozed()) return;
+    if (reason !== 'end' && reason !== 'lobby') return;
+    installShown = true;
+    if (ios()) showIosGuide();
+  }
+  async function detectAndroidInstall() {
+    if (deviceKind() !== 'android' || standalone()) return;
+    try {
+      if (typeof navigator.getInstalledRelatedApps === 'function') {
+        const apps = await navigator.getInstalledRelatedApps();
+        if (Array.isArray(apps) && apps.some((a) => a && (a.platform === 'webapp' || a.url))) {
+          rememberInstalled();
+          return;
+        }
+      }
+    } catch (e) { /* the prompt event is the other witness */ }
+    setTimeout(() => {
+      if (!sawInstallPrompt && !deferredInstall && !localInstalled()) {
+        androidAssumed = true;
+        paintInstallButton();
+      }
+    }, 3000);
+  }
+  if (standalone()) rememberInstalled();
+  else detectAndroidInstall();
+  paintInstallButton();
+
   window.KPRetention = {
     recordInflationGame,
     infProfile() { return infLoad(); },
@@ -605,6 +810,24 @@
     },
     placeMarket,
     muteFromSound() { muteWhispers(true); },
+    maybeInstall,
+    showInstall: showInstallSheet,
+    endInstallHtml() {
+      const mode = installMode();
+      if (mode === 'note') return '<p class="install-note" id="endInstallNote">Open the Kolopoly app from your Home Screen</p>';
+      if (mode !== 'prompt' || installSnoozed()) return '';
+      return '<div class="install-card" id="endInstall"><button class="btn gold block" type="button" id="endInstallGo">' + installCta() + '</button><button class="btn ghost block mt8" type="button" id="endInstallLater">Not now</button></div>';
+    },
+    bindEndInstall() {
+      const later = $('endInstallLater');
+      if (later) later.addEventListener('click', () => {
+        snoozeInstall();
+        const card = $('endInstall');
+        if (card) card.remove();
+      });
+      const go = $('endInstallGo');
+      if (go) go.addEventListener('click', () => showInstallSheet('end'));
+    },
     refresh
   };
 })();
