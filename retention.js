@@ -21,6 +21,7 @@
 // once, at the generous rates in SHELF_V2. Clients that never ask
 // for v2 keep the exact v1 answers below.
 const path = require('path');
+const shelfRewards = require('./shelf-rewards');
 // Node crypto push stays behind a lazy require so a memory-backed shelf
 // (the Durable Object) can inject a WebCrypto implementation instead.
 function nodePush() { return require('./push-crypto'); }
@@ -112,7 +113,7 @@ const NUDGE_GAP_MS = 30 * 60 * 1000;
 const NUDGES = {
   drop: {
     title: 'Market drop ready',
-    body: "Today's market drop dey ready. Cowries, kola, yam and cloth don land for your shelf.",
+    body: 'Big Daddy don drop your pack. Come open am!',
     tag: 'kolopoly-drop',
     url: '/'
   },
@@ -287,6 +288,7 @@ function createRetention(opts) {
     if (!p.playedDays || typeof p.playedDays !== 'object') p.playedDays = {};
     if (p.v2 === undefined) p.v2 = null;
     p.installed = !!p.installed;
+    shelfRewards.migrateGoods(p);
     return p;
   }
 
@@ -514,6 +516,14 @@ function createRetention(opts) {
     if (!acct.name && dev.name) acct.name = dev.name;
     if (!acct.push && dev.push) acct.push = dev.push;
     if (dev.installed) acct.installed = true;
+    if (dev.rewards) {
+      const ar = shelfRewards.ensureRewards(acct);
+      const dr = shelfRewards.ensureRewards(dev);
+      ar.packs += dr.packs;
+      for (const id of shelfRewards.CARD_IDS) ar.cards[id] += dr.cards[id];
+      for (const [k, n] of Object.entries(dr.album)) ar.album[k] = Math.max(ar.album[k] || 0, n);
+      for (const id of dr.cosmetics) if (!ar.cosmetics.includes(id)) ar.cosmetics.push(id);
+    }
     acct.playedDays = Object.assign({}, dev.playedDays || {}, acct.playedDays || {});
     const av = v2Of(acct);
     const dv = v2Of(dev);
@@ -684,12 +694,8 @@ function createRetention(opts) {
         muted: !!p.pushMuted,
         denied: !!p.pushDenied
       },
-      nextDrop: p.lastClaimDay !== day ? {
-        cowries: BASE_DROP.cowries + (warmReady ? WARM_EXTRA.cowries : 0),
-        kola: BASE_DROP.kola + (warmReady ? WARM_EXTRA.kola : 0),
-        yams: BASE_DROP.yams + (warmReady ? WARM_EXTRA.yams : 0),
-        cloth: BASE_DROP.cloth + (warmReady ? WARM_EXTRA.cloth : 0)
-      } : null,
+      nextDrop: p.lastClaimDay !== day ? { pack: warmReady ? 2 : 1 } : null,
+      rewards: shelfRewards.publicRewards(p),
       uses: {
         cowries: { cost: USES.cowries.cost, kind: USES.cowries.kind, amount: USES.cowries.amount },
         kola: { cost: USES.kola.cost, kind: USES.kola.kind, amount: USES.kola.amount },
@@ -784,11 +790,8 @@ function createRetention(opts) {
       };
     }
     const warm = p.lastClaimDay === prevDay(day);
-    const granted = {};
-    for (const g of GOODS) {
-      granted[g] = BASE_DROP[g] + (warm ? WARM_EXTRA[g] : 0);
-      p.inventory[g] += granted[g];
-    }
+    const pack = warm ? 2 : 1;
+    shelfRewards.grantPack(p, pack);
     const first = p.claimCount === 0;
     p.claimCount += 1;
     p.lastClaimDay = day;
@@ -800,10 +803,8 @@ function createRetention(opts) {
         already: false,
         first,
         warm,
-        granted,
-        line: warm
-          ? 'Market remember you from yesterday. Extra cowries and kola dey your shelf. Spend them inside a match.'
-          : 'Cowries, kola, yam and cloth don enter your shelf. Spend them inside a match.'
+        granted: { pack },
+        line: 'Big Daddy don drop your pack. Come open am!'
       })
     };
   }
@@ -894,6 +895,7 @@ function createRetention(opts) {
         ? { goods: conv.goods, pieces: conv.pieces, postcards: conv.postcards.slice(), day: conv.day }
         : null,
       installed: !!p.installed,
+      rewards: shelfRewards.publicRewards(p),
       push: {
         enabled: vapid.enabled,
         publicKey: vapid.publicKey,
@@ -1137,6 +1139,49 @@ function createRetention(opts) {
     return { endpoint, keys: { p256dh, auth } };
   }
 
+  function openRewardPack(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const p = ensure(who.id);
+    const out = shelfRewards.openPack(p, body.seed || (who.id + ':pack:' + (p.rewards.packs)));
+    if (!out.ok) return { status: 400, body: { ok: false, error: out.error, message: 'You no get a pack to open.' } };
+    save();
+    return { status: 200, body: Object.assign({ ok: true }, out, { rewards: shelfRewards.publicRewards(p) }) };
+  }
+  function giftSticker(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const to = cleanClientId(body.to);
+    if (!to || to === who.id) return { status: 400, body: { ok: false, error: 'who', message: 'Name the friend wey go collect the duplicate.' } };
+    const from = ensure(who.id);
+    const moved = shelfRewards.giftDuplicate(from, body.sticker);
+    if (!moved.ok) return { status: 400, body: { ok: false, error: moved.error, message: moved.error === 'nodupe' ? 'You need two of that sticker before you fit gift one.' : 'That sticker no dey.' } };
+    const dest = ensure(to);
+    const got = shelfRewards.receiveSticker(dest, moved.id);
+    save();
+    return { status: 200, body: { ok: true, sticker: moved.id, completed: got.completed || [] } };
+  }
+  function equipReward(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const p = ensure(who.id);
+    const out = shelfRewards.equipCosmetic(p, body.id);
+    if (!out.ok) return { status: 400, body: { ok: false, error: out.error, message: 'You never own that look.' } };
+    save();
+    return { status: 200, body: { ok: true, equipped: out.equipped } };
+  }
+  function rewardsOf(id) {
+    const p = db.players[id];
+    if (!p) return shelfRewards.publicRewards({ inventory: {} });
+    return shelfRewards.publicRewards(normalize(p));
+  }
+  function spendRewardCard(id, card) {
+    const p = db.players[id];
+    if (!p) return { ok: false, error: 'empty' };
+    const out = shelfRewards.spendCard(normalize(p), card);
+    if (out.ok) save();
+    return out;
+  }
   function markInstalled(body) {
     const who = resolve(body);
     if (who.error) return { status: 400, body: { ok: false, error: who.error } };
@@ -1400,7 +1445,10 @@ function createRetention(opts) {
       || clean === '/api/push/denied'
       || clean === '/api/push/unsubscribe'
       || clean === '/api/account/installed'
-      || (test && (clean === '/api/test/nudge' || clean === '/api/test/sweep' || clean === '/api/test/push-roundtrip'));
+      || clean === '/api/rewards/open'
+      || clean === '/api/rewards/gift'
+      || clean === '/api/rewards/equip'
+      || (test && (clean === '/api/test/nudge' || clean === '/api/test/sweep' || clean === '/api/test/push-roundtrip' || clean === '/api/test/grant-card'));
   }
 
   function readBody(req) {
@@ -1430,7 +1478,7 @@ function createRetention(opts) {
     res.end(body);
   }
 
-  const TEST_ROUTES = new Set(['/api/test/nudge', '/api/test/sweep', '/api/test/push-roundtrip']);
+  const TEST_ROUTES = new Set(['/api/test/nudge', '/api/test/sweep', '/api/test/push-roundtrip', '/api/test/grant-card']);
 
   function bearerOf(headers) {
     const m = /^Bearer\s+(\S+)$/i.exec(String((headers && headers.authorization) || ''));
@@ -1478,6 +1526,19 @@ function createRetention(opts) {
       if (clean === '/api/push/denied') { const out = denied(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/account/installed') { const out = markInstalled(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/open') { const out = openRewardPack(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/gift') { const out = giftSticker(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/equip') { const out = equipReward(body); sendJson(res, out.status, out.body); return; }
+      if (test && clean === '/api/test/grant-card') {
+        const who = resolve(body);
+        if (who.error) { sendJson(res, 400, { ok: false, error: who.error }); return; }
+        const p = ensure(who.id);
+        const out = shelfRewards.giveCard(p, body.card, body.n || 1);
+        if (!out.ok) { sendJson(res, 400, out); return; }
+        save();
+        sendJson(res, 200, { ok: true, cards: out.cards });
+        return;
+      }
       if (test && clean === '/api/test/nudge') {
         const who = resolve(body);
         if (who.error) { sendJson(res, 400, { ok: false, error: who.error }); return; }
@@ -1559,6 +1620,18 @@ function createRetention(opts) {
       if (clean === '/api/push/denied') { const out = denied(body); return json(out.status, out.body); }
       if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); return json(out.status, out.body); }
       if (clean === '/api/account/installed') { const out = markInstalled(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/open') { const out = openRewardPack(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/gift') { const out = giftSticker(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/equip') { const out = equipReward(body); return json(out.status, out.body); }
+      if (test && clean === '/api/test/grant-card') {
+        const who = resolve(body);
+        if (who.error) return json(400, { ok: false, error: who.error });
+        const p = ensure(who.id);
+        const out = shelfRewards.giveCard(p, body.card, body.n || 1);
+        if (!out.ok) return json(400, out);
+        save();
+        return json(200, { ok: true, cards: out.cards });
+      }
       if (test && clean === '/api/test/nudge') {
         const who = resolve(body);
         if (who.error) return json(400, { ok: false, error: who.error });
@@ -1594,6 +1667,8 @@ function createRetention(opts) {
     onPot,
     sweepDrops,
     accountInstalled,
+    rewardsOf,
+    spendRewardCard,
     noteDay,
     opsSummary,
     testLog,

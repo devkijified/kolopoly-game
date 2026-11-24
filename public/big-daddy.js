@@ -31,7 +31,8 @@
     salary: { pose: 'stand', edge: 'left', ms: 2000, line: 'New salary season! Inflation no go catch you if you hustle.', tint: true },
     paid: { pose: 'clap', edge: 'right', ms: 1800, line: 'All seats paid, table locked. Play sharp!', stamp: 'PAID' },
     afk: { pose: 'stand', edge: 'left', ms: 2200, line: 'Your person don waka? I go hold the seat small. I no go sell your house.' },
-    drop: { pose: 'clap', edge: 'right', ms: 1800, line: "Today's drop don land. Come collect before e expire!" }
+    drop: { pose: 'clap', edge: 'right', ms: 1800, line: "Today's drop don land. Come collect before e expire!" },
+    card: { pose: 'stand', edge: 'right', ms: 1800, line: 'Power card don land for the table!' }
   };
   let lastAt = 0;
   let timer = null;
@@ -128,6 +129,7 @@
     const prevSeq = prev.feed && prev.feed.length ? prev.feed[prev.feed.length - 1].seq : 0;
     const fresh = (room.feed || []).filter((e) => e && e.seq > prevSeq);
     for (const e of fresh) {
+      if (e.kind === 'power') return 'card';
       if (e.kind === 'bankrupt') return 'lose';
       if (e.kind === 'kirikiri') return 'jail';
       if (e.kind === 'jackpot') return 'pot';

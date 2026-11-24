@@ -82,6 +82,10 @@
   function renderShelf(inv, uses, preview) {
     const shelf = $('marketShelf');
     if (!shelf) return;
+    if (window.KPRewards && window.KPRewards.current) {
+      window.KPRewards.paintShelf(window.KPRewards.current);
+      return;
+    }
     const data = inv || { cowries: 0, kola: 0, yams: 0, cloth: 0 };
     if (window.KPGoods) {
       shelf.innerHTML = window.KPGoods.slots(data, { uses: uses || {}, preview: preview || null });
@@ -314,6 +318,7 @@
       const res = await fetch('/api/retention?clientId=' + encodeURIComponent(id) + (authToken() ? '&authToken=' + encodeURIComponent(authToken()) : ''));
       const view = await res.json();
       if (!view || !view.ok) return;
+      if (view.rewards && window.KPRewards) window.KPRewards.paintShelf(view.rewards);
       pushEnabled = !!(view.push && view.push.enabled);
       publicKey = view.push ? view.push.publicKey : null;
       subscribed = !!(view.push && view.push.subscribed);
@@ -467,6 +472,7 @@
         setLine('The market no answer. Try the claim again.');
         return;
       }
+      if (out.rewards && window.KPRewards) window.KPRewards.paintShelf(out.rewards);
       renderClaim(out);
       const landed = $('marketLanded');
       if (landed) {

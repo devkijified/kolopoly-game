@@ -308,21 +308,20 @@ try {
     const badDay = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-02-31' });
     check('an impossible test day is refused', badDay.status === 400);
     const first = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-10-28' });
-    check('first claim of the day pays the base shelf', first.status === 200 && first.json.ok && first.json.already === false && first.json.first === true
-      && first.json.granted.cowries === 6 && first.json.granted.kola === 2 && first.json.granted.yams === 1 && first.json.granted.cloth === 1,
+    check('first claim of the day drops a pack, not goods', first.status === 200 && first.json.ok && first.json.already === false && first.json.first === true
+      && first.json.granted.pack === 1 && first.json.rewards.packs === 1,
       JSON.stringify(first.json && first.json.granted));
-    check('the shelf is goods, not table cash', first.json.cash == null && first.json.inventory.naira == null && first.json.inventory.cowries === 6);
+    check('the shelf is a pack, not table cash', first.json.cash == null && first.json.inventory.cowries === 0 && /Big Daddy don drop your pack/.test(first.json.line));
     const again = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-10-28' });
-    check('the same Lagos day does not pay twice', again.json.already === true && again.json.granted == null && again.json.inventory.cowries === 6);
+    check('the same Lagos day does not pay twice', again.json.already === true && again.json.granted == null && again.json.rewards.packs === 1);
     const skip = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-10-30' });
     const skipText = JSON.stringify(skip.json).toLowerCase();
-    check('a skipped day still pays the base drop', skip.json.warm === false && skip.json.granted.cowries === 6 && skip.json.inventory.cowries === 12);
+    check('a skipped day still drops one pack', skip.json.warm === false && skip.json.granted.pack === 1 && skip.json.rewards.packs === 2);
     check('there is no streak meter and no scare copy', !('streak' in skip.json) && !skipText.includes('streak') && !skipText.includes('lost') && !skipText.includes('reset'));
     const warmId = 'retention-warm-0001';
     await api('POST', '/api/retention/claim', { clientId: warmId, day: '2026-10-27' });
     const warm = await api('POST', '/api/retention/claim', { clientId: warmId, day: '2026-10-28' });
-    check('a next-day visit carries the soft extra, with no counter', warm.json.warm === true && warm.json.granted.cowries === 9 && warm.json.granted.kola === 3
-      && warm.json.granted.yams === 1 && warm.json.granted.cloth === 1 && !('streak' in warm.json));
+    check('a next-day visit drops two packs, with no counter', warm.json.warm === true && warm.json.granted.pack === 2 && warm.json.rewards.packs === 3 && !('streak' in warm.json));
   }
 
   console.log('R2: reconnect token finds the same shelf; push subscribe is stored');
@@ -333,9 +332,9 @@ try {
     await host.waitFor((s) => s.status === 'lobby', 'shelf lobby');
     check('the seat token is the reconnect handle', typeof host.token === 'string' && host.token.length === 24);
     const byToken = await api('POST', '/api/retention/claim', { token: host.token, day: '2026-04-01' });
-    check('a claim by reconnect token lands on that device shelf', byToken.json.ok && byToken.json.inventory.cowries === 6);
+    check('a claim by reconnect token lands on that device shelf', byToken.json.ok && byToken.json.rewards.packs === 1);
     const viewed = await api('GET', '/api/retention?clientId=retention-seat-01&day=2026-04-01');
-    check('client id and reconnect token are one shelf', viewed.json.inventory.cowries === 6 && viewed.json.canClaim === false);
+    check('client id and reconnect token are one shelf', viewed.json.rewards.packs === 1 && viewed.json.canClaim === false);
     check('the claim did not move table cash', host.state.players[0].cash === 1500000);
     const clash = await api('POST', '/api/retention/claim', { clientId: 'retention-other-9', token: host.token, day: '2026-04-02' });
     check('a token cannot be used as someone else', clash.status === 400 && clash.json.error === 'mismatch');
@@ -384,7 +383,7 @@ try {
     check('a collected shelf is not whispered', collectedHits.length === 0);
   }
 
-  console.log('R3: shelf goods spend inside a match and do not touch the auction clock');
+  console.log('R3: power cards are free-table only, one per match, server checked');
   {
     const id = 'retention-spend-001';
     const host = new Client('Spend');
@@ -396,101 +395,58 @@ try {
     guest.send('join_room', { code: host.code, name: 'Keep', token: 'keke' });
     await host.waitFor((s) => s.players.length === 2, 'spend guest in');
     const claimed = await api('POST', '/api/retention/claim', { clientId: id, day: '2026-06-01' });
-    check('spend test starts from a stocked shelf, still not table cash', claimed.json.inventory.cowries === 6 && claimed.json.cash == null && !('streak' in claimed.json));
+    check('the drop is a pack, still not table cash', claimed.json.rewards.packs === 1 && claimed.json.cash == null && claimed.json.inventory.cowries === 0);
+    const granted = await api('POST', '/api/test/grant-card', { clientId: id, card: 'shield' });
+    check('a test shelf can hold an Area Boys card', granted.json.ok === true && granted.json.cards.shield === 1, JSON.stringify(granted.json));
     host.send('start_game', {});
     await host.waitFor((s) => s.status === 'playing', 'spend game on');
     const me = () => host.state.players.find((p) => p.id === host.playerId);
     const other = () => host.state.players.find((p) => p.id !== host.playerId);
-    host.send('use_shelf', { good: 'cowries' });
-    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cash === 1550000, 'cowries became cash');
-    const afterC = await api('GET', '/api/retention?clientId=' + id + '&day=2026-06-01');
-    check('three cowries left the shelf and the hand gained ₦50,000', afterC.json.inventory.cowries === 3 && me().cash === 1550000);
-    host.send('use_shelf', { good: 'nope' });
-    await sleep(200);
-    check('an unknown good is refused', host.errors.some((m) => /shelf|good/i.test(m)));
-    const beforeShort = me().cash;
-    host.send('use_shelf', { good: 'cowries' });
-    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cash === beforeShort + 50000, 'second cowrie change');
-    host.errors = [];
-    host.send('use_shelf', { good: 'cowries' });
-    await sleep(250);
-    check('a short shelf does not pay cash', me().cash === beforeShort + 50000 && host.errors.some((m) => /enough/i.test(m)));
-    // Auction: land a buy, decline, spend cloth, clock stays put.
-    const waitTurn = async () => {
+    const waitHost = async () => {
       for (let n = 0; n < 8 && host.state.turnPlayerId !== host.playerId; n++) {
         const tid = host.state.turnPlayerId;
-        if (host.state.phase === 'roll') {
+        guest.send('end_turn', {});
+        await sleep(200);
+        if (host.state.phase === 'roll' && tid) {
           host.send('test_set_position', { playerId: tid, space: 3 });
           host.send('test_dice', { rolls: [[1, 3]] });
           guest.send('roll', {});
-          await host.waitFor((s) => s.phase === 'end' && s.turnPlayerId === tid, 'guest idle end');
-          guest.send('end_turn', {});
-          await host.waitFor((s) => s.turnPlayerId !== tid, 'guest passed');
-        } else {
+          await sleep(200);
           guest.send('end_turn', {});
           await sleep(200);
         }
       }
     };
-    await waitTurn();
-    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'spend turn to roll');
-    const cashBeforeAuction = me().cash;
-    host.send('test_set_position', { playerId: host.playerId, space: 0 });
-    host.send('test_dice', { rolls: [[4, 6]] });
-    host.send('roll', {});
-    await host.waitFor((s) => s.phase === 'buy', 'deed offered');
-    host.send('decline', {});
-    await host.waitFor((s) => !!s.auction, 'auction for the clock check');
-    const end0 = host.state.auction.endsAt;
-    host.send('use_shelf', { good: 'cloth' });
-    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cash === cashBeforeAuction + 150000, 'cloth became cash');
-    check('spending cloth during an auction does not add clock time', host.state.auction && host.state.auction.endsAt === end0, String(host.state.auction && host.state.auction.endsAt));
-    host.send('pass_bid', {});
-    guest.send('pass_bid', {});
-    await host.waitFor((s) => !s.auction, 'auction closed after the spend', 8000);
-    if (host.state.turnPlayerId === host.playerId && host.state.phase === 'end') {
-      host.send('end_turn', {});
-      await host.waitFor((s) => s.turnPlayerId !== host.playerId, 'buy turn passed');
-    }
-    // Kola covers the next rent. Makoko site rent is ₦4,000 (board20).
-    await waitTurn();
-    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'back to roll for kola');
-    host.send('use_shelf', { good: 'kola' });
-    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).shelfRent === true, 'kola cover armed');
-    host.send('test_give', { playerId: other().id, space: 2 });
-    const cashBeforeRent = me().cash;
-    const ownerBefore = other().cash;
-    host.send('test_set_position', { playerId: host.playerId, space: 25 });
-    host.send('test_dice', { rolls: [[1, 4]] });
-    host.send('roll', {});
-    await host.waitFor((s) => {
-      const p = s.players.find((x) => x.id === host.playerId);
-      return p && p.shelfRent === false && p.position === 2;
-    }, 'kola rent resolved');
-    check('kola cover paid the landlord and the tenant kept the rent', me().cash === cashBeforeRent + 200000 && other().cash === ownerBefore + 4000, JSON.stringify({ me: me().cash, owner: other().cash, before: cashBeforeRent }));
-    // Yam covers up to ₦200,000 of the next fee. Board20 has no Lagos tax, so FIRS flat ₦200,000 is used: the hand does not drop, the pot gets ₦200,000.
-    if (host.state.phase === 'end' && host.state.turnPlayerId === host.playerId) {
-      host.send('end_turn', {});
-      await host.waitFor((s) => s.turnPlayerId !== host.playerId, 'rent turn passed');
-    }
-    await waitTurn();
-    await host.waitFor((s) => s.turnPlayerId === host.playerId && s.phase === 'roll', 'back to roll for yam');
-    host.send('use_shelf', { good: 'yams' });
-    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).shelfFee === true, 'yam cover armed');
-    const cashBeforeTax = me().cash;
-    const potBefore = host.state.pot;
-    host.send('test_set_position', { playerId: host.playerId, space: 2 });
-    host.send('test_dice', { rolls: [[1, 2]] });
-    host.send('roll', {});
-    await host.waitFor((s) => s.phase === 'tax', 'FIRS tax choice for the yam');
-    host.send('tax_choice', { choice: 'flat' });
-    await host.waitFor((s) => {
-      const p = s.players.find((x) => x.id === host.playerId);
-      return p && p.shelfFee === false && p.position === 5;
-    }, 'yam fee resolved');
-    check('yam cover paid the fee into the pot and the hand did not drop', me().cash === cashBeforeTax && host.state.pot === potBefore + 200000, JSON.stringify({ cash: me().cash, pot: host.state.pot, potBefore }));
+    await waitHost();
+    host.send('play_card', { card: 'shield' });
+    await host.waitFor((s) => s.players.find((p) => p.id === host.playerId).cardPlayed === 'shield', 'shield played');
+    check('the Area Boys card is visible on the seat', host.state.players.find((p) => p.id === host.playerId).areaShield === true);
+    host.errors = [];
+    host.send('play_card', { card: 'bail' });
+    await sleep(250);
+    check('a second card in the same match is refused', host.errors.some((m) => /one card/i.test(m)));
     host.ws.close();
     guest.ws.close();
+    const paid = new Client('PaidBlock');
+    await paid.connect();
+    paid.send('create_room', { name: 'PaidBlock', token: 'okada', mode: 'online', clientId: 'retention-paid-0001', cityId: 'lagos', settings: { gameMode: 'classic', timed: false, turnTimerSec: 0 } });
+    await paid.waitFor((s) => s.paid, 'paid lobby');
+    const mate = new Client('Mate');
+    await mate.connect();
+    mate.send('join_room', { code: paid.code, name: 'Mate', token: 'keke' });
+    await paid.waitFor((s) => s.players.length === 2, 'paid guest');
+    await api('POST', '/api/test/grant-card', { clientId: 'retention-paid-0001', card: 'bail' });
+    paid.send('pay_seat', {});
+    mate.send('pay_seat', {});
+    await paid.waitFor((s) => s.paid && s.paid.allPaid, 'both paid');
+    paid.send('start_game', {});
+    await paid.waitFor((s) => s.status === 'playing', 'paid game');
+    paid.errors = [];
+    paid.send('play_card', { card: 'bail' });
+    await sleep(250);
+    check('a paid table refuses power cards', paid.errors.some((m) => /paid table/i.test(m)), JSON.stringify(paid.errors));
+    paid.ws.close();
+    mate.ws.close();
   }
 
   // ------------------------------------------------------------- CLASSIC ---
