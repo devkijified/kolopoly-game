@@ -629,6 +629,7 @@ const sfx = {
   newsSting() { duckAmbient(); [523, 659, 784].forEach((f, i) => tone({ f, at: i * 0.09, dur: 0.15, type: 'triangle', vol: 0.04 })); noiseHit({ at: 0.27, dur: 0.18, vol: 0.035, freq: 2400, q: 1.5 }); },
   phaseToll() { tone({ f: 196, dur: 0.7, vol: 0.08 }); tone({ f: 147, at: 0.4, dur: 0.9, vol: 0.07 }); },
   phase() { tone({ f: 392, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 523, at: 0.13, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 659, at: 0.26, dur: 0.24, type: 'triangle', vol: 0.09 }); },
+  daddy() { tone({ f: 392, dur: 0.07, type: 'triangle', vol: 0.05 }); tone({ f: 523, at: 0.08, dur: 0.1, type: 'triangle', vol: 0.055 }); tone({ f: 784, at: 0.18, dur: 0.12, type: 'triangle', vol: 0.04 }); },
   turnRise() { tone({ f: 660, dur: 0.1, vol: 0.045 }); tone({ f: 880, at: 0.09, dur: 0.16, vol: 0.045 }); },
   tap() { tone({ f: 1900, dur: 0.02, vol: 0.012, ambient: true }); }
 };
@@ -656,6 +657,13 @@ window.KPBeat = (name, data) => {
   } catch (e) { /* sound is garnish, never a blocker */ }
 };
 window.KPSfxHop = () => sfx.hop();
+window.KPBigDaddySting = () => {
+  try {
+    const a = window.__kolopolyAudio && window.__kolopolyAudio();
+    if (!a || a.muted || a.state === 3) return;
+    sfx.daddy();
+  } catch (e) { /* a quiet phone stays quiet */ }
+};
 window.KPPreviewSfx = (name) => { if (sfx[name]) sfx[name](); };
 function renderMuteBtn() {
   const b = $('muteBtn');
@@ -2057,6 +2065,10 @@ function onState(room) {
   processFeed(room, prev);
   processPositions(room);
   funMoments(room, prev);
+  if (prev && window.KPBigDaddy) {
+    const beat = window.KPBigDaddy.detect(prev, room, myId);
+    if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1 });
+  }
   renderOwambe(room);
   musicWanted = room.status === 'playing' || room.status === 'countdown';
   syncMusic();

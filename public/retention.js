@@ -475,6 +475,7 @@
           landed.textContent = '+' + g.cowries + ' cowries  +' + g.kola + ' kola  +' + g.yams + ' yam  +' + g.cloth + ' cloth';
         } else landed.textContent = '';
       }
+      if (out.granted && window.KPBigDaddy) window.KPBigDaddy.show('drop');
       if (out.first) {
         claimPending = true;
         if (refreshed) maybeAsk('claim');
