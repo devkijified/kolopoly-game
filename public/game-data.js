@@ -18,6 +18,13 @@ function fmtN(n) {
   const s = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return (neg ? '-' : '') + '\u20A6' + s;
 }
+// The pot reads as a sentence at zero. "Owambe Pot ₦0" looked like a
+// broken glyph and a counter that had not started.
+function potPhrase(n) {
+  n = Math.round(Number(n) || 0);
+  if (n <= 0) return 'Owambe pot is empty';
+  return 'Owambe Pot ' + fmtN(n);
+}
 
 const DENOMS = [500000, 200000, 100000, 50000, 10000, 5000, 1000];
 const START_CASH = 1500000;
@@ -208,6 +215,6 @@ function buildCostOf(sp) {
   return sp.duplex;
 }
 
-const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;

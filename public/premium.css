@@ -454,6 +454,15 @@ body:has(#view-signin.active) { background: #0f1116; }
   body:has(#view-landing.active) #tierBtn { display: none; }
   body:has(#view-landing.active) .topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
 }
+/* Lobby and game at phone width: the wordmark already lives on the
+   board. Keeping it in the bar pushed the mute button off a 390px screen. */
+@media (max-width: 430px) {
+  body:has(#view-lobby.active) .topbar .wordmark,
+  body:has(#view-game.active) .topbar .wordmark { display: none; }
+  body:has(#view-lobby.active) .topbar,
+  body:has(#view-game.active) .topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
+  #roomChip, #modePill { min-width: 0; max-width: 38vw; overflow: hidden; }
+}
 .account-chip .chip-token { display: inline-flex; flex: none; width: 30px; height: 30px; align-items: center; justify-content: center; }
 .account-chip .chip-token svg, .account-chip .chip-token img { width: 30px; height: 30px; }
 .account-chip .chip-name { font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

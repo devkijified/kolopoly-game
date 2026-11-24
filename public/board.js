@@ -203,7 +203,7 @@ const KPBoard = {
       '<div class="logo">KOLO<span class="gold">POLY</span></div>' +
       '<div class="meta" id="centerPhase"></div>' +
       '<div class="pot-visual" id="centerPotVisual" data-tier="0"><div class="pot-notes"></div><div class="pot-bowl"><i class="pot-level"></i><span></span></div></div>' +
-      '<div class="pot" id="centerPot">Owambe Pot ₦0</div>' +
+      '<div class="pot" id="centerPot">Owambe pot is empty</div>' +
       '<div class="dice-row" id="centerDice"></div>' +
       '<div class="deck-row"><span class="deck-pile wahala">WAHALA</span><span class="deck-pile family">FAMILY MEETING</span></div>' +
       '<div class="meta" id="centerSupply"></div>';
@@ -270,7 +270,7 @@ const KPBoard = {
       const target = potAmt;
       if (Math.abs(this._potShow - target) > 1) {
         this._potShow += (target - this._potShow) * 0.35;
-        centerPot.textContent = 'Owambe Pot ' + D.fmtN(Math.round(this._potShow));
+        centerPot.textContent = D.potPhrase(Math.round(this._potShow));
         // Keep ticking while we catch up: the next render is short.
         if (Math.abs(this._potShow - target) > 1) {
           const self = this;
@@ -281,7 +281,7 @@ const KPBoard = {
               self._potShow += (want - self._potShow) * 0.35;
               if (Math.abs(self._potShow - want) <= 1) self._potShow = want;
               const el = document.getElementById('centerPot');
-              if (el) el.textContent = 'Owambe Pot ' + D.fmtN(Math.round(self._potShow));
+              if (el) el.textContent = D.potPhrase(Math.round(self._potShow));
               if (Math.abs(self._potShow - want) > 1) setTimeout(tickPot, 50);
             } catch (e) {}
           };
@@ -289,7 +289,7 @@ const KPBoard = {
         }
       } else {
         this._potShow = target;
-        centerPot.textContent = 'Owambe Pot ' + D.fmtN(potAmt);
+        centerPot.textContent = D.potPhrase(potAmt);
       }
     }
     if (potVisual) {

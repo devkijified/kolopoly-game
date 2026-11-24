@@ -1149,7 +1149,7 @@ function textSprite(text, opts) {
   x.fillStyle = o.bg || 'rgba(30,20,10,0.88)'; rr(x, 6, 14, 372, 68, 18); x.fill();
   if (o.rim) { x.strokeStyle = o.rim; x.lineWidth = 7; rr(x, 6, 14, 372, 68, 18); x.stroke(); }
   x.fillStyle = o.fg || '#ffe9c9'; x.textAlign = 'center';
-  fitFont(x, text, 350, o.size || 40, '900', '"Aeonik Pro", sans-serif');
+  fitFont(x, text, 350, o.size || 40, '900', o.font || '"Figtree", "Aeonik Pro", sans-serif');
   x.fillText(text, 192, 62);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: texOf(c), transparent: true, depthWrite: false }));
   sp.scale.set(2.7, 0.68, 1);
@@ -1554,7 +1554,8 @@ class GameScene {
     }
     this.potNotes = new THREE.Group(); this.potNotes.position.set(0, 0.34, 0); potGrp.add(this.potNotes);
     this.potTier = -1;
-    this.potLabel = textSprite('Owambe Pot ₦0'); this.potLabel.position.set(0, 0.95, 3.35); s.add(this.potLabel);
+    this.potLabel = textSprite(D.potPhrase(0)); this.potLabel.position.set(0, 0.95, 3.35); s.add(this.potLabel);
+    this.potLabelText = D.potPhrase(0);
     this.potLabelHome = this.potLabel.position.clone();
     // decks and discards
     this.deckPos = { wahala: new THREE.Vector3(-2.95, 0.02, -0.9), family: new THREE.Vector3(2.95, 0.02, -0.9) };
@@ -1653,7 +1654,14 @@ class GameScene {
         if (prev / max < t && pot / max >= t) { this.potWobble = 0.7; this.potSpark = (TIER.shadowSize || 0) >= 512 ? 0.9 : 0; beat('potFlourish', { t }); }
       }
     }
+    const firstPot = this.potLast < 0;
     this.potLast = pot;
+    if (firstPot) {
+      // A reload must show the live pot, not count up from zero.
+      this.potCount = pot;
+      this.potFill = this.potFillWant;
+      this._setPotLabel(D.potPhrase(pot));
+    }
     const tier = pot <= 0 ? 0 : pot < 100000 ? 1 : pot < 300000 ? 2 : pot < 600000 ? 3 : pot < 1000000 ? 4 : 5;
     if (tier !== this.potTier) {
       this.potTier = tier;
@@ -1665,7 +1673,7 @@ class GameScene {
         this.potNotes.add(note);
       }
     }
-    if (this.potLastLabel == null) this._setPotLabel('Owambe Pot ' + D.fmtN(pot));
+    if (this.potLabelText == null) this._setPotLabel(D.potPhrase(pot));
     this._potPrevPlayers = (state && state.players || []).map((p) => ({ id: p.id, cash: p.cash }));
   }
   _setPotLabel(text) {
@@ -2112,11 +2120,11 @@ class GameScene {
       this.potCount += (this.potCountWant - this.potCount) * Math.min(1, dt * 7);
       if (!this._potLabelAt || tNow - this._potLabelAt > 0.05) {
         this._potLabelAt = tNow;
-        this._setPotLabel('Owambe Pot ' + D.fmtN(Math.round(this.potCount)));
+        this._setPotLabel(D.potPhrase(Math.round(this.potCount)));
       }
     } else if (this.potCount !== this.potCountWant) {
       this.potCount = this.potCountWant;
-      this._setPotLabel('Owambe Pot ' + D.fmtN(this.potCountWant));
+      this._setPotLabel(D.potPhrase(this.potCountWant));
     }
     // Flying coins / notes.
     const left = [];
@@ -2184,6 +2192,11 @@ class GameScene {
       } else {
         o.inner.position.y = 0.045 + Math.sin(tNow * 1.7 + o.bob) * 0.012;
         o.inner.rotation.y = Math.sin(tNow * 0.6 + o.bob) * 0.05;
+        const base = o.bankrupt ? 0.78 : 1;
+        if (o.ping > 0) {
+          o.ping = Math.max(0, o.ping - dt);
+          o.grp.scale.setScalar(base * (1 + 0.34 * Math.abs(Math.sin((1.6 - o.ping) * 16))));
+        }
       }
       if (o.inJail) o.grp.rotation.z = 0.0;
     }
@@ -2857,6 +2870,21 @@ KP3D.setView = function (/* mode */) {
   if (g) { g.viewFollow = false; g.viewKick = 0; g.snapIdle(); }
 };
 KP3D.getView = function () { return 'full'; };
+// The home icon. The camera stays on the full board; the player's own
+// token pulses so they can find it.
+KP3D.pingToken = function (id) {
+  const g = SCENES.game;
+  if (!g || !g.tokens) return false;
+  const o = g.tokens.get(Number(id));
+  if (!o) return false;
+  o.ping = 1.6;
+  return true;
+};
+KP3D.potReadout = function () {
+  const g = SCENES.game;
+  if (!g) return null;
+  return { text: g.potLabelText || '', count: g.potCount, want: g.potCountWant };
+};
 KP3D.camInfo = function () {
   const g = SCENES.game; if (!g || !g.camera) return null;
   const c = g.camera;

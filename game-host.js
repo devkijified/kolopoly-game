@@ -674,6 +674,7 @@ function publicRoom(room) {
     pauseClockMs: room.pauseClockMs != null ? room.pauseClockMs : null,
     endReason: room.endReason || null,
     settings: room.settings,
+    salaryLadder: room.settings && room.settings.gameMode === 'inflation' ? INF_SALARIES.slice() : null,
     paid: room.paid ? {
       cityId: room.cityId, city: room.paidCity, venue: room.paidVenue,
       fee: room.paidFee, testMode: !!room.paidTestMode, provider: payProvider.name,
