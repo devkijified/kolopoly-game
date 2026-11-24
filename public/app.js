@@ -1410,26 +1410,64 @@ async function verifyGateCode() {
 // kept on this phone so the return trip can ask the server to verify;
 // the seat itself only flips when the server settles, from the
 // webhook, this verify, or the sweep.
+//
+// The pay button can never hang. payOpen holds the button's state so
+// a lobby re-render (every server broadcast) keeps it: 'opening' while
+// the server asks Paystack (hard 30 s client limit), 'redirect' once
+// the checkout URL is in hand (with a tap-through link if the browser
+// has not left after a few seconds), and 'error' with the reason and a
+// Try again button. The old version read an undeclared `room` global,
+// threw before the request left, and left "Opening Paystack…" on the
+// button forever.
+// Tiny pay cues: a soft tap when the button takes the press, a low
+// two-note buzz when the open fails.
+function paySfx(kind) {
+  try { if (kind === 'tap') sfx.tap(); else if (kind === 'error') sfx.decline(); } catch (e) { /* sound is a garnish */ }
+}
+let payOpen = null; // { state: 'opening' | 'redirect' | 'error', code, url, message, at }
+const PAY_INIT_TIMEOUT_MS = 30000;
+function payRender() { if (state && state.status === 'lobby') renderLobby(state); }
+function payFail(code, message) {
+  payOpen = { state: 'error', code, message, at: Date.now() };
+  paySfx('error');
+  payRender();
+}
 async function initializePayment() {
-  if (!room || !room.paid) return;
+  const r = state;
+  if (!r || !r.paid) { payFail(null, 'This paid table no dey again. Go back and open the room.'); return; }
+  const code = r.code;
+  payOpen = { state: 'opening', code, at: Date.now() };
+  payRender();
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = setTimeout(() => { if (ctl) ctl.abort(); }, PAY_INIT_TIMEOUT_MS);
   try {
     const res = await fetch('/api/payments/initialize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken() },
-      body: JSON.stringify({ roomCode: room.code })
+      body: JSON.stringify({ roomCode: code }),
+      signal: ctl ? ctl.signal : undefined
     });
     const data = await res.json().catch(() => null);
     if (data && data.ok && data.authorizationUrl) {
       try { sessionStorage.setItem('kolopolyPayRef', data.reference); } catch (e) {}
-      window.location.href = data.authorizationUrl;
+      payOpen = { state: 'redirect', code, url: data.authorizationUrl, at: Date.now() };
+      payRender();
+      // If the browser has not left the page after a few seconds (an
+      // in-app browser that blocks the jump, a slow phone), the panel
+      // shows a plain link to the same checkout.
+      setTimeout(() => { if (payOpen && payOpen.state === 'redirect') { payOpen.slow = true; payRender(); } }, 4000);
+      window.location.assign(data.authorizationUrl);
       return;
     }
-    if (data && data.alreadyPaid) { toast('You don pay your entry already.'); return; }
-    toast((data && data.message) || 'Payment no open. Try again.');
-    if (room) renderLobby();
+    if (data && data.alreadyPaid) { payOpen = null; toast('You don pay your entry already.'); payRender(); return; }
+    if (res.status === 401) { payFail(code, 'Your sign-in don expire. Sign in again, then pay.'); return; }
+    payFail(code, (data && data.message) || 'Paystack no open this time. Nothing was charged. Try again.');
   } catch (e) {
-    toast('Payment no open. Check your connection and try again.');
-    if (room) renderLobby();
+    payFail(code, e && e.name === 'AbortError'
+      ? 'Paystack dey slow to answer. Nothing was charged. Try again.'
+      : 'Payment no open. Check your connection and try again. Nothing was charged.');
+  } finally {
+    clearTimeout(timer);
   }
 }
 // The return trip from Paystack. Paystack sends the player back to
@@ -2215,7 +2253,17 @@ function renderLobby(room) {
     if (room.paid.mode === 'off') {
       paidHtml += '<p class="caption" style="margin-top:8px;">Payments never set up yet. The house still dey finish the setup, so nobody fit pay for this table yet.</p>';
     } else if (!spectator && mePaid && !mePaid.bot && !mePaid.paidSeat && !mePaid.payPending) {
-      paidHtml += '<button class="btn gold block" id="paySeatBtn" style="margin-top:10px;">Pay ' + fmtN(room.paid.fee) + (room.paid.testMode ? ' · Test mode' : room.paid.mode === 'redirect' ? ' with Paystack' : '') + '</button>';
+      const po = payOpen && payOpen.code === room.code ? payOpen : null;
+      const payLabel = 'Pay ' + fmtN(room.paid.fee) + (room.paid.testMode ? ' · Test mode' : room.paid.mode === 'redirect' ? ' with Paystack' : '');
+      if (po && po.state === 'opening') {
+        paidHtml += '<button class="btn gold block pay-busy" id="paySeatBtn" disabled aria-busy="true" style="margin-top:10px;"><span class="pay-spin" aria-hidden="true"></span> Opening Paystack…</button>';
+      } else if (po && po.state === 'redirect') {
+        paidHtml += '<button class="btn gold block pay-busy" id="paySeatBtn" disabled aria-busy="true" style="margin-top:10px;"><span class="pay-spin" aria-hidden="true"></span> Taking you to Paystack…</button>' +
+          (po.slow ? '<a class="btn ghost block pay-link" id="payLink" href="' + esc(po.url) + '" style="margin-top:8px;">Paystack never open? Tap here</a>' : '');
+      } else {
+        if (po && po.state === 'error') paidHtml += '<div class="pay-error" id="payError" role="alert">' + window.icon('alert', 16) + '<span>' + esc(po.message) + '</span></div>';
+        paidHtml += '<button class="btn gold block" id="paySeatBtn" style="margin-top:10px;">' + (po && po.state === 'error' ? 'Try again · ' : '') + payLabel + '</button>';
+      }
     } else if (!spectator && mePaid && mePaid.payPending) {
       paidHtml += '<p class="caption" style="margin-top:8px;">Your payment dey go…</p>';
     } else if (!spectator && mePaid && mePaid.paidSeat) {
@@ -2224,9 +2272,10 @@ function renderLobby(room) {
     paidHtml += '</div>';
     paidBox.innerHTML = paidHtml;
     const payBtn = $('paySeatBtn');
-    if (payBtn) payBtn.addEventListener('click', () => {
+    if (payBtn && !payBtn.disabled) payBtn.addEventListener('click', () => {
       payBtn.disabled = true;
-      if (room.paid.mode === 'redirect') { payBtn.textContent = 'Opening Paystack…'; initializePayment(); }
+      paySfx('tap');
+      if (room.paid.mode === 'redirect') { initializePayment().catch(() => payFail(room.code, 'Payment no open. Try again. Nothing was charged.')); }
       else send('pay_seat', {});
     });
   } else {
