@@ -23,7 +23,13 @@
     for (let i = 0; i < n; i++) s += '★';
     return gold ? s + ' GOLD' : s;
   }
+  function art(id) {
+    const draw = window.KPStickerArt && window.KPStickerArt[id];
+    return '<span class="st-art">' + (draw || '') + '</span>';
+  }
+  let lastRewards = null;
   function paintShelf(rewards) {
+    lastRewards = rewards;
     const shelf = $('marketShelf');
     if (!shelf || !rewards) return;
     window.KPRewards.current = rewards;
@@ -58,7 +64,8 @@
       sets.map((s) => '<p class="album-set"><b>' + s.name + '</b> ' + s.have + '/' + s.size + (s.done ? ' · complete' : '') + '</p>').join('') +
       '<div class="album-grid">' + stickers.map((s) =>
         '<button type="button" class="sticker' + (s.count ? '' : ' missing') + (s.gold ? ' gold' : '') + '" data-sticker="' + s.id + '" data-count="' + s.count + '">' +
-        '<span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span><span class="st-n">' + (s.count || 0) + '</span></button>'
+        art(s.id) + (s.count ? '<span class="st-badge">' + s.count + '</span>' : '<span class="st-q">?</span>') +
+        '<span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span></button>'
       ).join('') + '</div>' +
       '<p class="album-note">A duplicate can go to a friend. Tap one you hold twice.</p>' +
       '<button type="button" class="btn ghost block" id="albumClose">Close</button></div>';
@@ -72,7 +79,7 @@
       if (note) note.textContent = out && out.ok ? 'Duplicate don go.' : ((out && out.message) || 'That gift no send.');
     }));
   }
-  function reveal(stickers) {
+  function reveal(stickers, completed) {
     let el = $('packReveal');
     if (!el) {
       el = document.createElement('div');
@@ -83,28 +90,33 @@
     let i = 0;
     const draw = () => {
       const shown = stickers.slice(0, i);
+      const done = (i >= stickers.length && completed && completed.length)
+        ? '<p class="album-set">Set complete: ' + completed.map((c) => c.name).join(', ') + '</p><div class="pack-row">' +
+          ((lastRewards && lastRewards.stickers) || []).filter((s) => completed.some((c) => c.set === s.set)).map((s) =>
+            '<div class="sticker">' + art(s.id) + '<span class="st-name">' + s.name + '</span></div>').join('') + '</div>'
+        : '';
       el.innerHTML = '<div class="pack-card"><p class="pack-kicker">BIG DADDY PACK</p><h2>Open am</h2><div class="pack-row">' +
-        shown.map((s) => '<div class="sticker' + (s.gold ? ' gold' : '') + '"><span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span></div>').join('') +
-        '</div><button type="button" class="btn gold block" id="packNext">' + (i < stickers.length ? 'Next sticker' : 'Done') + '</button></div>';
+        shown.map((s) => '<div class="sticker pack-flip' + (s.gold ? ' gold' : '') + '">' + art(s.id) + '<span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span></div>').join('') +
+        '</div>' + done +
+        '<button type="button" class="btn gold block" id="packNext">' + (i < stickers.length ? 'Next sticker' : 'Done') + '</button></div>';
       el.querySelector('#packNext').addEventListener('click', () => {
         if (i < stickers.length) { i += 1; draw(); }
         else el.remove();
       });
     };
-    el.addEventListener('pointerdown', (ev) => {
-      if (ev.target.id === 'packNext') return;
-      i = stickers.length;
-      draw();
-    });
+    const skip = (ev) => {
+      if (ev.target && ev.target.id === 'packNext') return;
+      if (i < stickers.length) { i = stickers.length; draw(); }
+    };
+    el.onclick = skip;
     i = 1;
     draw();
-    if (window.KPBigDaddy) window.KPBigDaddy.show('drop', { force: true });
   }
   async function openPack() {
     const out = await post('/api/rewards/open', {});
     if (!out || !out.ok) return;
     paintShelf(out.rewards);
-    reveal(out.stickers || []);
+    reveal(out.stickers || [], out.completed || []);
   }
   async function refresh() {
     const id = clientId();

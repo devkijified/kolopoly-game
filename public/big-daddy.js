@@ -58,6 +58,19 @@
     const path = POSES[pose] || POSES.stand;
     return path + (BUILD && BUILD.indexOf('__KOLOPOLY') !== 0 ? '?v=' + BUILD : '');
   }
+  function propsFor(id) {
+    if (id === 'rent') {
+      return [14, 30, 46, 62, 76, 88].map((left, i) =>
+        '<span class="bd-note" style="left:' + left + '%;animation-delay:' + (i * 0.07) + 's">₦</span>').join('');
+    }
+    if (id === 'pot') {
+      const colors = ['#ffc857', '#1f8a4c', '#e25b4a', '#f4ecdc', '#7eb6ff'];
+      return [8, 22, 34, 48, 60, 74, 88].map((left, i) =>
+        '<span class="bd-bit" style="left:' + left + '%;background:' + colors[i % colors.length] + ';animation-delay:' + (i * 0.05) + 's"></span>').join('');
+    }
+    if (id === 'drop') return '<span class="bd-pack" aria-hidden="true"></span>';
+    return '';
+  }
   function ensure() {
     let el = document.getElementById('bigDaddy');
     if (el) return el;
@@ -89,10 +102,14 @@
     const el = ensure();
     const pose = spec.pose;
     const tint = spec.tint ? (TINT[extra.phase] || 'none') : 'none';
-    el.className = 'bd-pop bd-' + (spec.edge === 'right' ? 'right' : 'left') + (reduced() || extra.still ? ' bd-still' : ' bd-show');
+    const jail = id === 'jail';
+    const still = reduced() || extra.still;
+    el.className = 'bd-stage' + (still ? ' bd-still' : ' bd-show');
     el.hidden = false;
-    el.innerHTML = '<img class="bd-fig" alt="" width="96" height="120" decoding="async">' +
-      '<div class="bd-bubble"></div>';
+    el.innerHTML = '<div class="bd-dim"></div><div class="bd-pop' + (jail ? ' bd-jail' : '') + (still ? ' bd-still' : ' bd-show') + '">' +
+      '<div class="bd-fx">' + propsFor(id) + '</div>' +
+      '<img class="bd-fig" alt="" decoding="async" loading="lazy">' +
+      '<div class="bd-bubble"></div></div>';
     const img = el.querySelector('img');
     img.src = src(pose);
     img.style.filter = tint === 'none' ? '' : tint;
