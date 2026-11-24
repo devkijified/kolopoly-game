@@ -42,7 +42,7 @@
   };
   function art(id) {
     const file = STICKER_FILE[id] || id;
-    return '<span class="st-art"><img alt="" width="512" height="512" decoding="async" loading="lazy" src="/stickers/' + file + '.webp"></span>';
+    return '<span class="st-art"><img alt="" width="512" height="512" decoding="async" loading="lazy" src="/stickers/' + file + '.webp?v=__KOLOPOLY_BUILD__"></span>';
   }
   let lastRewards = null;
   function paintShelf(rewards) {
