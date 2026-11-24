@@ -89,7 +89,7 @@ try {
   const flood = track(new WebSocket(WS));
   await once(flood, 'open');
   const floodClose = once(flood, 'close');
-  for (let i = 0; i < 450; i++) flood.send(JSON.stringify({ type: 'heartbeat' }));
+  for (let i = 0; i < 2200; i++) flood.send(JSON.stringify({ type: 'heartbeat' }));
   const floodArgs = await Promise.race([floodClose, sleep(4000).then(() => null)]);
   check('a message flood closes the socket', !!floodArgs && floodArgs[0] === 1008, JSON.stringify(floodArgs && floodArgs[0]));
 

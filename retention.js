@@ -501,7 +501,7 @@ function createRetention(opts) {
   // tickets take the max and never pass one waiting, cosmetic
   // pieces take the fuller item, and the old v1 goods take the
   // fuller hand per good.
-  function mergeDeviceInto(acct, dev) {
+  function mergeDeviceInto(acct, dev, day) {
     for (const g of GOODS) {
       acct.inventory[g] = Math.max(acct.inventory[g] || 0, dev.inventory[g] || 0);
     }
@@ -534,7 +534,10 @@ function createRetention(opts) {
     av.totalDays = Math.max(av.totalDays, dv.totalDays);
     av.kolo.pieces = Math.min(SHELF_V2.piecesNeeded, av.kolo.pieces + dv.kolo.pieces);
     av.kolo.completePending = av.kolo.completePending || dv.kolo.completePending;
-    const today = lagosDay(new Date());
+    // Prune on the day this request is about. A view or claim that names
+    // its day (the suite, and a phone near midnight) must not expire a
+    // hand against a later wall clock.
+    const today = day || lagosDay(new Date());
     pruneSecondChance(av, today);
     pruneSecondChance(dv, today);
     av.secondChance = av.secondChance.concat(dv.secondChance)
@@ -558,13 +561,13 @@ function createRetention(opts) {
   // account that claimed it, so no second account can claim it and
   // it cannot be claimed twice. After the claim, device-only reads
   // of that record see an empty shelf; the account holds everything.
-  function claimDeviceShelf(acctId, deviceId) {
+  function claimDeviceShelf(acctId, deviceId, day) {
     if (!acctId || !deviceId || deviceId === acctId) return false;
     const dev = db.players[deviceId];
     if (!dev || typeof dev !== 'object') return false;
     if (dev.claimedBy) return false;
     const acct = ensure(acctId);
-    mergeDeviceInto(acct, normalize(dev));
+    mergeDeviceInto(acct, normalize(dev), day);
     const fresh = blank(deviceId);
     fresh.claimedBy = acctId;
     db.players[deviceId] = fresh;
@@ -576,8 +579,9 @@ function createRetention(opts) {
     if (!auth || !body || !body.authToken) return null;
     try { return auth.verifyToken(String(body.authToken)); } catch (e) { return null; }
   }
-  function resolve(body) {
+  function resolve(body, day) {
     body = body || {};
+    const when = day || (validDay(body.day) ? body.day : null);
     // A verified account outranks the device pair: the shelf is the
     // account shelf, and a device shelf riding along in the same
     // request is adopted into it, once.
@@ -586,7 +590,7 @@ function createRetention(opts) {
       const id = acctShelfId(acct.accountId);
       if (id) {
         const cid = cleanClientId(body.clientId);
-        if (cid) claimDeviceShelf(id, cid);
+        if (cid) claimDeviceShelf(id, cid, when);
         return { id, token: cleanToken(body.token), accountId: acct.accountId };
       }
     }
@@ -1432,7 +1436,7 @@ function createRetention(opts) {
       if (req.method === 'GET' && clean === '/api/retention') {
         const picked = dayFrom({ day: query.get('day') }, null);
         if (picked.error) { sendJson(res, 400, { ok: false, error: picked.error }); return; }
-        const who = resolve({ clientId: query.get('clientId'), token: query.get('token'), authToken: query.get('authToken') || bearerOf(req.headers) });
+        const who = resolve({ clientId: query.get('clientId'), token: query.get('token'), authToken: query.get('authToken') || bearerOf(req.headers), day: picked.day }, picked.day);
         if (who.error) { sendJson(res, 400, { ok: false, error: who.error }); return; }
         if (String(query.get('v') || '') === '2') {
           const view = publicViewV2(who.id, picked.day);

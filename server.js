@@ -723,7 +723,9 @@ const server = http.createServer((req, res) => {
 const WS_MAX_PAYLOAD = 64 * 1024;
 const WS_MAX_CONN_PER_IP = 40;
 const WS_MSG_WINDOW_MS = 10000;
-const WS_MSG_MAX = 400;
+// A full table behind one address, and the scripted suite, both send
+// bursts. 200 a second still stops a flood and does not cut off a match.
+const WS_MSG_MAX = 2000;
 const AUTH_IP_WINDOW_MS = 60 * 60 * 1000;
 const AUTH_IP_MAX = 30;
 const connCount = new Map();

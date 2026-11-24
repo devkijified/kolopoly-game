@@ -904,13 +904,23 @@ try {
     await scriptBotTurn(g, { botId: jailedBot.id, pos: 19, dice: [[1, 1]] }, inJail, 'bot enters Kirikiri');
     check('the bot sits inside Kirikiri', g.botRow(jailedBot.id).inJail === true);
     await driveUntil(g, (s) => s.turnPlayerId === g.host.playerId && s.phase === 'roll', 'host roll turn after the jailing');
+    // Hold every bot and let any roll they already sent drain, or that
+    // roll eats the scripted dice and the host lands somewhere else.
+    for (const b of g.bots()) g.hold(b.id, true);
+    await sleep(400);
     g.hook('test_set_position', { playerId: g.host.playerId, space: 5 });
+    await g.host.waitFor((s) => {
+      const me = s.players.find((p) => p.id === g.host.playerId);
+      return s.turnPlayerId === g.host.playerId && s.phase === 'roll' && me && me.position === 5;
+    }, 'host stands on the tax space ready to roll');
     g.hook('test_dice', { rolls: [[1, 4]] });
-    await sleep(200);
     g.host.send('roll', {});
-    await g.host.waitFor((s) => s.phase === 'buy' && s.buySpace === 10, 'Ikoyi offered to the host', 15000);
+    await g.host.waitFor((s) => s.phase === 'buy' && s.buySpace === 10, 'Lekki Tollgate offered to the host', 15000);
     g.host.send('decline', {});
     await g.host.waitFor((s) => !!s.auction, 'auction opened');
+    // The dice are spent. Let the jailed bot act so it passes; the other
+    // bot stays held so it cannot race the high bid.
+    g.hold(jailedBot.id, false);
     check('the jailed bot is not on the auction eligible list', !g.S().auction.eligible.includes(jailedBot.id), JSON.stringify(g.S().auction.eligible));
     await g.host.waitFor((s) => s.auction && s.auction.passed.includes(jailedBot.id), 'jailed bot passes the auction', 3500);
     check('the jailed bot passed the auction instead of bidding', g.S().auction.passed.includes(jailedBot.id));
@@ -1770,8 +1780,8 @@ try {
     g.hook('test_give', { playerId: botId, space: 16 });
     g.hook('test_give', { playerId: botId, space: 18 });
     g.hold(botId, false);
-    await driveUntil(g, (s) => [11, 13].some((i) => s.props[i] && s.props[i].b >= 1), 'bot builds on the red set', 30000);
-    check('bot builds evenly on its completed set using parallel management', [11, 13].some((i) => g.S().props[i].b >= 1));
+    await driveUntil(g, (s) => [16, 18].some((i) => s.props[i] && s.props[i].b >= 1), 'bot builds on the red set', 30000);
+    check('bot builds evenly on its completed set using parallel management', [16, 18].some((i) => g.S().props[i].b >= 1));
     // Kirikiri: roll for doubles twice, pay bail on the third attempt.
     const inJail = (s) => { const b = s.players.find((p) => p.id === botId); return b && b.inJail; };
     await scriptBotTurn(g, { botId, pos: 19, dice: [[1, 1]] }, inJail, 'bot enters Kirikiri');
@@ -1879,7 +1889,7 @@ try {
         const s = g.S();
         if (s.turnPlayerId === subject && s.phase === 'roll') {
           // Pick an unowned street priced 100000 or more, no START wrap.
-          const target = [8, 11, 13, 16, 17, 19].find((i) => { const pr = s.props[i]; return !pr || !pr.o; });
+          const target = [8, 9, 11, 13, 16, 18, 20, 22, 23, 24].find((i) => { const pr = s.props[i]; return !pr || !pr.o; });
           if (target == null) throw new Error('no decline target street left');
           g.hook('test_set_cash', { playerId: subject, amount: 700000 });
           g.hook('test_set_position', { playerId: subject, space: target - 3 });
