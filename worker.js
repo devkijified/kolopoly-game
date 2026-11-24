@@ -23,6 +23,7 @@ const { cleanEntry } = prizeLedgerMod;
 
 const BUILD_FILES = [
   'public/index.html',
+  'public/classic.html',
   'public/app.js',
   'public/style.css',
   'public/premium.css',
@@ -33,7 +34,24 @@ const BUILD_FILES = [
   'public/game-data.js',
   'public/board.js',
   'public/board3d.js',
-  'public/manifest.webmanifest'
+  'public/icons.js',
+  'public/manifest.webmanifest',
+  'public/vendor/three.module.js',
+  'public/vendor/qrcode.js',
+  'public/fonts/aeonik-pro-bold.woff2',
+  'public/fonts/aeonik-pro-bold.woff',
+  'public/fonts/figtree-variable.woff2',
+  'public/tex/asphalt-col.webp',
+  'public/tex/asphalt-nor.webp',
+  'public/tex/concrete-col.webp',
+  'public/tex/concrete-nor.webp',
+  'public/sfx/ambient-highlife.mp3',
+  'public/sfx/cash.mp3',
+  'public/sfx/siren.mp3',
+  'public/icons/icon-192.png',
+  'public/icons/icon-512.png',
+  'public/icons/icon-512-maskable.png',
+  'public/icons/apple-touch-icon.png'
 ];
 const LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 const MAX_PLAYERS = 6;
@@ -925,27 +943,45 @@ export class RetentionDO {
   }
 }
 
-async function serveStamped(request, env, pathname) {
-  const build = await computeBuild(env);
+function cacheControlFor(pathname, version) {
+  if (pathname === '/sw.js') return 'no-store';
+  if (pathname === '/' || pathname.endsWith('.html') || pathname.startsWith('/api/')) return 'no-cache';
+  if (version && /^[a-f0-9]{12}$/.test(version)) return 'public, max-age=31536000, immutable';
+  if (pathname.startsWith('/vendor/') || pathname.startsWith('/fonts/')) return 'public, max-age=604800';
+  return 'no-cache';
+}
+function typeOf(pathname, fallback) {
+  if (pathname.endsWith('.html') || pathname === '/') return 'text/html; charset=utf-8';
+  if (pathname.endsWith('.js')) return 'text/javascript; charset=utf-8';
+  if (pathname.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (pathname.endsWith('.webmanifest')) return 'application/manifest+json; charset=utf-8';
+  if (pathname.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (pathname.endsWith('.svg')) return 'image/svg+xml; charset=utf-8';
+  return fallback;
+}
+async function servePublic(request, env) {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
   const assetPath = pathname === '/' ? '/index.html' : pathname;
   const asset = await env.ASSETS.fetch(new Request('https://assets.local' + assetPath));
   if (!asset.ok) return asset;
+  const build = await computeBuild(env);
+  const version = url.searchParams.get('v');
+  const headers = new Headers(asset.headers);
+  headers.set('Cache-Control', cacheControlFor(pathname, version === build ? version : null));
+  const mime = typeOf(pathname, asset.headers.get('Content-Type') || 'application/octet-stream');
+  headers.set('Content-Type', mime);
+  const stampable = /html|javascript|css|json|svg|xml|manifest|text\//.test(mime);
+  if (!stampable) return new Response(asset.body, { status: asset.status, headers });
   let text = await asset.text();
+  if (text.includes('__KOLOPOLY_BUILD__')) text = text.split('__KOLOPOLY_BUILD__').join(build);
   if (pathname === '/' || pathname === '/index.html') {
-    text = text.split('__KOLOPOLY_BUILD__').join(build);
     if (!text.includes('KOLOPOLY_EDGE')) {
       text = text.replace('</head>', '<script>window.KOLOPOLY_EDGE=1</script></head>');
     }
-    return new Response(text, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }
-    });
   }
-  text += '\n// kolopoly-build ' + build + '\n';
-  return new Response(text, {
-    status: 200,
-    headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' }
-  });
+  if (pathname === '/sw.js') text += '\n// kolopoly-build ' + build + '\n';
+  return new Response(text, { status: 200, headers });
 }
 
 export default {
@@ -999,7 +1035,6 @@ export default {
     if (path === '/ops' || path.startsWith('/ops/')) {
       return env.LOBBY.get(env.LOBBY.idFromName('global')).fetch(request);
     }
-    if (path === '/' || path === '/index.html' || path === '/sw.js') return serveStamped(request, env, path);
-    return env.ASSETS.fetch(request);
+    return servePublic(request, env);
   }
 };

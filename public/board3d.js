@@ -2975,7 +2975,7 @@ function loadPremiumSurfaces() {
     if (srgb) t.colorSpace = THREE.SRGBColorSpace;
     res(t);
   }, undefined, () => res(null)));
-  Promise.all([load('/tex/concrete-nor.webp', false, 1), load('/tex/concrete-col.webp', true, 1), load('/tex/asphalt-col.webp', true, 10), load('/tex/asphalt-nor.webp', false, 10)]).then(([cn, cc, ac, an]) => {
+  Promise.all([load('/tex/concrete-nor.webp?v=__KOLOPOLY_BUILD__', false, 1), load('/tex/concrete-col.webp?v=__KOLOPOLY_BUILD__', true, 1), load('/tex/asphalt-col.webp?v=__KOLOPOLY_BUILD__', true, 10), load('/tex/asphalt-nor.webp?v=__KOLOPOLY_BUILD__', false, 10)]).then(([cn, cc, ac, an]) => {
     try {
       (g.tiles || []).forEach((t) => {
         if (cn) { t.topMat.normalMap = cn; t.topMat.normalScale = new THREE.Vector2(0.45, 0.45); t.topMat.needsUpdate = true; }

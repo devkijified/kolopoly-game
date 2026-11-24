@@ -27,8 +27,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(data.title || 'Kolopoly', {
     body: data.body || 'The table has a whisper. Open your shelf.',
     tag: data.tag || 'kolopoly',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    icon: '/icons/icon-192.png?v=__KOLOPOLY_BUILD__',
+    badge: '/icons/icon-192.png?v=__KOLOPOLY_BUILD__',
     data: { url: data.url || '/' }
   }));
 });

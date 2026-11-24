@@ -78,6 +78,21 @@ async function typeName(page, name) {
   await page.evaluate(() => { document.getElementById('nameIn').value = ''; });
   await page.type('#nameIn', name);
 }
+
+async function revealJoin(page) {
+  const hidden = await page.evaluate(() => {
+    const row = document.getElementById('joinRow');
+    return !row || row.classList.contains('hidden') || row.offsetParent === null;
+  });
+  if (hidden) {
+    await page.click('#joinToggleBtn');
+    await page.waitForFunction(() => {
+      const row = document.getElementById('joinRow');
+      return row && !row.classList.contains('hidden') && row.offsetParent !== null;
+    }, { timeout: 4000 });
+  }
+}
+
 // In-game action buttons are re-rendered on every state change, so a resolved
 // node can detach mid-click. Click them by id at evaluate time, with retries.
 // The retry budget is generous: the rig renders WebGL in software and this VM
@@ -252,6 +267,7 @@ try {
   const Dp = await newPage('D');
   await Dp.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(Dp, 'Dara');
+  await revealJoin(Dp);
   await Dp.type('#codeIn', code2);
   await waitState(Dp, (s) => s.status === 'lobby' && s.players.length === 2, 'D auto-joined on the 4th letter');
   check('auto-join fired when the 4th code letter landed', true);
@@ -1091,6 +1107,7 @@ try {
   const code12 = (await S(Y)).code;
   await Z.goto(BASE, { waitUntil: 'networkidle0' });
   await typeName(Z, 'Zainab');
+  await revealJoin(Z);
   await Z.type('#codeIn', code12);
   await waitState(Z, (s) => s.status === 'lobby' && s.players.length === 2, 'Z joined');
   await Y.click('#startBtn');
