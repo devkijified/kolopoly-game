@@ -465,10 +465,19 @@ const server = http.createServer((req, res) => {
     (async () => {
       let body;
       try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, error: 'body', message: 'That request no clear. Try again.' }); return; }
+      // No mail key on a real host: say so before a code is stored, so
+      // Try again is not blocked by the per-email gap.
+      if (mailer.testMode && !TEST) {
+        sendJson(res, 503, { ok: false, error: 'mail', message: 'Sign-in mail never set up yet. Nothing was sent. Try again.' });
+        return;
+      }
       const out = auth.requestCode(body && body.email);
       if (!out.ok) { sendJson(res, out.error === 'rate' ? 429 : 400, { ok: false, error: out.error, message: out.message }); return; }
       const sent = await mailer.sendCode(out.email, out.code);
-      if (!sent.ok) { sendJson(res, 502, { ok: false, error: 'mail', message: 'The code no send. Try again.' }); return; }
+      if (!sent.ok) {
+        sendJson(res, mailer.testMode ? 503 : 502, { ok: false, error: 'mail', message: (sent && sent.message) || 'The code no send. Nothing was sent. Try again.' });
+        return;
+      }
       const reply = { ok: true };
       if (TEST && mailer.testMode) reply.devCode = out.code;
       sendJson(res, 200, reply);

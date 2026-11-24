@@ -1296,19 +1296,40 @@ function renderPaidAuth() {
   $('paidSendCodeBtn').addEventListener('click', sendAuthCode);
   $('paidVerifyBtn').addEventListener('click', verifyAuthCode);
 }
+function showAuthFail(msg, btn, text) {
+  if (msg) {
+    msg.className = 'auth-error';
+    msg.setAttribute('role', 'alert');
+    msg.innerHTML = window.icon('alert', 16) + '<span>' + esc(text) + '</span>';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+}
+function showAuthBusy(msg, btn) {
+  if (msg) { msg.className = 'paid-auth-msg'; msg.removeAttribute('role'); msg.textContent = 'Dey send your code…'; }
+  if (btn) btn.disabled = true;
+}
+function showAuthSent(msg, btn, data) {
+  if (msg) {
+    msg.className = 'paid-auth-msg';
+    msg.removeAttribute('role');
+    msg.textContent = 'Code sent. Check your email and enter the 6 digits.' + (data && data.devCode ? ' Test code: ' + data.devCode : '');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Send code'; }
+}
 async function sendAuthCode() {
   const email = ($('paidEmailIn').value || '').trim();
   const msg = $('paidAuthMsg');
-  if (!email) { msg.textContent = 'Enter your email first.'; return; }
-  msg.textContent = 'Dey send your code…';
+  const btn = $('paidSendCodeBtn');
+  if (!email) { showAuthFail(msg, btn, 'Enter your email first.'); if (btn) btn.textContent = 'Send code'; return; }
+  showAuthBusy(msg, btn);
   try {
     const res = await fetch('/api/auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
     const data = await res.json().catch(() => null);
-    if (!data || !data.ok) { msg.textContent = (data && data.message) || 'The code no send. Try again.'; return; }
+    if (!data || !data.ok) { showAuthFail(msg, btn, (data && data.message) || 'The code no send. Nothing was sent. Try again.'); return; }
     pendingAuthEmail = email;
     $('paidAuthCodeRow').classList.remove('hidden');
-    msg.textContent = 'Code sent. Check your email and enter the 6 digits.' + (data.devCode ? ' Test code: ' + data.devCode : '');
-  } catch (e) { msg.textContent = 'The code no send. Check your connection and try again.'; }
+    showAuthSent(msg, btn, data);
+  } catch (e) { showAuthFail(msg, btn, 'The code no send. Check your connection and try again. Nothing was sent.'); }
 }
 async function verifyAuthCode() {
   const code = ($('paidCodeIn').value || '').trim();
@@ -1354,18 +1375,19 @@ function renderAccountBar() {
 async function sendGateCode() {
   const email = ($('gateEmailIn').value || '').trim();
   const msg = $('gateMsg');
-  if (!email) { msg.textContent = 'Enter your email first.'; return; }
-  msg.textContent = 'Dey send your code…';
+  const btn = $('gateSendBtn');
+  if (!email) { showAuthFail(msg, btn, 'Enter your email first.'); if (btn) btn.textContent = 'Send code'; return; }
+  showAuthBusy(msg, btn);
   try {
     const res = await fetch('/api/auth/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
     const data = await res.json().catch(() => null);
-    if (!data || !data.ok) { msg.textContent = (data && data.message) || 'The code no send. Try again.'; return; }
+    if (!data || !data.ok) { showAuthFail(msg, btn, (data && data.message) || 'The code no send. Nothing was sent. Try again.'); return; }
     pendingGateEmail = email;
     $('gateCodeRow').classList.remove('hidden');
-    msg.textContent = 'Code sent. Check your email and enter the 6 digits.' + (data.devCode ? ' Test code: ' + data.devCode : '');
+    showAuthSent(msg, btn, data);
     const codeIn = $('gateCodeIn');
     if (codeIn) codeIn.focus();
-  } catch (e) { msg.textContent = 'The code no send. Check your connection and try again.'; }
+  } catch (e) { showAuthFail(msg, btn, 'The code no send. Check your connection and try again. Nothing was sent.'); }
 }
 async function verifyGateCode() {
   const code = ($('gateCodeIn').value || '').trim();
