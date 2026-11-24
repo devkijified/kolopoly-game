@@ -1581,8 +1581,10 @@ try {
     check('the turn advanced off the leaver at once', g.S().turnPlayerId !== turnId);
     check('the game was never paused during the leave', seen.every((r) => r.paused !== true) && g.S().paused === false, 'states=' + seen.length);
     const nid = g.S().turnPlayerId;
+    await g.host.waitFor((s) => s.turnPlayerId === nid && s.phase === 'roll', 'next player can roll');
     g.hook('test_set_position', { playerId: nid, space: 3 });
     g.hook('test_dice', { rolls: [[1, 3]] });
+    await g.host.waitFor((s) => s.players.find((p) => p.id === nid).position === 3 && s.phase === 'roll', 'next player is standing before the roll');
     g.byId(nid).send('roll', {});
     await g.host.waitFor((s) => s.players.find((p) => p.id === nid).position === 7, 'next player rolled and moved');
     check('the next player rolled right away and moved', g.player(nid).position === 7);

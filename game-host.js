@@ -674,7 +674,7 @@ function publicRoom(room) {
     pauseClockMs: room.pauseClockMs != null ? room.pauseClockMs : null,
     endReason: room.endReason || null,
     settings: room.settings,
-    salaryLadder: room.settings && room.settings.gameMode === 'inflation' ? INF_SALARIES.slice() : null,
+    salaryLadder: room.status === 'lobby' && room.settings && room.settings.gameMode === 'inflation' ? INF_SALARIES.slice() : null,
     paid: room.paid ? {
       cityId: room.cityId, city: room.paidCity, venue: room.paidVenue,
       fee: room.paidFee, testMode: !!room.paidTestMode, provider: payProvider.name,
@@ -763,7 +763,9 @@ function publicRoom(room) {
         ? { id: c.id, type: 'pass', buyer: c.buyer, seller: c.seller, street: c.street, chipsLeft: c.chipsLeft, price: c.price, phaseCreated: c.phaseCreated }
         : { id: c.id, type: 'loan', borrower: c.borrower, lender: c.lender, pledgedSpace: c.pledgedSpace, amount: c.amount, interestPct: c.interestPct, dueTotal: c.amount + Math.floor(c.amount * c.interestPct / 100) + (c.dueExtra || 0), lapsElapsed: c.lapsElapsed, termLaps: c.termLaps, extended: !!c.extended })
     } : null,
-    feed: room.feed.slice(-14),
+    // The gist and the alert pump only need the recent lines. The server
+    // still keeps 40. Sending all 14 on every tick was most of a fat update.
+    feed: room.feed.slice(-6),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
       isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
@@ -784,8 +786,19 @@ function publicRoom(room) {
     props: propsArr
   };
 }
+function leanWire(pub) {
+  // Drop nulls the client already treats as absent. paid and inf stay,
+  // even when null, because "no paid table" and "not inflation" are
+  // answers the client and the suites compare with === null.
+  // Deed owners stay null inside props: an unowned space is null, not missing.
+  for (const k of Object.keys(pub)) {
+    if (pub[k] == null && k !== 'paid' && k !== 'inf') delete pub[k];
+  }
+  return pub;
+}
 function broadcast(room) {
-  const payload = JSON.stringify({ type: 'state', room: publicRoom(room) });
+  const pub = deps.leanWire ? leanWire(publicRoom(room)) : publicRoom(room);
+  const payload = JSON.stringify({ type: 'state', room: pub });
   const sent = new Set();
   for (const p of room.players) {
     if (p.ws && p.ws.readyState === 1 && !sent.has(p.ws)) {
