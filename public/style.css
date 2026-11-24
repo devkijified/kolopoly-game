@@ -223,6 +223,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   color: #fff; flex: none; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18);
 }
 .slot .nm { font-weight: 800; }
+.slot { min-width: 0; }
+.slot .seat-copy { min-width: 0; flex: 1; }
+.slot .meta { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
 .settings-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
 
 /* Paid tables (Play to Earn): the city ladder sheet and the lobby panel */

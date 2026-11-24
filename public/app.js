@@ -2240,7 +2240,7 @@ function renderLobby(room) {
     const p = room.players[k];
     if (!p) return '<div class="slot empty">Waiting for player…</div>';
     return '<div class="slot"><div class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 22) + '</div>' +
-      '<div><div class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
+      '<div class="seat-copy"><div class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
       '<div class="meta">' + (room.paid && !p.bot
         ? (p.paidSeat ? 'Paid ' + fmtN(room.paid.fee) : p.payPending ? 'Payment dey go…' : 'Awaiting payment') + (p.connected ? '' : ' · Disconnected')
         : p.bot ? 'Bot player · always ready' : room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
@@ -2251,7 +2251,10 @@ function renderLobby(room) {
   $('slotBoard').querySelectorAll('[data-remove-bot]').forEach((b) => b.addEventListener('click', () => send('remove_bot', { playerId: Number(b.dataset.removeBot) })));
   $('passAddBox').classList.toggle('hidden', room.mode !== 'pass');
   const chips = [];
-  if (room.settings.gameMode === 'inflation') chips.push('Phases: salary ₦200,000 → ₦100,000 → ₦50,000 → ₦25,000');
+  if (room.settings.gameMode === 'inflation') {
+    const ladder = (room.salaryLadder && room.salaryLadder.length) ? room.salaryLadder : [200000, 140000, 100000, 70000, 40000, 20000, 10000];
+    chips.push('Salary ' + ladder.map((n) => fmtN(n)).join(' → '));
+  }
   else chips.push(room.settings.timed ? 'Timed: 60 minutes' : 'Untimed: last landlord standing');
   if (room.settings.doubleStart) chips.push('Double salary on exact START landing');
   if (room.settings.noRentInJail) chips.push('No rent while in Kirikiri');
@@ -3613,8 +3616,7 @@ function openContracts() {
   });
 }
 let endSoundFor = '';
-let boardView = 'full';
-try { boardView = localStorage.getItem('kolopolyView') === 'follow' ? 'follow' : 'full'; } catch (e) { }
+// Follow mode is retired. The home icon finds your token on the full board.
 function rememberTable(room) {
   const top = room.endTable && room.endTable[0];
   if (!top || !room.code) return;
@@ -3641,15 +3643,11 @@ function openRecords() {
 function paintViewToggle() {
   const b = $('viewToggle');
   if (!b) return;
-  const follow = boardView === 'follow';
-  b.setAttribute('aria-pressed', follow ? 'true' : 'false');
-  b.setAttribute('aria-label', follow ? 'Following the token. Tap for the full board.' : 'Full board. Tap to follow the token.');
-  b.innerHTML = window.icon(follow ? 'eye' : 'home', 20);
+  b.setAttribute('aria-pressed', 'false');
+  b.setAttribute('aria-label', 'Show my token on the board');
+  b.innerHTML = window.icon('home', 20);
 }
-function syncBoardView() {
-  paintViewToggle();
-  if (window.KP3D && KP3D.setView && KP3D.getView && KP3D.getView() !== boardView) KP3D.setView(boardView);
-}
+function syncBoardView() { paintViewToggle(); }
 function paintHud(room) {
   const players = $('hudPlayers');
   if (players) players.innerHTML = window.icon('users', 20) + '<span class="hud-badge">' + room.players.length + '</span>';
@@ -4138,10 +4136,8 @@ if (tray) tray.addEventListener('click', (e) => {
 const viewBtn = $('viewToggle');
 if (viewBtn) viewBtn.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  boardView = boardView === 'follow' ? 'full' : 'follow';
-  try { localStorage.setItem('kolopolyView', boardView); } catch (err) { }
-  if (window.KP3D && KP3D.setView) KP3D.setView(boardView);
-  paintViewToggle();
+  const found = window.KP3D && typeof KP3D.pingToken === 'function' && KP3D.pingToken(myId);
+  toast(found ? 'Your token dey flash. The board stays full.' : 'Your token no dey on the board yet.');
 });
 const recordsBtn = $('recordsBtn');
 if (recordsBtn) recordsBtn.addEventListener('click', () => openRecords());
