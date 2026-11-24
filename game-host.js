@@ -4182,9 +4182,70 @@ function handleConnection(ws) {
         room.activePhase = inf.phase;
       }
       rooms.set(code, room);
-      if (deps.externalBots) {
-        for (const item of pendingBots) reviveBot(room, item.p, item.meta);
+      // Both hosts revive bot seats. The worker pokes external brains from
+      // its alarm; the Node server's brains keep their own timers. A seat
+      // left without a brain after a restart can never take a turn.
+      for (const item of pendingBots) reviveBot(room, item.p, item.meta);
+    }
+  }
+  // Node boot path, after importState. The worker rebinds live sockets
+  // itself and must not call this. Humans are marked away (their sockets
+  // died with the process), pass-and-play tables are dropped (they cannot
+  // be rejoined), and deadlines move forward by the downtime, capped, so
+  // a deploy of a few seconds does not eat an auction or the match clock.
+  // A server that was off for a long time does not grant that whole gap.
+  const RESTORE_HOLD_CAP_MS = 120000;
+  function shiftBy(n, hold) {
+    return n != null && Number.isFinite(n) ? n + hold : n;
+  }
+  function holdDeadlines(room, hold, skipFrozen) {
+    if (!hold) return;
+    // Clocks that updatePause already slides forward when a paused table
+    // resumes. If this table was paused before the process died, that
+    // slide includes the downtime, so adding it here would count twice.
+    if (!skipFrozen) {
+      room.turnDeadline = shiftBy(room.turnDeadline, hold);
+      if (room.pendingBill) room.pendingBill.endsAt = shiftBy(room.pendingBill.endsAt, hold);
+      if (room.hustle) room.hustle.endsAt = shiftBy(room.hustle.endsAt, hold);
+      if (room.owambe) {
+        room.owambe.opensAt = shiftBy(room.owambe.opensAt, hold);
+        room.owambe.closesAt = shiftBy(room.owambe.closesAt, hold);
       }
+      if (room.sapaOffer) room.sapaOffer.endsAt = shiftBy(room.sapaOffer.endsAt, hold);
+      if (room.inf) {
+        room.inf.phaseEndsAt = shiftBy(room.inf.phaseEndsAt, hold);
+        room.inf.deadlineAt = shiftBy(room.inf.deadlineAt, hold);
+      }
+    }
+    // These are not slid by updatePause. A short deploy must not resolve
+    // an auction or burn the match clock while nobody could play.
+    room.gameEndsAt = shiftBy(room.gameEndsAt, hold);
+    if (room.auction) room.auction.endsAt = shiftBy(room.auction.endsAt, hold);
+    if (room.trade && room.trade.expiresAt) room.trade.expiresAt = shiftBy(room.trade.expiresAt, hold);
+    if (room.debt && room.debt.rescueEndsAt) room.debt.rescueEndsAt = shiftBy(room.debt.rescueEndsAt, hold);
+    if (room.dealBreak) room.dealBreak.endsAt = shiftBy(room.dealBreak.endsAt, hold);
+    if (room.contractProposal) room.contractProposal.endsAt = shiftBy(room.contractProposal.endsAt, hold);
+    if (room.loanDecision) room.loanDecision.endsAt = shiftBy(room.loanDecision.endsAt, hold);
+  }
+  function restoredFromDisk(savedAt) {
+    const gap = savedAt ? Math.max(0, now() - Number(savedAt)) : 0;
+    const hold = Math.min(gap, RESTORE_HOLD_CAP_MS);
+    for (const code of [...rooms.keys()]) {
+      const room = rooms.get(code);
+      if (!room) continue;
+      if (room.mode === 'pass') { dropRoom(code); continue; }
+      const pausedAlready = room.status === 'playing' && !!room.paused && !!room.pauseSince;
+      holdDeadlines(room, hold, pausedAlready);
+      for (const p of room.players) {
+        if (p.bot) {
+          if (!p.botBrain) reviveBot(room, p, null);
+          continue;
+        }
+        p.connected = false;
+        p.ws = null;
+      }
+      if (!room.players.some((p) => p.connected && !p.bot) && room.emptyAt == null) room.emptyAt = now();
+      updatePause(room);
     }
   }
   function nextWake(t) {
@@ -4263,7 +4324,7 @@ function handleConnection(ws) {
   }
 
   return {
-    rooms, tick, handleConnection, exportState, importState, nextWake, pokeBots,
+    rooms, tick, handleConnection, exportState, importState, restoredFromDisk, nextWake, pokeBots,
     publicRoom, dropRoom, settlePaidSeat, TEST, accountRequired, signInRequired
   };
 }
