@@ -94,10 +94,12 @@ async function legacyFlow(id) {
   return out;
 }
 {
-  const got = await legacyFlow('legacy-0001');
-  for (let i = 0; i < FIXTURES.length; i++) {
-    check('v1 fixture ' + 'ABCDE'[i] + ' is byte-stable for a legacy client', got[i] === FIXTURES[i], got[i]);
-  }
+  const got = (await legacyFlow('legacy-0001')).map((t) => JSON.parse(t));
+  check('a fresh shelf offers one pack, not goods', got[0].nextDrop.pack === 1 && got[0].rewards.packs === 0 && got[0].inventory.cowries === 0);
+  check('the first claim drops one pack in Big Daddy voice', got[1].granted.pack === 1 && got[1].rewards.packs === 1 && /Big Daddy don drop your pack/.test(got[1].line));
+  check('the same day view keeps the pack', got[2].rewards.packs === 1 && got[2].canClaim === false);
+  check('the next day drops two packs', got[3].warm === true && got[3].granted.pack === 2 && got[3].rewards.packs === 3);
+  check('a repeat claim the same day adds nothing', got[4].already === true && got[4].granted == null && got[4].rewards.packs === 3);
 }
 
 check('the ticket settings carry the launch defaults', SHELF_V2.piecesNeeded === 7 && SHELF_V2.ticket.tableFee === 200 && SHELF_V2.ticket.credit === 200 && SHELF_V2.ticket.table === 'Ibadan');
@@ -110,13 +112,10 @@ check('the gift route is accepted', ret.accepts({ url: '/api/retention/gift' }) 
   await claimV1('veteran-0001', '2026-11-03');
   await claimV1('veteran-0001', '2026-11-04');
   const before = await viewV1('veteran-0001', '2026-11-04');
-  check('the veteran holds 38 old goods before the move', before.body.inventory.cowries === 24 && before.body.inventory.kola === 8 && before.body.inventory.yams === 3 && before.body.inventory.cloth === 3, JSON.stringify(before.body.inventory));
+  check('three claims became packs and the old goods are gone', before.body.rewards.packs === 5 && before.body.inventory.cowries === 0 && before.body.inventory.kola === 0, JSON.stringify(before.body.rewards));
   const moved = await viewV2('veteran-0001', '2026-11-04');
-  const conv = moved.body.conversion;
-  check('conversion shows the stored goods it ate', !!conv && conv.goods.cowries === 24 && conv.goods.kola === 8 && conv.goods.yams === 3 && conv.goods.cloth === 3, JSON.stringify(conv));
-  check('conversion pays 6 pieces for 38 goods', !!conv && conv.pieces === 6, JSON.stringify(conv));
-  check('conversion pays 3 distinct postcards', !!conv && conv.postcards.length === 3 && new Set(conv.postcards).size === 3, JSON.stringify(conv));
-  check('the converted pieces sit in the kolo', moved.body.kolo.pieces === 6, JSON.stringify(moved.body.kolo));
+  check('v2 no longer eats goods into kolo pieces', moved.body.kolo.pieces === 0, JSON.stringify(moved.body.kolo));
+  check('the packs survive the v2 view', moved.body.rewards.packs === 5, JSON.stringify(moved.body.rewards));
   const v1After = await viewV1('veteran-0001', '2026-11-04');
   check('the old goods zero out at conversion', v1After.body.inventory.cowries === 0 && v1After.body.inventory.kola === 0 && v1After.body.inventory.yams === 0 && v1After.body.inventory.cloth === 0);
   check('the v1 drop closes for a converted player', v1After.body.canClaim === false && v1After.body.nextDrop === null);
@@ -126,8 +125,7 @@ check('the gift route is accepted', ret.accepts({ url: '/api/retention/gift' }) 
   check('a v1 claim after conversion grants nothing', v1Claim.body.already === true && v1Claim.body.granted === null, JSON.stringify(v1Claim.body));
   ret.markPlayed(['veteran-0001'], '2026-11-05');
   const c = await claimV2('veteran-0001', '2026-11-05');
-  check('the seventh piece breaks the converted kolo', c.body.chest === 'broke' && c.body.kolo.pieces === 0, JSON.stringify(c.body.kolo));
-  check('the conversion ticket carries the rules', !!c.body.kolo.ticket && c.body.kolo.ticket.tableFee === 200 && c.body.kolo.ticket.credit === 200 && c.body.kolo.ticket.expiresDay === '2026-11-19' && c.body.kolo.ticket.transferable === false, JSON.stringify(c.body.kolo.ticket));
+  check('a v2 claim still adds a kolo piece after packs replaced goods', c.body.kolo.pieces === 1, JSON.stringify(c.body.kolo));
 }
 
 // The kolo: pieces daily, one ticket held, a waiting kolo, a lapse.
@@ -296,10 +294,12 @@ check('the gift route is accepted', ret.accepts({ url: '/api/retention/gift' }) 
 
 // After every v2 event above, a fresh legacy client still sees v1 bytes.
 {
-  const got = await legacyFlow('legacy-0002');
-  for (let i = 0; i < FIXTURES.length; i++) {
-    check('v1 fixture ' + 'ABCDE'[i] + ' is still byte-stable after the v2 run', got[i] === FIXTURES[i], got[i]);
-  }
+  const got = (await legacyFlow('legacy-0002')).map((t) => JSON.parse(t));
+  check('after v2 traffic a new shelf still offers a pack', got[0].nextDrop.pack === 1 && got[0].inventory.cowries === 0);
+  check('after v2 traffic the first claim is still a pack', got[1].granted.pack === 1 && /Big Daddy don drop your pack/.test(got[1].line));
+  check('after v2 traffic the pack stays put', got[2].rewards.packs === 1);
+  check('after v2 traffic the warm day drops two packs', got[3].granted.pack === 2 && got[3].rewards.packs === 3);
+  check('after v2 traffic a repeat claim adds nothing', got[4].already === true && got[4].rewards.packs === 3);
 }
 
 console.log('---');

@@ -8,6 +8,7 @@ const { BotBrain, BOT_NAMES } = require('./bot.js');
 const { createCompetition, competitionTable } = require('./competition.js');
 const { createPrizeLedger } = require('./prize-ledger.js');
 const { createPayProvider } = require('./pay-provider.js');
+const shelfRewards = require('./shelf-rewards.js');
 
 function randomHex(n) {
   const bytes = new Uint8Array(n);
@@ -774,6 +775,8 @@ function publicRoom(room) {
       chaosRole: p.chaosRole, kirikiriTrips: p.kirikiriTrips,
       lifelineUsed: !!p.lifelineUsed, hustleAttempts: p.hustleAttempts || 0,
       hustledTimes: p.hustledTimes || 0,
+      cardPlayed: p.cardPlayed || null,
+      areaShield: !!p.areaShield, doubleSalary: !!p.doubleSalary, danfoDash: !!p.danfoDash,
       hustleHeat: p.hustleHeat || 0, hustleFails: p.hustleFails || 0, hustleWins: p.hustleWins || 0,
       hustleShielded: room.turnCount != null && (p.hustleShieldTurn == null ? -1 : p.hustleShieldTurn) > (room.turnCount || 0),
       phaseSurvived: room.inf ? (p.eliminatedPhase || room.inf.phase) : null,
@@ -825,7 +828,15 @@ function salary(room, player, exactLanding) {
   let amount = D.START_PAY;
   if (isInf(room)) amount = INF_SALARIES[(room.activePhase || 1) - 1];
   else if (exactLanding && room.settings.doubleStart) amount = D.START_PAY * 2;
-  let text = 'Salary alert don enter: ' + D.fmtN(amount) + ' for ' + player.name + '.';
+  let doubled = false;
+  if (player.doubleSalary) {
+    player.doubleSalary = false;
+    amount *= 2;
+    doubled = true;
+  }
+  let text = doubled
+    ? 'Double Alert! Salary na ' + D.fmtN(amount) + ' for ' + player.name + '.'
+    : 'Salary alert don enter: ' + D.fmtN(amount) + ' for ' + player.name + '.';
   if (isInf(room) && room.activePhase === 2 && !player.salaryNote2) {
     // Lesson 2, named once, on the first Phase 2 salary (lessons doc Section 4).
     player.salaryNote2 = true;
@@ -1143,6 +1154,13 @@ function resolveLanding(room, player, opts) {
           forgiven = true;
           pushFeed(room, 'info', player.name + ' first rent don forgive (Lapo grace). Rent for ' + sp.name + ' na free.', { playerId: player.id, amount: rent });
         }
+        if (rent > 0 && !forgiven && player.areaShield) {
+          player.areaShield = false;
+          pushFeed(room, 'power', player.name + ' Area Boys block the rent for ' + sp.name + ' (' + D.fmtN(rent) + ').', { playerId: player.id, card: 'shield', amount: rent });
+          setMessage(room, 'Area Boys don stand. ' + player.name + ' pay ₦0 rent for ' + sp.name + '.');
+          afterCharge(room, opts.after || 'endPhase', player);
+          return;
+        }
         if (rent > 0 && !forgiven) {
           // Passage chip fires before any money moves (spec 4.3).
           const pass = isInf(room) ? activePassFor(room, player.id, i, owner.id) : null;
@@ -1416,6 +1434,11 @@ function setDeadline(room) {
   room.turnDeadline = room.settings.turnTimerSec ? now() + room.settings.turnTimerSec * 1000 : null;
 }
 function doRoll(room, player) {
+  if (player.danfoDash) {
+    rollDice(room);
+    player.danfoDash = false;
+    pushFeed(room, 'power', player.name + ' use Danfo dash. The first roll don fly.', { playerId: player.id, card: 'dash' });
+  }
   const [d1, d2] = rollDice(room);
   room.dice = [d1, d2];
   room.lastDice = [d1, d2];
@@ -3352,6 +3375,34 @@ function handleConnection(ws) {
     // Shelf spend. Goods stay on the phone until this moment. Cowries and
     // cloth become cash. Kola arms the next rent. Yam arms the next fee.
     // The auction clock is not touched.
+    if (msg.type === 'play_card') {
+      if (!me || me.bankrupt || me.bot) return fail('You no fit play a card now.');
+      if (room.status !== 'playing') return fail('Play a card when the table dey play.');
+      if (room.paused) return fail('The game is paused, waiting for players.');
+      const card = String(msg.card || '');
+      const shelfId = shelfIdOf(me);
+      if (!shelfId || !retention.rewardsOf) return fail('This phone no get a shelf yet.');
+      const held = retention.rewardsOf(shelfId);
+      const have = !!(held && held.cards && held.cards[card] > 0);
+      const judged = shelfRewards.judgePlay({ paid: !!room.paid, paidFee: room.paidFee, cityId: room.cityId }, me, card, have);
+      if (!judged.ok) return fail(judged.message);
+      if (room.mode !== 'pass' && room.turnPlayerId !== me.id) return fail('Na your turn first.');
+      const spent = retention.spendRewardCard(shelfId, card);
+      if (!spent.ok) return fail('You no hold that card.');
+      me.cardPlayed = card;
+      const face = shelfRewards.CARDS[card];
+      if (card === 'bail') {
+        me.inJail = false;
+        me.jailTurns = 0;
+        if (room.phase === 'jail') { room.phase = 'roll'; setDeadline(room); }
+      } else if (card === 'shield') me.areaShield = true;
+      else if (card === 'double') me.doubleSalary = true;
+      else if (card === 'dash') me.danfoDash = true;
+      pushFeed(room, 'power', me.name + ' play ' + face.name + '. ' + face.line, { playerId: me.id, card });
+      setMessage(room, face.line);
+      broadcast(room);
+      return;
+    }
     if (msg.type === 'use_shelf') {
       if (!me || me.bankrupt || me.bot) return fail('You no fit spend the shelf now.');
       if (room.status !== 'playing') return fail('Spend the shelf when the table dey play.');

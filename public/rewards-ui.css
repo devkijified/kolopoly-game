@@ -1,0 +1,29 @@
+#marketShelf:has(.reward-row) { display: block; width: 100%; }
+.reward-row { display: flex; gap: 8px; margin: 8px 0; width: 100%; }
+.reward-row .btn { flex: 1; min-height: 44px; }
+.reward-cards { display: flex; flex-wrap: wrap; gap: 6px; }
+.reward-card {
+  padding: 4px 8px; border-radius: 999px; background: #171a21; color: #f4ecdc;
+  font-size: 12px; font-weight: 800;
+}
+.album-sheet, .pack-reveal {
+  position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(10, 12, 16, 0.55); padding: 12px;
+}
+.album-card, .pack-card {
+  width: min(420px, 100%); max-height: min(78vh, 640px); overflow: auto;
+  background: #171a21; color: #f4ecdc; border-radius: 16px; padding: 14px;
+  border: 1px solid rgba(255, 200, 87, 0.45);
+}
+.album-grid, .pack-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.sticker {
+  flex: 1 1 100px; min-width: 0; text-align: left; padding: 8px;
+  border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #12151b; color: #f4ecdc; font-weight: 800;
+}
+.sticker.missing { opacity: 0.45; }
+.sticker.gold { border-color: #ffc857; color: #ffc857; }
+.st-name { display: block; font-size: 13px; }
+.st-stars, .st-n { font-size: 12px; }
+.pack-kicker, .album-set { font-size: 13px; font-weight: 800; }
+.album-note { font-size: 13px; color: #cfc4b2; }

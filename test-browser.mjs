@@ -1512,7 +1512,7 @@ try {
     await page.evaluateOnNewDocument(() => { try { localStorage.setItem('kolopolyName', 'Tife'); } catch (e) { } });
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForFunction(() => {
-      const slot = document.querySelector('#marketShelf [data-good="cowries"]');
+      const slot = document.getElementById('openPackBtn');
       const b = document.getElementById('claimBtn');
       return !!(slot && b && !b.disabled && !b.classList.contains('hidden'));
     }, { timeout: 8000 }).catch(() => {});
@@ -1522,11 +1522,8 @@ try {
     const box = (id) => { const el = document.getElementById(id); if (!el) return null; const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height), w: Math.round(b.width) }; };
     const text = (document.getElementById('view-landing').innerText || '').replace(/\s+/g, ' ');
     const welcomes = (text.match(/welcome back/ig) || []).length;
-    const cow = document.querySelector('#marketShelf [data-good="cowries"]');
-    const kola = document.querySelector('#marketShelf [data-good="kola"]');
-    const yam = document.querySelector('#marketShelf [data-good="yams"]');
-    const cloth = document.querySelector('#marketShelf [data-good="cloth"]');
-    const face = (el) => el ? { have: el.dataset.have || '', n: (el.querySelector('.good-n') || {}).textContent || '' } : null;
+    const pack = document.getElementById('openPackBtn');
+    const face = (el) => el ? { text: (el.textContent || '').replace(/\s+/g, ' ').trim() } : null;
     const slogan = document.querySelector('.hero-slogan');
     const quick = box('welcomeQuick');
     const join = box('welcomeJoinCode');
@@ -1549,7 +1546,7 @@ try {
       claSel: !!(cla && cla.classList.contains('sel')),
       today: (document.getElementById('marketTitle') || {}).textContent || '',
       whisper: (document.getElementById('whisperCap') || {}).textContent || '',
-      cow: face(cow), kola: face(kola), yam: face(yam), cloth: face(cloth),
+      pack: face(pack),
       claimHidden: document.getElementById('claimBtn').classList.contains('hidden'),
       overflow: document.documentElement.scrollWidth <= window.innerWidth
     };
@@ -1560,17 +1557,17 @@ try {
   check('home: one slogan, no stacked taglines', home390.slogans === 1 && home390.taglines === 0 && home390.slogan === 'Break your kolo, buy the street.', JSON.stringify(home390.slogan));
   check('home: Quick play is the primary and it sits in the first screen', !!home390.quick && home390.quick.h >= 56 && home390.quick.bottom <= home390.vh && !!home390.join && home390.quick.h > home390.join.h && home390.quick.w >= home390.join.w, JSON.stringify({ quick: home390.quick, join: home390.join, vh: home390.vh }));
   check('home: Quick play mode is on the welcome surface, Inflation selected, inside the first screen', home390.infSel && !home390.claSel && home390.modeTop != null && home390.modeTop >= 0 && home390.modeBottom <= home390.vh && home390.modeBottom <= home390.quick.top, JSON.stringify({ modeTop: home390.modeTop, modeBottom: home390.modeBottom, quick: home390.quick, vh: home390.vh }));
-  check('home: the shelf is goods, not a Today brochure', home390.today === 'Shelf' && home390.cow && home390.cow.n.trim() === '+6' && home390.cow.have === '0', JSON.stringify(home390));
+  check('home: the shelf offers a pack, not goods', home390.today === 'Shelf' && home390.pack && /Open pack \(0\)/.test(home390.pack.text), JSON.stringify(home390.pack));
   check('home: whispers are a switch, not a paragraph', home390.whisper.trim() === '' && !/Off until you ask/.test(home390.whisper), home390.whisper);
   check('home: no horizontal overflow at 390', home390.overflow === true);
   await H390.screenshot({ path: SHOTS + 'kp23-home-390.png' });
   await H390.click('#claimBtn');
   await H390.waitForFunction(() => {
-    const cow = document.querySelector('#marketShelf [data-good="cowries"]');
-    return cow && cow.dataset.have === '6' && (cow.querySelector('.good-n') || {}).textContent.trim() === '6';
+    const pack = document.getElementById('openPackBtn');
+    return pack && /Open pack \(1\)/.test(pack.textContent || '');
   }, { timeout: 8000 }).catch(() => {});
   const after = await readHome(H390);
-  check('home: claim replaces the zeroes with shelf stock', after.cow && after.cow.have === '6' && after.cow.n.trim() === '6' && after.kola && after.kola.have === '2' && after.kola.n.trim() === '2' && after.yam && after.yam.have === '1' && after.cloth && after.cloth.have === '1' && after.claimHidden === true, JSON.stringify(after));
+  check('home: claim puts a pack on the shelf', after.pack && /Open pack \(1\)/.test(after.pack.text) && after.claimHidden === true, JSON.stringify(after.pack));
   await H390.evaluate(() => { const b = document.getElementById('retentionLater'); if (b) b.click(); });
   await sleep(200);
   await H390.screenshot({ path: SHOTS + 'kp23-home-390-stocked.png' });

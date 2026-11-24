@@ -2849,6 +2849,9 @@ function renderActionBar(room) {
   secHtml += ubtn('sbLog', 'book', 'Log');
   // Lesson 11: a way out, with an honest two tap confirm. The host also
   // carries the room ending option.
+  if (!spectator && me && !me.bankrupt && room.status === 'playing' && !room.paid) {
+    secHtml += ubtn('sbCards', 'card', 'Cards', false);
+  }
   if (!spectator && me && !me.bankrupt && room.status === 'playing') {
     secHtml += ubtn('sbLeave', 'logout', leaveArmed ? 'Sure?' : 'Leave', leaveArmed);
     if (myId === room.hostId && !room.paid) secHtml += ubtn('sbEndRoom', 'tickCircle', endRoomArmed ? 'Sure?' : 'End', endRoomArmed);
@@ -2856,6 +2859,24 @@ function renderActionBar(room) {
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
   wire('sbLog', () => openGist());
+  wire('sbCards', () => {
+    const rewards = window.KPRewards && window.KPRewards.current;
+    const cards = (rewards && rewards.cards) || {};
+    const names = { bail: 'Bail card', shield: 'Area Boys rent shield', double: 'Double Alert', dash: 'Danfo dash' };
+    const rows = Object.keys(names).filter((id) => cards[id] > 0).map((id) =>
+      '<button class="btn block" type="button" data-play-card="' + id + '" style="margin-top:8px;">' + names[id] + ' · ' + cards[id] + '</button>'
+    ).join('');
+    const sheet = $('listSheet');
+    sheet.innerHTML = '<div class="grab"></div><h3 class="title">Power cards</h3><p class="caption">One card for this match. Free tables only.</p>' +
+      (rows || '<p class="caption">You no hold a card yet. Open a pack on the shelf.</p>') +
+      '<button class="btn ghost block mt8" data-close="1">Close</button>';
+    $('listScrim').classList.add('show');
+    wireSheetButtons(sheet, myId);
+    sheet.querySelectorAll('[data-play-card]').forEach((b) => b.addEventListener('click', () => {
+      send('play_card', { card: b.dataset.playCard });
+      closeScrim('listScrim');
+    }));
+  });
   wire('sbLeave', () => {
     if (!leaveArmed) { leaveArmed = true; renderActionBar(room); setTimeout(() => { leaveArmed = false; if (state) renderActionBar(state); }, 4000); return; }
     leaveArmed = false;
@@ -4051,6 +4072,12 @@ function renderEnd(room) {
     (room.bankerGhost ? '<p class="end-note">Banker: ' + esc(room.bankerGhost) + ', wey inflation first catch. The ghost run the announcements, no money power.</p>' : '') +
     infEndHtml +
     '<p class="end-note" id="endWalletNote">Wallet holds your prize and any entry that comes back. Add your bank there and the house sends it.</p>' +
+    (function () {
+      const eq = window.KPRewards && window.KPRewards.current && window.KPRewards.current.equipped;
+      if (!eq) return '';
+      const bits = [eq.token, eq.board, eq.daddy, eq.celebrate].filter(Boolean);
+      return bits.length ? '<p class="end-note">Your look: ' + bits.map((id) => esc(id.replace(/-/g, ' '))).join(' · ') + '</p>' : '';
+    })() +
     (window.KPRetention && window.KPRetention.endInstallHtml ? window.KPRetention.endInstallHtml() : '') +
     '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
     '<button class="btn" id="endWallet">Wallet</button>' +
