@@ -102,50 +102,93 @@ function createGameHost(deps) {
     try {
       prizeLedger.add({
         roomCode: room.code, playerId: p.id, name: p.name,
-        amount: room.paidFee, kind: 'refund-due', cityId: room.cityId,
+        amount: room.paidFee, amountKobo: room.paidFee * 100, kind: 'refund-due', cityId: room.cityId,
         accountId: p.accountId || null, email: p.accountEmail || null,
+        reference: p.paidRef || null, why: 'left-lobby',
         at: now(), testMode: !!p.paidTestMode
       });
     } catch (e) { /* the ledger never blocks a room closing */ }
+    p.paidRef = null;
   }
   // Room death before the start refunds every paid seat still seated.
   // Seats that already left were refunded on their way out (the leave
   // handler splices them out of the room before the room can die).
+  // A paid game that started but never finished (everybody gone, the
+  // room timed out) is void: every entry taken at the start comes back,
+  // so nobody's money is swallowed by a table that never produced a
+  // winner. The settled guards keep each road to exactly one write.
   function settleRefunds(room) {
-    if (!room.paid || room.paidGameStarted || room.refundsSettled) return;
+    if (!room.paid || room.refundsSettled) return;
+    if (!room.paidGameStarted) {
+      room.refundsSettled = true;
+      for (const p of room.players) refundSeat(room, p);
+      return;
+    }
+    if (room.prizeSettled) return;
     room.refundsSettled = true;
-    for (const p of room.players) refundSeat(room, p);
+    for (const e of (room.paidEntries || [])) {
+      try {
+        prizeLedger.add({
+          roomCode: room.code, playerId: e.playerId, name: e.name,
+          amount: room.paidFee, amountKobo: room.paidFee * 100, kind: 'refund-due', cityId: room.cityId,
+          accountId: e.accountId || null, email: e.email || null,
+          reference: e.ref || null, gameKey: room.paidGameKey || null, why: 'void-game',
+          at: now(), testMode: !!e.testMode
+        });
+      } catch (err) { /* the ledger never blocks a room closing */ }
+    }
+    if (deps.onPaidEvent) { try { deps.onPaidEvent({ type: 'void', roomCode: room.code, refs: (room.paidEntries || []).map((e) => e.ref).filter(Boolean) }); } catch (err) { /* optional */ } }
   }
   // A finished paid game pays out on paper: the winner's prize and the
   // house share, computed from the ladder for the city and the number
   // of seats the game actually started with. Exactly once per game.
+  // The split is computed in kobo from the fee and the winner share
+  // snapshotted when the game started, so a ladder edit mid-game can
+  // never change what this table owes. Kobo math is exact (the pot is
+  // a whole number of naira times 100 and the share a whole percent);
+  // the house takes whatever the winner share leaves, so winner plus
+  // house always equals the pot to the kobo.
+  function paidSplitOf(room) {
+    const seats = room.paidSeatsAtStart || room.players.length;
+    const share = room.paidShare || (competition.settings().splits || {})[seats] || 90;
+    const potKobo = room.paidFee * 100 * seats;
+    const winnerKobo = Math.floor(potKobo * share / 100);
+    return { seats, share, potKobo, winnerKobo, houseKobo: potKobo - winnerKobo };
+  }
+  function nairaOf(kobo) { return Math.max(1, Math.round(kobo / 100)); }
   function settlePrize(room, winner) {
     if (!room.paid || room.prizeSettled) return;
-    const table = competitionTable(competition.settings());
-    const row = table.find((r) => r.id === room.cityId);
-    if (!row) return;
-    const size = row.sizes.find((s) => s.players === room.paidSeatsAtStart) || row.sizes[row.sizes.length - 1];
-    if (!size) return;
+    const sp = paidSplitOf(room);
+    if (!sp.potKobo) return;
     room.prizeSettled = true;
+    // A winner seat still held by the AFK bot when the game ends did not
+    // play its own way to the win; the prize is owed but waits for a
+    // desk review before any money moves.
+    const review = winner.afkTaken && winner.bot ? 'afk' : null;
     room.prize = {
-      cityId: room.cityId, city: row.city, venue: row.venue, fee: row.fee,
-      players: size.players, pot: size.pot, winner: size.winner, house: size.house,
-      winnerId: winner.id, winnerName: winner.name, testMode: !!room.paidTestMode
+      cityId: room.cityId, city: room.paidCity, venue: room.paidVenue, fee: room.paidFee,
+      players: sp.seats, pot: sp.potKobo / 100, winner: sp.winnerKobo / 100, house: sp.houseKobo / 100,
+      potKobo: sp.potKobo, winnerKobo: sp.winnerKobo, houseKobo: sp.houseKobo, share: sp.share,
+      winnerId: winner.id, winnerName: winner.humanName || winner.name, winnerAccountId: winner.accountId || null,
+      review, testMode: !!room.paidTestMode
     };
     try {
       prizeLedger.add({
-        roomCode: room.code, playerId: winner.id, name: winner.name,
-        amount: size.winner, kind: 'prize', cityId: room.cityId,
+        roomCode: room.code, playerId: winner.id, name: winner.humanName || winner.name,
+        amount: nairaOf(sp.winnerKobo), amountKobo: sp.winnerKobo, kind: 'prize', cityId: room.cityId,
         accountId: winner.accountId || null, email: winner.accountEmail || null,
+        gameKey: room.paidGameKey || null, review,
         at: now(), testMode: !!room.paidTestMode
       });
       prizeLedger.add({
         roomCode: room.code, playerId: null, name: 'House',
-        amount: size.house, kind: 'house', cityId: room.cityId,
+        amount: nairaOf(sp.houseKobo), amountKobo: sp.houseKobo, kind: 'house', cityId: room.cityId,
+        gameKey: room.paidGameKey || null,
         at: now(), testMode: !!room.paidTestMode
       });
     } catch (e) { /* the ledger never blocks the close */ }
-    pushFeed(room, 'info', 'Paid table don settle: ' + winner.name + ' win ' + D.fmtN(size.winner) + ' from the ' + D.fmtN(size.pot) + ' pot. House keep ' + D.fmtN(size.house) + '.' + (room.paidTestMode ? ' Test mode: no real money move.' : ''), { playerId: winner.id, amount: size.winner });
+    if (deps.onPaidEvent) { try { deps.onPaidEvent({ type: 'settled', roomCode: room.code, refs: (room.paidEntries || []).map((e) => e.ref).filter(Boolean) }); } catch (e) { /* optional */ } }
+    pushFeed(room, 'info', 'Paid table don settle: ' + room.prize.winnerName + ' win ' + D.fmtN(room.prize.winner) + ' from the ' + D.fmtN(room.prize.pot) + ' pot. House keep ' + D.fmtN(room.prize.house) + '.' + (room.paidTestMode ? ' Test mode: no real money move.' : ''), { playerId: winner.id, amount: room.prize.winner });
   }
   const AUCTION_MS = TEST ? 4000 : 20000;
   const MAX_PLAYERS = 6;
@@ -606,7 +649,8 @@ function newRoom(code, isPublic, mode, settings) {
     // exactly once.
     paid: false, cityId: null, paidCity: null, paidVenue: null, paidFee: 0,
     paidTestMode: false, paidSeatsAtStart: 0, paidGameStarted: false,
-    prizeSettled: false, refundsSettled: false, prize: null
+    prizeSettled: false, refundsSettled: false, prize: null,
+    paidEntries: [], paidGameKey: null, paidShare: null
   };
 }
 function connectedSolvent(room) {
@@ -1806,9 +1850,20 @@ function startGame(room) {
   // this table for an abandoned lobby and refund seats twice over.
   if (room.paid) {
     room.paidSeatsAtStart = room.players.length;
+    room.paidShare = (competition.settings().splits || {})[room.players.length] || 90;
     room.paidGameStarted = true;
     room.prizeSettled = false;
+    room.refundsSettled = false;
     room.prize = null;
+    room.paidGameKey = room.code + '-' + room.startedAt.toString(36);
+    room.paidEntries = room.players.filter((p) => !p.bot).map((p) => ({
+      playerId: p.id, name: p.name, accountId: p.accountId || null, email: p.accountEmail || null,
+      ref: p.paidRef || null, testMode: !!p.paidTestMode
+    }));
+    // A paid table always runs on the match clock, so every paid game
+    // reaches a winner inside the hour; nobody can hold the pot open.
+    if (!isInf(room)) room.settings.timed = true;
+    if (deps.onPaidEvent) { try { deps.onPaidEvent({ type: 'start', roomCode: room.code, gameKey: room.paidGameKey, refs: room.paidEntries.map((e) => e.ref).filter(Boolean) }); } catch (e) { /* optional */ } }
   }
   for (const p of room.players) { if (!p.bot) { p.lastActive = room.startedAt; p.afkWarn = 0; p.afkTaken = false; } }
   room.afkTakeovers = 0;
@@ -2538,7 +2593,10 @@ function tick() {
     if (room.players.some((p) => p.connected && !p.bot)) { room.emptyAt = null; continue; }
     if (room.emptyAt == null) room.emptyAt = now();
     if (now() - room.emptyAt >= ROOM_GRACE_MS) {
-      if (room.status === 'playing' && room.players.some((p) => p.bot)) {
+      // A paid game that everybody walked away from ends the same way the
+      // clock would end it (richest seat wins), so its pot always goes to
+      // a winner instead of vanishing with the room.
+      if (room.status === 'playing' && (room.paid || room.players.some((p) => p.bot))) {
         const alive = solventPlayers(room);
         if (alive.length) {
           const winner = alive.slice().sort((a, b) => netWorth(room, b) - netWorth(room, a) || b.cash - a.cash)[0];
@@ -3221,6 +3279,7 @@ function handleConnection(ws) {
       if (room.paid) {
         room.paidGameStarted = false; room.paidSeatsAtStart = 0;
         room.prizeSettled = false; room.prize = null;
+        room.refundsSettled = false; room.paidEntries = []; room.paidGameKey = null; room.paidShare = null;
         for (const p of room.players) { p.paidSeat = false; p.paidRef = null; p.payPending = false; }
       }
       setMessage(room, 'Back to the lobby. The host fit start a new game with the same players.');
@@ -3680,6 +3739,10 @@ function handleConnection(ws) {
     if (msg.type === 'end_room') {
       if (!ctx.player || ctx.player.id !== room.hostId) return fail('Only the host fit end the room.');
       if (room.status !== 'playing') return fail('No game dey run.');
+      // Real money rides a paid table, so no single seat can call the
+      // winner early: the game ends by the clock, the horn, or the last
+      // landlord standing.
+      if (room.paid) return fail('Paid table no fit end early. The game go end when the clock finish or when one landlord remain.');
       const alive = solventPlayers(room);
       if (!alive.length) return fail('No players remain.');
       const winner = alive.slice().sort((a, b) => netWorth(room, b) - netWorth(room, a) || b.cash - a.cash)[0];
@@ -4097,6 +4160,9 @@ function handleConnection(ws) {
       if (room.prizeSettled === undefined) room.prizeSettled = false;
       if (room.refundsSettled === undefined) room.refundsSettled = false;
       if (room.prize === undefined) room.prize = null;
+      if (!Array.isArray(room.paidEntries)) room.paidEntries = [];
+      if (room.paidGameKey === undefined) room.paidGameKey = null;
+      if (room.paidShare === undefined) room.paidShare = null;
       if (room.inf && room.inf.v !== 2) {
         // Old four-phase snapshot: keep the table and the current phase,
         // restart the current phase with its new listed length, and run
@@ -4181,9 +4247,12 @@ function handleConnection(ws) {
   function settlePaidSeat(roomCode, sel, info) {
     const room = rooms.get(String(roomCode || ''));
     if (!room || !room.paid || room.status !== 'lobby') return false;
-    const seat = room.players.find((p) =>
-      (sel && sel.playerId != null && p.id === Number(sel.playerId)) ||
-      (sel && sel.accountId && p.accountId === sel.accountId));
+    // The account is the identity: a record that carries one only ever
+    // settles that account's seat, never a seat that happens to share a
+    // player number.
+    const seat = room.players.find((p) => sel && (sel.accountId
+      ? p.accountId === sel.accountId
+      : (sel.playerId != null && p.id === Number(sel.playerId))));
     if (!seat || seat.bot || seat.paidSeat) return false;
     seat.paidSeat = true;
     seat.paidRef = (info && info.ref) || null;

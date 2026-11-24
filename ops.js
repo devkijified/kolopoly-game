@@ -17,7 +17,7 @@ const OPS_DIR = path.join(__dirname, 'ops');
 const DESK_HTML = fs.readFileSync(path.join(OPS_DIR, 'desk.html'), 'utf8');
 const DESK_CSS = fs.readFileSync(path.join(OPS_DIR, 'desk.css'));
 const DESK_JS = fs.readFileSync(path.join(OPS_DIR, 'desk.js'));
-const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/prizes', '/ops/unlock', '/ops/lock']);
+const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/prizes', '/ops/money', '/ops/money/action', '/ops/unlock', '/ops/lock']);
 const QUERY_KEYS = ['token', 'key', 'password', 'secret', 'kp_admin_token'];
 const STRIP_KEYS = new Set([
   'clientId', 'reconnectToken', 'reconnect', 'privateKey', 'publicKey',
@@ -47,6 +47,7 @@ function createOps(opts) {
   const retention = opts.retention;
   const competition = opts.competition;
   const prizes = opts.prizes;
+  const money = opts.money || null;
   const bootAt = Date.now();
   const buckets = new Map();
   const globalBucket = { n: 0, windowEnd: 0, lockedUntil: 0 };
@@ -518,6 +519,47 @@ function createOps(opts) {
     sendJson(res, 200, scrub(prizes.view(), currentToken()));
   }
 
+  // Money: payments in, payouts out, house take, and the payout queue
+  // actions (send, approve, mark paid by hand, recheck a payment).
+  // Read and write both sit behind the desk key; writes also need the
+  // desk's own origin, like the competition save.
+  function deskAuth(req, res) {
+    const key = clientKey(req);
+    const auth = authenticate(req);
+    if (!auth.ok) {
+      if (auth.guess) recordFail(key);
+      const status = rateLimited(key) && auth.guess ? 429 : 401;
+      const message = status === 429
+        ? 'Too many tries. The desk is quiet for a while.'
+        : 'That key no open this desk.';
+      sendJson(res, status, { ok: false, error: status === 429 ? 'locked' : 'unauthorized', message });
+      return false;
+    }
+    if (!money) {
+      sendJson(res, 503, { ok: false, error: 'locked', message: 'Money is not wired on this host.' });
+      return false;
+    }
+    return true;
+  }
+  function moneyGet(req, res) {
+    if (!deskAuth(req, res)) return;
+    sendJson(res, 200, scrub(money.view(), currentToken()));
+  }
+  async function moneyPost(req, res) {
+    if (!originOk(req)) {
+      sendJson(res, 403, { ok: false, error: 'origin', message: 'That request did not come from this desk.' });
+      return;
+    }
+    if (!deskAuth(req, res)) return;
+    let parsed;
+    try { parsed = JSON.parse(await readJsonBody(req, 4096)); } catch (e) {
+      sendJson(res, 400, { ok: false, error: 'bad', message: 'That action did not arrive in one piece.' });
+      return;
+    }
+    const out = await money.action(parsed);
+    sendJson(res, out && out.ok ? 200 : 400, scrub(out || { ok: false }, currentToken()));
+  }
+
   function readJsonBody(req, limit) {
     return new Promise((resolve, reject) => {
       const chunks = [];
@@ -617,6 +659,14 @@ function createOps(opts) {
     }
     if (req.method === 'GET' && route === '/ops/prizes') {
       prizesView(req, res);
+      return;
+    }
+    if (req.method === 'GET' && route === '/ops/money') {
+      moneyGet(req, res);
+      return;
+    }
+    if (req.method === 'POST' && route === '/ops/money/action') {
+      await moneyPost(req, res);
       return;
     }
     if (req.method === 'POST' && route === '/ops/unlock') {

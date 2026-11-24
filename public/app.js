@@ -1432,32 +1432,170 @@ async function initializePayment() {
     if (room) renderLobby();
   }
 }
+// The return trip from Paystack. Paystack sends the player back to
+// /?paid=CODE&trxref=REF&reference=REF; the reference also waits in
+// this tab's storage in case the URL lost it. The page asks the server
+// to verify (the server asks Paystack; the client's word never counts)
+// and shows a game-style confirm card until the answer lands.
+let payConfirm = null; // { state: 'checking' | 'paid' | 'failed' | 'refund', ref }
+function showPayConfirm(state, text) {
+  payConfirm = Object.assign({}, payConfirm || {}, { state, text });
+  let el = $('payConfirmCard');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'payConfirmCard';
+    el.className = 'p2e-confirm';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  const icon = state === 'paid' ? window.icon('check', 22) : state === 'checking' ? '<span class="p2e-spin" aria-hidden="true"></span>' : window.icon('card', 22);
+  el.className = 'p2e-confirm show ' + state;
+  el.innerHTML = '<div class="p2e-confirm-ico">' + icon + '</div><div class="p2e-confirm-body"><div class="p2e-confirm-title">' +
+    (state === 'paid' ? 'Seat paid' : state === 'checking' ? 'Confirming with Paystack' : state === 'refund' ? 'Your entry is coming back' : 'Payment no land') +
+    '</div><div class="p2e-confirm-text">' + esc(text || '') + '</div></div>' +
+    (state === 'checking' ? '' : '<button class="p2e-confirm-x" type="button" aria-label="Close">' + window.icon('close', 16) + '</button>');
+  const x = el.querySelector('.p2e-confirm-x');
+  if (x) x.addEventListener('click', () => { el.classList.remove('show'); });
+  if (state === 'paid') setTimeout(() => { if (payConfirm && payConfirm.state === 'paid') el.classList.remove('show'); }, 4500);
+}
 (function pollReturnPayment() {
   let ref = '';
-  try { ref = sessionStorage.getItem('kolopolyPayRef') || ''; } catch (e) {}
-  if (!ref) return;
+  try {
+    const q = new URLSearchParams(location.search);
+    ref = q.get('reference') || q.get('trxref') || '';
+    if (q.has('paid') || q.has('reference') || q.has('trxref')) {
+      // Clean the address so a refresh or a shared link never replays it.
+      q.delete('paid'); q.delete('reference'); q.delete('trxref');
+      const rest = q.toString();
+      history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+    }
+  } catch (e) {}
+  try { ref = ref || sessionStorage.getItem('kolopolyPayRef') || ''; } catch (e) {}
+  if (!/^kp[0-9a-z]{6,40}$/.test(ref)) return;
+  showPayConfirm('checking', 'Hold on small. Paystack dey confirm your ' + 'entry.');
   let tries = 0;
-  const timer = setInterval(async () => {
+  const done = (state, text) => {
+    clearInterval(timer);
+    try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
+    showPayConfirm(state, text);
+    try { if (state === 'paid') { sfx.coin && sfx.coin(); } } catch (e) {}
+  };
+  const tick = async () => {
     tries += 1;
     try {
       const res = await fetch('/api/payments/status?reference=' + encodeURIComponent(ref));
       const data = await res.json().catch(() => null);
-      if (data && data.status === 'paid') {
-        clearInterval(timer);
-        try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
-        toast('Payment confirmed. Your seat don pay.');
+      if (res.status === 404) { done('failed', 'This phone no know that payment. If money left your account, the house go see am and return it.'); return; }
+      if (data && data.status === 'paid' && (data.seat === 'refund-due' || data.seat === 'refunded' || data.seat === 'mismatch')) {
+        done('refund', 'Paystack confirm the money, but that seat no dey again. Your entry is queued to come back to you.');
         return;
       }
-      if (data && data.status === 'failed') {
-        clearInterval(timer);
-        try { sessionStorage.removeItem('kolopolyPayRef'); } catch (e) {}
-        toast('That payment no go through. Try again.');
-        return;
-      }
+      if (data && data.status === 'paid') { done('paid', 'Paystack confirm am. Your seat is paid, wait for the host to start.'); return; }
+      if (data && data.status === 'failed') { done('failed', 'That payment no go through. Nothing was taken. Tap Pay to try again.'); return; }
     } catch (e) {}
-    if (tries >= 24) clearInterval(timer);
-  }, 2500);
+    if (tries >= 30) done('failed', 'Paystack never confirm yet. If you paid, your seat go update by itself within a few minutes.');
+  };
+  const timer = setInterval(tick, 2500);
+  setTimeout(tick, 600);
 })();
+// ---------------------------------------------------------------------------
+// Winnings: the prize and refund locker for the signed-in account, and
+// the bank the prizes go to. The account number is checked against the
+// bank by Paystack before it saves; only the bank, the account name and
+// the last four digits ever come back to this phone.
+// ---------------------------------------------------------------------------
+const PAYOUT_WORDS = {
+  'awaiting-bank': ['Add your bank', 'warn'],
+  ready: ['On the way', 'go'],
+  review: ['House dey check', 'warn'],
+  sending: ['Sending', 'go'],
+  otp: ['Sending', 'go'],
+  failed: ['Delayed, house dey retry', 'warn'],
+  paid: ['Paid to your bank', 'ok'],
+  'paid-manual': ['Paid to your bank', 'ok'],
+  'refund-pending': ['Refund on the way', 'go'],
+  refunded: ['Refunded', 'ok'],
+  'refunded-manual': ['Refunded', 'ok'],
+  test: ['Test mode, no money', 'muted']
+};
+let payoutBanks = null;
+async function openWinnings(focusBank) {
+  const sheet = $('paidSheet');
+  sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('crown', 18) + ' Your winnings</h3>' +
+    '<div id="winBody" class="p2e-win"><p class="caption">Loading your locker…</p></div>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('paidScrim').classList.add('show');
+  wireSheetButtons(sheet, myId);
+  if (!authToken()) { $('winBody').innerHTML = '<p class="caption">Sign in with your email to see your winnings.</p>'; return; }
+  let data = null;
+  try {
+    const res = await fetch('/api/payouts/mine', { headers: { Authorization: 'Bearer ' + authToken() } });
+    data = await res.json().catch(() => null);
+  } catch (e) { data = null; }
+  const box = $('winBody');
+  if (!box) return;
+  if (!data || !data.ok) { box.innerHTML = '<p class="caption">Your locker no load. Check your connection and try again.</p>'; return; }
+  const rows = data.payouts || [];
+  const owedKobo = rows.filter((r) => r.kind === 'prize' && !/^(paid|paid-manual|test)$/.test(r.status)).reduce((t, r) => t + r.amountKobo, 0);
+  const paidKobo = rows.filter((r) => r.kind === 'prize' && /^(paid|paid-manual)$/.test(r.status)).reduce((t, r) => t + r.amountKobo, 0);
+  let html = '<div class="p2e-tally"><div><span class="p2e-tally-k">Coming to you</span><span class="p2e-tally-v">' + fmtN(owedKobo / 100) + '</span></div>' +
+    '<div><span class="p2e-tally-k">Paid out</span><span class="p2e-tally-v">' + fmtN(paidKobo / 100) + '</span></div></div>';
+  html += '<div class="p2e-bank" id="winBank"></div>';
+  html += rows.length
+    ? '<ul class="p2e-list">' + rows.map((r) => {
+      const w = PAYOUT_WORDS[r.status] || [r.status, 'muted'];
+      return '<li class="p2e-row"><div class="p2e-row-main"><div class="p2e-row-title">' + (r.kind === 'prize' ? 'Prize · table ' : 'Entry back · table ') + esc(r.roomCode) + '</div>' +
+        '<div class="p2e-row-sub">' + new Date(r.createdAt).toLocaleDateString() + '</div></div>' +
+        '<div class="p2e-row-side"><div class="p2e-row-amt">' + fmtN(r.amount) + '</div><span class="p2e-chip ' + w[1] + '">' + esc(w[0]) + '</span></div></li>';
+    }).join('') + '</ul>'
+    : '<p class="caption">No winnings yet. Win a paid table and your prize lands here.</p>';
+  box.innerHTML = html;
+  renderBankBlock(data, !!focusBank);
+}
+function renderBankBlock(data, open) {
+  const el = $('winBank');
+  if (!el) return;
+  if (!data.payoutsReady) { el.innerHTML = '<p class="caption">Bank payouts never open yet. The house go pay you by hand.</p>'; return; }
+  if (data.bank && !open) {
+    el.innerHTML = '<div class="p2e-bank-card"><div class="p2e-bank-ico">' + window.icon('card', 18) + '</div><div class="p2e-bank-main"><div class="p2e-bank-name">' + esc(data.bank.accountName) + '</div>' +
+      '<div class="p2e-bank-sub">' + esc(data.bank.bankName) + ' · ••••' + esc(data.bank.last4) + '</div></div>' +
+      '<button class="mini-btn" id="bankChange" type="button">Change</button></div>';
+    $('bankChange').addEventListener('click', () => renderBankBlock(data, true));
+    return;
+  }
+  el.innerHTML = '<div class="p2e-form"><div class="p2e-form-title">Where your prize go land</div>' +
+    '<label class="p2e-label" for="bankSel">Bank</label><select id="bankSel" class="p2e-input"><option value="">Loading banks…</option></select>' +
+    '<label class="p2e-label" for="acctIn">Account number</label><input id="acctIn" class="p2e-input" type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="10 digits">' +
+    '<button class="btn gold block" id="bankSave" type="button">Check and save</button>' +
+    '<p class="p2e-msg" id="bankMsg"></p></div>';
+  const sel = $('bankSel');
+  const fill = (banks) => {
+    sel.innerHTML = '<option value="">Pick your bank</option>' + banks.map((b) => '<option value="' + esc(b.code) + '">' + esc(b.name) + '</option>').join('');
+  };
+  if (payoutBanks) fill(payoutBanks);
+  else {
+    fetch('/api/payouts/banks', { headers: { Authorization: 'Bearer ' + authToken() } }).then((r) => r.json()).then((d) => {
+      if (d && d.ok) { payoutBanks = d.banks; fill(d.banks); } else sel.innerHTML = '<option value="">Bank list no load</option>';
+    }).catch(() => { sel.innerHTML = '<option value="">Bank list no load</option>'; });
+  }
+  const acct = $('acctIn');
+  acct.addEventListener('input', () => { acct.value = acct.value.replace(/\D/g, '').slice(0, 10); });
+  $('bankSave').addEventListener('click', async () => {
+    const msg = $('bankMsg');
+    const btn = $('bankSave');
+    if (!sel.value) { msg.textContent = 'Pick your bank first.'; return; }
+    if (!/^\d{10}$/.test(acct.value)) { msg.textContent = 'Account number na 10 digits.'; return; }
+    btn.disabled = true; btn.textContent = 'Checking with your bank…'; msg.textContent = '';
+    try {
+      const res = await fetch('/api/payouts/bank', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken() }, body: JSON.stringify({ bankCode: sel.value, accountNumber: acct.value }) });
+      const d = await res.json().catch(() => null);
+      if (d && d.ok) { toast('Bank saved: ' + d.bank.accountName + '. Your prize go land there.'); openWinnings(false); return; }
+      msg.textContent = (d && d.message) || 'The bank no save. Try again.';
+    } catch (e) { msg.textContent = 'The bank no save. Check your connection and try again.'; }
+    btn.disabled = false; btn.textContent = 'Check and save';
+  });
+}
 function openPaidTables() {
   const sheet = $('paidSheet');
   sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + window.icon('card', 18) + ' Play to Earn</h3>' +
@@ -1465,8 +1603,12 @@ function openPaidTables() {
     '<p class="caption" id="paidLoad" style="margin-top:8px;">Loading the tables…</p>' +
     '<div id="paidAuth"></div>' +
     '<div id="paidCities"></div>' +
-    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+    '<div class="btnrow"><button class="btn" id="paidWinBtn" type="button">' + window.icon('crown', 16) + ' My winnings</button><button class="btn ghost" data-close="1">Close</button></div>';
   $('paidScrim').classList.add('show');
+  $('paidWinBtn').addEventListener('click', () => {
+    if (!authToken()) { toast('Sign in with your email first.'); return; }
+    openWinnings(false);
+  });
   renderPaidAuth();
   wireSheetButtons(sheet, myId);
   fetch('/api/competition').then((r) => r.json()).then((data) => {
@@ -2069,7 +2211,7 @@ function renderLobby(room) {
     const unpaidCount = room.players.filter((p) => !p.bot && !p.paidSeat).length;
     let paidHtml = '<div class="paid-panel">' +
       '<div class="paid-panel-head">' + window.icon('card', 16) + ' Paid table · ' + esc(room.paid.city) + ' · ' + fmtN(room.paid.fee) + ' entry</div>' +
-      '<p class="caption">Every seat must pay ' + fmtN(room.paid.fee) + ' before the game fit start. Winner takes the prize, house keeps 10 percent. If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>';
+      '<p class="caption">Every seat pays ' + fmtN(room.paid.fee) + ' before the game starts. Winner takes 90 percent of the pot, house keeps 10. The game runs on the 60 minute clock and nobody fit end am early. If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>';
     if (room.paid.mode === 'off') {
       paidHtml += '<p class="caption" style="margin-top:8px;">Payments never set up yet. The house still dey finish the setup, so nobody fit pay for this table yet.</p>';
     } else if (!spectator && mePaid && !mePaid.bot && !mePaid.paidSeat && !mePaid.payPending) {
@@ -3677,7 +3819,7 @@ function renderEnd(room) {
     (room.endReason === 'resignation' ? '<p class="end-reason">Won by resignation.</p>' : '') +
     (room.endReason === 'abandoned' ? '<p class="end-reason">Everybody leave the table, so the room close.</p>' : '') +
     (room.endReason === 'host' ? '<p class="end-reason">The host end the room.</p>' : '') +
-    (room.prize ? '<p class="end-prize">' + esc(room.prize.winnerName) + ' win ' + fmtN(room.prize.winner) + ' from the ' + fmtN(room.prize.pot) + ' pot · ' + esc(room.prize.city) + ' table, ' + fmtN(room.prize.fee) + ' entry, ' + room.prize.players + ' players. House keep ' + fmtN(room.prize.house) + '.' + (room.prize.testMode ? ' Test mode: no real money move.' : '') + '</p>' : '') +
+    paidPrizeHtml(room) +
     '<div class="end-tables">' +
       '<section class="end-panel"><h3 class="end-panel-title">The table</h3><p class="end-panel-sub">Net worth, highest first</p>' +
         '<ol class="end-board">' + rows + '</ol></section>' +
@@ -3693,6 +3835,8 @@ function renderEnd(room) {
     '<button class="btn green" id="endAgain">Play again</button></div>' +
     '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
   o.classList.add('show');
+  const collect = $('endCollect');
+  if (collect) collect.addEventListener('click', () => openWinnings(true));
   $('endShare').addEventListener('click', () => {
     openShare('final', {
       rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0, bot: !!(r.bot || r.afkTaken) })),
@@ -3714,6 +3858,28 @@ function renderEnd(room) {
   if (window.KPRetention) window.KPRetention.onWin(!!(room.winner && myId && room.winner.playerId === myId));
 }
 window.__kolopolyRenderEnd = renderEnd;
+// The paid table's prize on the final table: a gold prize plate for
+// the winner with the collect button, a plain line for everybody else.
+function paidPrizeHtml(room) {
+  const pz = room.prize;
+  if (!pz) return '';
+  const iWon = myId != null && pz.winnerId === myId && !spectator;
+  const split = 'Pot ' + fmtN(pz.pot) + ' · ' + pz.players + ' players · house ' + fmtN(pz.house);
+  if (iWon) {
+    return '<div class="p2e-prize win">' +
+      '<div class="p2e-prize-k">' + window.icon('crown', 16) + ' You win the ' + esc(pz.city) + ' table</div>' +
+      '<div class="p2e-prize-v">' + fmtN(pz.winner) + '</div>' +
+      '<div class="p2e-prize-sub">' + split + '</div>' +
+      (pz.testMode ? '<div class="p2e-prize-sub">Test mode: no real money move.</div>'
+        : (pz.review ? '<div class="p2e-prize-sub">The bot held your seat at the end, so the house go check the game before paying.</div>' : '') +
+          '<button class="btn gold block" id="endCollect" type="button">' + window.icon('card', 16) + ' Collect to my bank</button>') +
+      '</div>';
+  }
+  return '<div class="p2e-prize">' +
+    '<div class="p2e-prize-k">' + esc(pz.city) + ' table prize</div>' +
+    '<div class="p2e-prize-line">' + esc(pz.winnerName) + ' win <b>' + fmtN(pz.winner) + '</b></div>' +
+    '<div class="p2e-prize-sub">' + split + (pz.testMode ? ' · test mode, no real money' : '') + '</div></div>';
+}
 let shareCanvas = null;
 function openShare(kind, data) {
   shareCanvas = window.KPBoard.drawShareCard(kind, data);

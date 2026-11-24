@@ -260,6 +260,8 @@ try {
     check('the paid game starts once every seat has paid', true);
 
     host.send('end_room', {});
+    await host.waitError('no fit end early', 'paid early end refused');
+    host.send('test_clock', { secondsLeft: 0 });
     await host.waitFor((s) => s.status === 'ended' && !!s.prize, 'paid game settled');
     const prize = host.state.prize;
     check('the prize is priced on 2 seats: pot ₦400, winner ₦360, house ₦40',
@@ -321,6 +323,8 @@ try {
     host.send('start_game', {});
     await host.waitFor((s) => s.status === 'playing', 'four player game started');
     host.send('end_room', {});
+    await host.waitError('no fit end early', 'paid early end refused');
+    host.send('test_clock', { secondsLeft: 0 });
     await host.waitFor((s) => s.status === 'ended' && !!s.prize, 'four player game settled');
     const prize = host.state.prize;
     check('four seats: pot ₦800, winner ₦720, house ₦80', prize.pot === 800 && prize.winner === 720 && prize.house === 80 && prize.players === 4, JSON.stringify(prize));
@@ -456,6 +460,8 @@ try {
     payHost.send('start_game', {});
     await payHost.waitFor((s) => s.status === 'playing', 'paystack game started');
     payHost.send('end_room', {});
+    await payHost.waitError('no fit end early', 'paid early end refused');
+    payHost.send('test_clock', { secondsLeft: 0 });
     await payHost.waitFor((s) => s.status === 'ended' && !!s.prize, 'paystack game settled');
     check('the Paystack game prices the same: pot ₦400, winner ₦360, house ₦40',
       payHost.state.prize.pot === 400 && payHost.state.prize.winner === 360 && payHost.state.prize.house === 40, JSON.stringify(payHost.state.prize));

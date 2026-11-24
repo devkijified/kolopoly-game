@@ -16,6 +16,8 @@ const { createTestProvider, createRedirectProvider, createOffProvider } = requir
 const { createMailer } = require('./mailer');
 const { createAuth } = require('./auth');
 const { createPaystack, createPaymentStore } = require('./paystack');
+const { createPayouts } = require('./payouts');
+const { createDurable } = require('./durable');
 const records = require('./server-records.js');
 
 const PORT = process.env.PORT || 4173;
@@ -72,11 +74,19 @@ function cleanClientId(v) {
   return /^[a-zA-Z0-9-]{8,64}$/.test(s) ? s : null;
 }
 
+// Where the JSON stores live. Point KP_DATA_DIR at a mounted disk on a
+// host that has one; on a host without (Render free), the money stores
+// also mirror into Supabase through durable.js.
+const DATA_DIR = process.env.KP_DATA_DIR || path.join(__dirname, 'data');
+const durable = createDurable(process.env);
+if (durable.enabled) console.log('Money records mirror to Supabase (kolopoly_kv), so a restart or redeploy keeps them.');
+else console.log('Money records live only in ' + DATA_DIR + '. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (and run migrations/002_kolopoly_kv.sql) or KP_DATA_DIR on a disk, or a redeploy loses them.');
 const competition = createCompetition({
-  file: process.env.KP_COMPETITION_FILE || path.join(__dirname, 'data', 'competition.json')
+  file: process.env.KP_COMPETITION_FILE || path.join(DATA_DIR, 'competition.json')
 });
 const prizeLedger = createPrizeLedger({
-  file: process.env.KP_PRIZES_FILE || path.join(__dirname, 'data', 'prizes.json')
+  file: process.env.KP_PRIZES_FILE || path.join(DATA_DIR, 'prizes.json'),
+  mirror: durable.mirror('prizes')
 });
 // Paid play plumbing: email accounts, the mailer, Paystack and the
 // payment records. The provider mode follows the environment: test
@@ -94,15 +104,26 @@ const retention = createRetention({
   test: TEST,
   env: process.env,
   auth,
-  file: process.env.KP_RETENTION_FILE || path.join(__dirname, 'data', 'retention.json')
+  file: process.env.KP_RETENTION_FILE || path.join(DATA_DIR, 'retention.json')
 });
 if (!retention.vapid.enabled) {
   console.log('Web Push is off until VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are set.');
 }
 const paystack = createPaystack({});
 const payments = createPaymentStore({
-  file: process.env.KP_PAYMENTS_FILE || path.join(__dirname, 'data', 'payments.json')
+  file: process.env.KP_PAYMENTS_FILE || path.join(DATA_DIR, 'payments.json'),
+  mirror: durable.mirror('payments')
 });
+// The payout queue: every prize and refund the ledger writes becomes
+// one payout row; money moves from the desk (or by itself when
+// KP_PAYOUT_MODE=auto) through Paystack transfers and refunds.
+const payouts = createPayouts({
+  file: process.env.KP_PAYOUTS_FILE || path.join(DATA_DIR, 'payouts.json'),
+  mirror: durable.mirror('payouts'),
+  paystack, payments
+});
+prizeLedger.setOnAdd((entry) => payouts.fromLedger(entry));
+console.log('Payouts run in ' + (process.env.KP_PAYOUT_MODE === 'auto' ? 'auto' : 'manual') + ' mode' + (process.env.KP_PAYOUT_MODE === 'auto' ? ': ready prizes and refunds send by themselves.' : ': the ops desk sends each prize and refund.'));
 const payProvider = paystack.enabled && (process.env.KP_PAYMENTS === 'paystack' || !TEST)
   ? createRedirectProvider()
   : TEST ? createTestProvider({ delayMs: 10 }) : createOffProvider();
@@ -124,7 +145,17 @@ const host = createGameHost({
   competition,
   prizeLedger,
   payProvider,
-  auth
+  auth,
+  // The paid game tells the payment records where each entry's money
+  // went: into a started game, then out as prize and house share.
+  onPaidEvent(ev) {
+    const seat = ev.type === 'start' ? 'in-game' : ev.type === 'settled' ? 'consumed' : null;
+    if (!seat) return;
+    for (const ref of ev.refs || []) {
+      const rec = payments.get(ref);
+      if (rec && rec.status === 'paid') payments.update(ref, { seat }, { kind: seat, gameKey: ev.gameKey || null });
+    }
+  }
 });
 const rooms = host.rooms;
 
@@ -133,40 +164,145 @@ const rooms = host.rooms;
 // by any of them settles exactly once, because a record already paid
 // answers duplicate and changes nothing. The amount must match the
 // record to the kobo: a success for the wrong amount settles nothing.
+// How long an opened payment may stay unfinished before the sweep stops
+// asking. Paystack reports an opened-but-unpaid transaction as
+// "abandoned" from the first second, so abandoned alone never closes a
+// payment; only this age does. A success that lands after the close
+// still settles (late success always wins).
+const PAY_EXPIRE_MS = Number(process.env.KP_PAY_EXPIRE_MS) || 45 * 60 * 1000;
+function refundDueFor(rec, why, amountKobo) {
+  const kobo = amountKobo || rec.amountKobo;
+  prizeLedger.add({
+    roomCode: rec.roomCode, playerId: rec.playerId, name: rec.email ? rec.email.split('@')[0] : 'Player',
+    amount: Math.max(1, Math.round(kobo / 100)), amountKobo: kobo, kind: 'refund-due', cityId: rec.cityId,
+    accountId: rec.accountId, email: rec.email, reference: rec.reference, why, at: Date.now(), testMode: false
+  });
+}
 function settlePayment(reference, via, outcome) {
   const rec = payments.get(reference);
   if (!rec) return { ok: false, reason: 'unknown' };
   if (rec.status === 'paid') return { ok: true, duplicate: true };
-  if (rec.status !== 'pending') return { ok: false, reason: 'closed' };
-  if (outcome && outcome.status === 'success' && Number(outcome.amountKobo) === rec.amountKobo) {
-    payments.update(reference, { status: 'paid' }, { kind: 'settled', via });
-    host.settlePaidSeat(rec.roomCode, { playerId: rec.playerId, accountId: rec.accountId }, { ref: reference });
-    return { ok: true, settled: true };
+  const success = outcome && outcome.status === 'success';
+  if (success) {
+    const late = rec.status !== 'pending';
+    if (Number(outcome.amountKobo) !== rec.amountKobo || (outcome.currency && String(outcome.currency).toUpperCase() !== 'NGN')) {
+      // Money arrived, but not the money this seat costs. It never seats
+      // anybody; it goes straight back.
+      payments.update(reference, { status: 'paid', seat: 'mismatch' }, { kind: 'mismatch', via, amountKobo: Number(outcome.amountKobo) || 0, currency: outcome.currency || null });
+      console.log('Payment ' + reference + ' paid the wrong amount; queued for refund.');
+      refundDueFor(rec, 'wrong-amount', Number(outcome.amountKobo) || rec.amountKobo);
+      return { ok: true, mismatch: true };
+    }
+    payments.update(reference, { status: 'paid' }, { kind: 'settled', via, late: late || undefined });
+    const seated = host.settlePaidSeat(rec.roomCode, { playerId: rec.playerId, accountId: rec.accountId }, { ref: reference });
+    if (seated) {
+      payments.update(reference, { seat: 'seated' }, { kind: 'seated' });
+    } else {
+      // Paid, but the seat is gone (the room closed, the game started,
+      // the player left, or this seat was already paid another way).
+      // The money is owed back, never kept.
+      console.log('Payment ' + reference + ' confirmed with no seat to hold it; queued for refund.');
+      refundDueFor(rec, 'no-seat');
+    }
+    return { ok: true, settled: true, seated };
   }
-  if (outcome && (outcome.status === 'failed' || outcome.status === 'abandoned')) {
+  if (rec.status !== 'pending') return { ok: false, reason: 'closed' };
+  if (outcome && (outcome.status === 'failed' || outcome.status === 'reversed')) {
     payments.update(reference, { status: 'failed' }, { kind: 'failed', via });
     return { ok: true, failed: true };
   }
+  if (Date.now() - rec.createdAt > PAY_EXPIRE_MS) {
+    payments.update(reference, { status: 'failed' }, { kind: 'expired', via, last: outcome ? outcome.status : null });
+    return { ok: true, failed: true, expired: true };
+  }
   return { ok: false, reason: 'not-success' };
+}
+async function verifyAndSettle(reference, via) {
+  payments.touch(reference);
+  const v = await paystack.verify(reference);
+  if (v.ok) return settlePayment(reference, via, { status: v.status, amountKobo: v.amountKobo, currency: v.currency });
+  return { ok: false, reason: 'verify' };
 }
 // The reconcile sweep: a payment whose webhook never arrived and
 // whose player never came back still settles, by asking Paystack
-// directly about anything pending past the grace age.
+// directly about anything pending past the grace age. The same beat
+// finishes prize transfers left in flight.
 const SWEEP_INTERVAL_MS = Number(process.env.KP_SWEEP_INTERVAL_MS) || 30000;
 const SWEEP_AGE_MS = Number(process.env.KP_SWEEP_AGE_MS) || 60000;
-if (paystack.enabled) {
+function startSweeps() {
+  if (!paystack.enabled) return;
   setInterval(async () => {
     try {
       const pending = payments.pendingOlderThan(SWEEP_AGE_MS).slice(0, 5);
-      for (const rec of pending) {
-        const v = await paystack.verify(rec.reference);
-        if (v.ok) settlePayment(rec.reference, 'sweep', { status: v.status, amountKobo: v.amountKobo });
-      }
+      for (const rec of pending) await verifyAndSettle(rec.reference, 'sweep');
     } catch (e) { /* the next sweep tries again */ }
+    try { await payouts.sweep(SWEEP_AGE_MS); } catch (e) { /* the next sweep tries again */ }
   }, SWEEP_INTERVAL_MS);
 }
+// Boot reconcile. Rooms live in memory on this host, so a restart ends
+// every lobby and every running game. Any entry whose money was still
+// held by a seat or a game when the process stopped is owed back: it
+// becomes a refund, exactly once (the payment record moves to
+// refund-due as the ledger writes it). Records from before the seat
+// field existed are judged by the ledger: a prize written for the room
+// after the payment means the money was consumed.
+function bootReconcile() {
+  const ledger = prizeLedger.list();
+  // Ledger rows that predate the payout queue still get their row.
+  for (const e of ledger) { try { payouts.fromLedger(e); } catch (err) { /* keep going */ } }
+  let refunded = 0;
+  for (const rec of payments.list()) {
+    if (rec.status !== 'paid') continue;
+    if (rec.seat === 'consumed' || rec.seat === 'refund-due' || rec.seat === 'refunded' || rec.seat === 'mismatch') continue;
+    if (rec.seat === undefined) {
+      const settledAt = rec.updatedAt || rec.createdAt;
+      const consumed = ledger.some((e) => e.kind === 'prize' && e.roomCode === rec.roomCode && e.at >= settledAt);
+      const owed = ledger.some((e) => e.kind === 'refund-due' && e.roomCode === rec.roomCode && (e.reference === rec.reference || (!e.reference && e.accountId === rec.accountId)));
+      if (consumed) { payments.update(rec.reference, { seat: 'consumed' }, { kind: 'consumed', via: 'boot' }); continue; }
+      if (owed) { payments.update(rec.reference, { seat: 'refund-due' }, { kind: 'refund-due', via: 'boot' }); continue; }
+    }
+    refundDueFor(rec, 'restart');
+    refunded += 1;
+  }
+  if (refunded) console.log('Boot reconcile: ' + refunded + ' paid entr' + (refunded === 1 ? 'y' : 'ies') + ' held by a table that did not survive the restart, queued for refund.');
+}
+// The money view the ops desk reads: payments in, payouts out, house.
+function moneyView() {
+  const list = payments.list();
+  const real = list.filter((r) => r.status === 'paid');
+  const collectedKobo = real.reduce((t, r) => t + (r.amountKobo || 0), 0);
+  const ledger = prizeLedger.list().filter((e) => !e.testMode);
+  const houseKobo = ledger.filter((e) => e.kind === 'house').reduce((t, e) => t + (e.amountKobo || e.amount * 100), 0);
+  const games = new Set(ledger.filter((e) => e.kind === 'prize').map((e) => e.gameKey || (e.roomCode + ':' + e.at))).size;
+  const pv = payouts.view();
+  return {
+    ok: true,
+    paystack: { enabled: paystack.enabled, mode: payProvider.mode },
+    durable: durable.enabled,
+    totals: Object.assign({ collectedKobo, houseKobo, paidGames: games, payments: list.length, paidPayments: real.length }, pv.totals),
+    payoutMode: pv.mode,
+    payouts: pv.payouts.slice(0, 200),
+    payments: list.slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, 200).map((r) => ({
+      reference: r.reference, roomCode: r.roomCode, email: r.email, amountKobo: r.amountKobo,
+      status: r.status, seat: r.seat || null, createdAt: r.createdAt, updatedAt: r.updatedAt,
+      via: (r.events || []).filter((e) => e.kind === 'settled').map((e) => e.via)[0] || null
+    }))
+  };
+}
+async function moneyAction(body) {
+  const id = String((body && body.id) || '');
+  const action = String((body && body.action) || '');
+  if (action === 'send') return payouts.send(id, 'desk');
+  if (action === 'approve') return payouts.approve(id);
+  if (action === 'mark') return payouts.markManual(id, body && body.note);
+  if (action === 'recheck') {
+    const r = await verifyAndSettle(id, 'desk');
+    return { ok: !!r.ok, status: (payments.get(id) || {}).status || null };
+  }
+  return { ok: false, error: 'action', message: 'Unknown action.' };
+}
 
-const ops = createOps({ rooms, retention, competition, prizes: prizeLedger });
+const ops = createOps({ rooms, retention, competition, prizes: prizeLedger, money: { view: moneyView, action: moneyAction } });
 function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -192,6 +328,7 @@ function bearerOf(req) {
   const m = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization || ''));
   return m ? m[1] : '';
 }
+const bankTries = new Map();
 const SIGNIN_HTTP_MESSAGE = 'Sign in with your email first. Paid tables need an account, so your money and your record stay yours.';
 
 const server = http.createServer((req, res) => {
@@ -246,11 +383,27 @@ const server = http.createServer((req, res) => {
       if (!seat) { sendJson(res, 403, { ok: false, error: 'seat', message: 'You no get seat for that table.' }); return; }
       if (seat.paidSeat) { sendJson(res, 200, { ok: true, alreadyPaid: true }); return; }
       if (!paystack.enabled) { sendJson(res, 503, { ok: false, error: 'not-set-up', message: 'Payments never set up yet. The paid table dey wait for the house to finish the setup.' }); return; }
+      // An earlier open payment for this seat is reused, after asking
+      // Paystack about it: it may have been paid already (settle it now),
+      // failed, or gone stale (open a fresh one).
       const existing = payments.findPending(room.code, acct.accountId);
-      if (existing && existing.authorizationUrl) { sendJson(res, 200, { ok: true, reference: existing.reference, authorizationUrl: existing.authorizationUrl }); return; }
+      if (existing && existing.authorizationUrl) {
+        if (Date.now() - existing.createdAt > 20000) {
+          const r = await verifyAndSettle(existing.reference, 'reopen');
+          const fresh = payments.get(existing.reference);
+          if (fresh.status === 'paid') { sendJson(res, 200, { ok: true, alreadyPaid: true, reference: existing.reference }); return; }
+          if (fresh.status === 'pending' && Date.now() - existing.createdAt < 20 * 60 * 1000) { sendJson(res, 200, { ok: true, reference: existing.reference, authorizationUrl: existing.authorizationUrl }); return; }
+          if (fresh.status === 'pending') payments.update(existing.reference, { status: 'failed' }, { kind: 'replaced', via: 'reopen', last: r && r.reason });
+        } else {
+          sendJson(res, 200, { ok: true, reference: existing.reference, authorizationUrl: existing.authorizationUrl });
+          return;
+        }
+      }
       const reference = 'kp' + Date.now().toString(36) + crypto.randomBytes(6).toString('hex');
       const amountKobo = room.paidFee * 100;
-      const callbackUrl = (process.env.KP_PUBLIC_URL || 'https://kolopoly.fun') + '/';
+      // Paystack sends the player back here with ?trxref=&reference=
+      // appended; the room code lets the page rejoin the right table.
+      const callbackUrl = (process.env.KP_PUBLIC_URL || 'https://kolopoly.fun').replace(/\/+$/, '') + '/?paid=' + encodeURIComponent(room.code);
       const init = await paystack.initialize({
         email: acct.email, amountKobo, reference, callbackUrl,
         metadata: { roomCode: room.code, playerId: seat.id, accountId: acct.accountId, cityId: room.cityId }
@@ -269,13 +422,45 @@ const server = http.createServer((req, res) => {
       const ref = new URL(req.url, 'http://localhost').searchParams.get('reference') || '';
       const rec = payments.get(ref);
       if (!rec) { sendJson(res, 404, { ok: false, error: 'unknown', message: 'That payment no dey.' }); return; }
-      if (rec.status === 'pending' && paystack.enabled) {
-        const v = await paystack.verify(ref);
-        if (v.ok) settlePayment(ref, 'verify', { status: v.status, amountKobo: v.amountKobo });
-      }
+      if (rec.status === 'pending' && paystack.enabled) await verifyAndSettle(ref, 'verify');
       const fresh = payments.get(ref);
-      sendJson(res, 200, { ok: true, reference: ref, status: fresh.status, roomCode: fresh.roomCode });
+      sendJson(res, 200, { ok: true, reference: ref, status: fresh.status, seat: fresh.seat || null, roomCode: fresh.roomCode });
     })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false }); });
+    return;
+  }
+  // Winner payouts, player side: the bank list, saving a bank (checked
+  // against the bank by Paystack, stored as a transfer recipient), and
+  // my own prizes and refunds with their status.
+  if (cleanUrl === '/api/payouts/banks' && req.method === 'GET') {
+    (async () => {
+      const acct = auth.verifyToken(bearerOf(req));
+      if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
+      if (!paystack.enabled) { sendJson(res, 503, { ok: false, error: 'not-set-up', message: 'Payouts never set up yet.' }); return; }
+      const out = await paystack.listBanks();
+      if (!out.ok) { sendJson(res, 502, { ok: false, error: 'banks', message: 'The bank list no load. Try again.' }); return; }
+      sendJson(res, 200, { ok: true, banks: out.banks });
+    })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false }); });
+    return;
+  }
+  if (cleanUrl === '/api/payouts/bank' && req.method === 'POST') {
+    (async () => {
+      const acct = auth.verifyToken(bearerOf(req));
+      if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
+      const t = bankTries.get(acct.accountId) || { n: 0, until: Date.now() + 10 * 60 * 1000 };
+      if (Date.now() > t.until) { t.n = 0; t.until = Date.now() + 10 * 60 * 1000; }
+      t.n += 1; bankTries.set(acct.accountId, t);
+      if (t.n > 6) { sendJson(res, 429, { ok: false, error: 'rate', message: 'Too many tries. Wait small, then try again.' }); return; }
+      let body;
+      try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, error: 'body', message: 'That request no clear. Try again.' }); return; }
+      const out = await payouts.setBank(acct, body);
+      sendJson(res, out.ok ? 200 : (out.status || 400), out.ok ? { ok: true, bank: out.bank } : { ok: false, error: out.error, message: out.message });
+    })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false }); });
+    return;
+  }
+  if (cleanUrl === '/api/payouts/mine' && req.method === 'GET') {
+    const acct = auth.verifyToken(bearerOf(req));
+    if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
+    sendJson(res, 200, payouts.mine(acct.accountId));
     return;
   }
   // The Paystack webhook. The signature is checked over the raw body
@@ -290,8 +475,11 @@ const server = http.createServer((req, res) => {
       }
       let body;
       try { body = JSON.parse(raw.toString('utf8')); } catch (e) { sendJson(res, 400, { ok: false, error: 'body' }); return; }
-      if (body && body.event === 'charge.success' && body.data) {
-        settlePayment(String(body.data.reference || ''), 'webhook', { status: body.data.status, amountKobo: Number(body.data.amount) || 0 });
+      const event = String((body && body.event) || '');
+      if (event === 'charge.success' && body.data) {
+        settlePayment(String(body.data.reference || ''), 'webhook', { status: body.data.status, amountKobo: Number(body.data.amount) || 0, currency: body.data.currency });
+      } else if (/^(transfer|refund)\./.test(event)) {
+        payouts.onWebhook(event, body.data);
       }
       sendJson(res, 200, { ok: true });
     }).catch(() => { if (!res.headersSent) sendJson(res, 400, { ok: false }); });
@@ -383,6 +571,21 @@ if (!TEST) {
   setInterval(() => { retention.sweepDrops().catch(() => {}); }, 15 * 60 * 1000);
   setTimeout(() => { retention.sweepDrops().catch(() => {}); }, 20000);
 }
-server.listen(PORT, () => {
-  console.log('Kolopoly listening on port ' + PORT);
-});
+// Boot: hydrate any money store whose local file is gone from its
+// durable copy, settle what the last process left behind, then listen.
+(async () => {
+  if (durable.enabled) {
+    const [p1, p2, p3] = await Promise.all([durable.load('payments'), durable.load('prizes'), durable.load('payouts')]);
+    const got = [payments.hydrate(p1) && 'payments', prizeLedger.hydrate(p2) && 'prize ledger', payouts.hydrate(p3) && 'payouts'].filter(Boolean);
+    if (got.length) console.log('Restored from the durable copy: ' + got.join(', ') + '.');
+  }
+  try { bootReconcile(); } catch (e) { console.log('Boot reconcile skipped: ' + (e && e.message)); }
+  startSweeps();
+  server.listen(PORT, () => {
+    console.log('Kolopoly listening on port ' + PORT);
+  });
+})();
+// Flush the durable copy on the way down so the last write lands.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => { durable.flush().catch(() => {}).finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
+}

@@ -31,7 +31,7 @@
     gate.hidden = next !== 'gate';
     desk.hidden = next !== 'desk';
     if (next !== 'desk') stopPoll();
-    if (next === 'desk') loadCompetition();
+    if (next === 'desk') { loadCompetition(); loadMoney(); }
     if (next === 'gate' && window.matchMedia('(min-width: 800px)').matches) input.focus();
   }
   function setGateError(text) {
@@ -528,6 +528,126 @@
       btn.disabled = false;
     }
   }
+
+  // ---- Play to Earn money ---------------------------------------------
+  function koboN(k) { return '\u20a6' + Number((k || 0) / 100).toLocaleString('en-NG', { maximumFractionDigits: 2 }); }
+  function el(tag, cls, textValue) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (textValue != null) n.textContent = textValue;
+    return n;
+  }
+  function moneyNote(textValue, kind) {
+    const n = $('money-note');
+    if (!n) return;
+    n.textContent = textValue;
+    n.className = 'comp-note' + (kind ? ' ' + kind : '');
+  }
+  function when(ms) {
+    try { return new Date(ms).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' WAT'; } catch (e) { return ''; }
+  }
+  async function moneyAct(action, id, note) {
+    moneyNote('Working…', '');
+    try {
+      const res = await fetch('/ops/money/action', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ action, id, note })
+      });
+      const data = await res.json().catch(() => ({}));
+      moneyNote(res.ok ? 'Done: ' + (data.status || 'ok') + '.' : (data.message || 'Refused.'), res.ok ? 'ok' : 'bad');
+    } catch (e) { moneyNote('The line drop. Check the row before trying again.', 'bad'); }
+    loadMoney();
+  }
+  function renderMoney(data) {
+    const t = data.totals || {};
+    const totals = $('money-totals');
+    if (!totals) return;
+    totals.textContent = '';
+    const cells = [
+      ['Collected', koboN(t.collectedKobo), (t.paidPayments || 0) + ' paid entries'],
+      ['House take', koboN(t.houseKobo), (t.paidGames || 0) + ' finished paid games'],
+      ['Prizes owed', koboN(t.prizeOwedKobo), 'paid out ' + koboN(t.prizePaidKobo)],
+      ['Refunds owed', koboN(t.refundOwedKobo), 'returned ' + koboN(t.refundDoneKobo)]
+    ];
+    for (const c of cells) {
+      const box = el('div', 'money-cell');
+      box.appendChild(el('div', 'money-k', c[0]));
+      box.appendChild(el('div', 'money-v', c[1]));
+      box.appendChild(el('div', 'fine', c[2]));
+      totals.appendChild(box);
+    }
+    const mode = $('money-mode');
+    if (mode) {
+      mode.textContent = (data.paystack && data.paystack.enabled ? 'Paystack live. ' : 'Paystack not set up on this host. ') +
+        'Payouts: ' + (data.payoutMode === 'auto' ? 'automatic' : 'sent from this desk') + '. ' +
+        (data.durable ? 'Records mirrored to Supabase.' : 'Records only on this server disk: a redeploy on a free plan loses them.');
+    }
+    const list = $('money-payouts');
+    list.textContent = '';
+    const rows = data.payouts || [];
+    if (!rows.length) list.appendChild(el('p', 'fine', 'No prizes or refunds yet.'));
+    for (const p of rows) {
+      const row = el('div', 'money-row s-' + p.status);
+      const main = el('div', 'money-main');
+      main.appendChild(el('div', 'money-title', (p.kind === 'prize' ? 'Prize' : 'Refund') + ' · ' + koboN(p.amountKobo) + ' · ' + (p.name || '') + (p.email ? ' <' + p.email + '>' : '')));
+      main.appendChild(el('div', 'fine', 'Table ' + p.roomCode + ' · ' + when(p.createdAt) + (p.why ? ' · ' + p.why : '') +
+        (p.bank ? ' · ' + p.bank.bankName + ' ' + p.bank.accountName + ' ****' + p.bank.last4 : '') +
+        (p.transferRef ? ' · ref ' + p.transferRef : p.paymentRef ? ' · payment ' + p.paymentRef : '')));
+      if (p.note) main.appendChild(el('div', 'fine', p.note));
+      if (p.lastError && !/^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status)) main.appendChild(el('div', 'fine bad', p.lastError));
+      row.appendChild(main);
+      const side = el('div', 'money-side');
+      side.appendChild(el('span', 'money-chip', p.status));
+      const acts = [];
+      if (p.status === 'ready' || p.status === 'failed') acts.push(['send', p.kind === 'prize' ? 'Send' : 'Refund']);
+      if (p.status === 'review') acts.push(['approve', 'Approve']);
+      if (!/^(paid|paid-manual|refunded|refunded-manual|sending|refund-pending)$/.test(p.status)) acts.push(['mark', 'Mark paid']);
+      for (const a of acts) {
+        const b = el('button', a[0] === 'send' ? 'gold auto' : 'auto', a[1]);
+        b.type = 'button';
+        b.addEventListener('click', () => {
+          if (a[0] === 'send' && !window.confirm((p.kind === 'prize' ? 'Send ' : 'Refund ') + koboN(p.amountKobo) + ' to ' + (p.name || 'this player') + '?')) return;
+          if (a[0] === 'mark') { const n = window.prompt('How was it paid? (note for the record)'); if (n == null) return; moneyAct('mark', p.id, n); return; }
+          moneyAct(a[0], p.id);
+        });
+        side.appendChild(b);
+      }
+      row.appendChild(side);
+      list.appendChild(row);
+    }
+    const pays = $('money-payments');
+    pays.textContent = '';
+    const plist = data.payments || [];
+    if (!plist.length) pays.appendChild(el('p', 'fine', 'No payments yet.'));
+    for (const r of plist.slice(0, 60)) {
+      const row = el('div', 'money-row s-' + r.status);
+      const main = el('div', 'money-main');
+      main.appendChild(el('div', 'money-title', koboN(r.amountKobo) + ' · ' + (r.email || '') + ' · table ' + r.roomCode));
+      main.appendChild(el('div', 'fine', r.reference + ' · ' + when(r.createdAt) + (r.via ? ' · settled by ' + r.via : '') + (r.seat ? ' · money ' + r.seat : '')));
+      row.appendChild(main);
+      const side = el('div', 'money-side');
+      side.appendChild(el('span', 'money-chip', r.status));
+      if (r.status === 'pending') {
+        const b = el('button', 'auto', 'Recheck');
+        b.type = 'button';
+        b.addEventListener('click', () => moneyAct('recheck', r.reference));
+        side.appendChild(b);
+      }
+      row.appendChild(side);
+      pays.appendChild(row);
+    }
+  }
+  async function loadMoney() {
+    try {
+      const res = await fetch('/ops/money', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error('status');
+      renderMoney(await res.json());
+    } catch (e) {
+      moneyNote('The money view no gree load. Lock the desk and open it again.', 'bad');
+    }
+  }
+  setInterval(() => { const d = $('desk'); if (document.visibilityState === 'visible' && d && !d.hidden) loadMoney(); }, 20000);
 
   const compCitiesEl = $('comp-cities');
   const compSplitsEl = $('comp-splits');
