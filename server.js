@@ -471,6 +471,10 @@ const server = http.createServer((req, res) => {
         sendJson(res, 503, { ok: false, error: 'mail', message: 'Sign-in mail never set up yet. Nothing was sent. Try again.' });
         return;
       }
+      if (!allowAuthIp(clientIp(req))) {
+        sendJson(res, 429, { ok: false, error: 'rate', message: 'Too many sign-in codes from this network. Wait small, then try again.' });
+        return;
+      }
       const out = auth.requestCode(body && body.email);
       if (!out.ok) { sendJson(res, out.error === 'rate' ? 429 : 400, { ok: false, error: out.error, message: out.message }); return; }
       const sent = await mailer.sendCode(out.email, out.code);
@@ -712,8 +716,65 @@ const server = http.createServer((req, res) => {
   res.end(body);
 });
 
-const wss = new WebSocketServer({ server, perMessageDeflate: false });
-wss.on('connection', (ws) => host.handleConnection(ws));
+// A phone plays at a few messages a second. These caps stop a single
+// address from opening a pile of sockets, flooding the table, or
+// asking for sign-in codes for every mailbox it can name. The email
+// gap still applies on top of the network cap.
+const WS_MAX_PAYLOAD = 64 * 1024;
+const WS_MAX_CONN_PER_IP = 40;
+const WS_MSG_WINDOW_MS = 10000;
+const WS_MSG_MAX = 400;
+const AUTH_IP_WINDOW_MS = 60 * 60 * 1000;
+const AUTH_IP_MAX = 30;
+const connCount = new Map();
+const msgTimes = new Map();
+const authTimes = new Map();
+function clientIp(req) {
+  const sock = req && (req.socket || req.connection);
+  let ip = (sock && sock.remoteAddress) || 'unknown';
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+  return ip;
+}
+function noteWindow(map, ip, windowMs, max) {
+  const now = Date.now();
+  const prev = (map.get(ip) || []).filter((t) => now - t < windowMs);
+  if (prev.length >= max) { map.set(ip, prev); return false; }
+  prev.push(now);
+  if (prev.length) map.set(ip, prev); else map.delete(ip);
+  return true;
+}
+function allowAuthIp(ip) { return noteWindow(authTimes, ip, AUTH_IP_WINDOW_MS, AUTH_IP_MAX); }
+function allowWsMessage(ip) { return noteWindow(msgTimes, ip, WS_MSG_WINDOW_MS, WS_MSG_MAX); }
+
+const wss = new WebSocketServer({ server, perMessageDeflate: false, maxPayload: WS_MAX_PAYLOAD });
+wss.on('connection', (ws, req) => {
+  // An oversized frame is an 'error' on this socket. Without a listener
+  // the whole process dies, which is the opposite of a payload cap.
+  ws.on('error', () => {});
+  const ip = clientIp(req);
+  const open = (connCount.get(ip) || 0) + 1;
+  if (open > WS_MAX_CONN_PER_IP) {
+    try { ws.close(1008, 'too many connections'); } catch (e) { /* already gone */ }
+    return;
+  }
+  connCount.set(ip, open);
+  ws.on('close', () => {
+    const left = (connCount.get(ip) || 1) - 1;
+    if (left <= 0) connCount.delete(ip); else connCount.set(ip, left);
+  });
+  const origOn = ws.on.bind(ws);
+  ws.on = function (ev, fn) {
+    if (ev !== 'message') return origOn(ev, fn);
+    return origOn('message', function (raw) {
+      if (!allowWsMessage(ip)) {
+        try { ws.close(1008, 'slow down'); } catch (e) { /* already gone */ }
+        return;
+      }
+      return fn.apply(this, arguments);
+    });
+  };
+  host.handleConnection(ws);
+});
 
 setInterval(() => { host.tick(); }, 500);
 
