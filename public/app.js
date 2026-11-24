@@ -2274,7 +2274,11 @@ function renderLobby(room) {
     const unpaidCount = room.players.filter((p) => !p.bot && !p.paidSeat).length;
     let paidHtml = '<div class="paid-panel">' +
       '<div class="paid-panel-head">' + window.icon('card', 16) + ' Paid table · ' + esc(room.paid.city) + ' · ' + fmtN(room.paid.fee) + ' entry</div>' +
-      '<p class="caption">Every seat pays ' + fmtN(room.paid.fee) + ' before the game starts. Winner takes 90 percent of the pot, house keeps 10. The game runs on the 60 minute clock and nobody fit end am early. If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>';
+      '<p class="caption">Every seat pays ' + fmtN(room.paid.fee) + ' before the game starts. Winner takes 90 percent of the pot, house keeps 10. ' +
+      (room.settings && room.settings.gameMode === 'inflation'
+        ? 'The game runs on the seven inflation phases and nobody fit end am early.'
+        : 'The game runs on the 60 minute clock and nobody fit end am early.') +
+      ' If the game no start, your entry comes back.' + (room.paid.testMode ? ' Test mode: no real money moves.' : '') + '</p>';
     if (room.paid.mode === 'off') {
       paidHtml += '<p class="caption" style="margin-top:8px;">Payments never set up yet. The house still dey finish the setup, so nobody fit pay for this table yet.</p>';
     } else if (!spectator && mePaid && !mePaid.bot && !mePaid.paidSeat && !mePaid.payPending) {
@@ -2701,7 +2705,7 @@ function renderActionBar(room) {
   // carries the room ending option.
   if (!spectator && me && !me.bankrupt && room.status === 'playing') {
     secHtml += ubtn('sbLeave', 'logout', leaveArmed ? 'Sure?' : 'Leave', leaveArmed);
-    if (myId === room.hostId) secHtml += ubtn('sbEndRoom', 'tickCircle', endRoomArmed ? 'Sure?' : 'End', endRoomArmed);
+    if (myId === room.hostId && !room.paid) secHtml += ubtn('sbEndRoom', 'tickCircle', endRoomArmed ? 'Sure?' : 'End', endRoomArmed);
   }
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
