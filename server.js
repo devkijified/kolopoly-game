@@ -246,6 +246,7 @@ const host = createGameHost({
   payProvider,
   auth,
   onMutate() { scheduleRoomSave(); },
+  leanWire: true,
   onDelete() { scheduleRoomSave(); },
   // The paid game tells the payment records where each entry's money
   // went: into a started game, then out as prize and house share.
