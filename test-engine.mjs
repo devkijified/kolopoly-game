@@ -4,6 +4,7 @@
 import WebSocket from 'ws';
 import { spawn } from 'child_process';
 import fs from 'fs';
+import http from 'http';
 
 const PORT = 4199;
 const RETENTION_FILE = '/tmp/kolopoly-retention-' + PORT + '.json';
@@ -253,10 +254,37 @@ try {
     check('the landing meta stamps the same build', html.includes('name="kolopoly-build" content="' + ver.json.build + '"') && !html.includes('__KOLOPOLY_BUILD__'));
     check('the fresh-table banner is in the page, quiet in the markup', html.includes('id="updateBanner"') && html.includes('id="updateKicker"') && html.includes('Tap to reload now') && html.includes('update-banner hidden'));
     const nextRes = await fetch(HTTP + '/next.html');
-    check('the Babylon preview stays reachable at /next.html', nextRes.status === 200 && (await nextRes.text()).includes('id="game"'));
+    check('the retired next preview page stays reachable at /next.html', nextRes.status === 200 && (await nextRes.text()).includes('id="game"'));
     const appRes = await fetch(HTTP + '/app.js');
     const appCache = appRes.headers.get('cache-control') || '';
     check('app.js stays revalidated on the network', appRes.status === 200 && appCache.includes('no-cache') && !/max-age=604800/.test(appCache), appCache);
+    check('the landing points scripts at the build-stamped asset URLs', html.includes('/app.js?v=' + ver.json.build) && html.includes('/vendor/three.module.js?v=' + ver.json.build) && !html.includes('__KOLOPOLY_BUILD__'));
+    const rawGet = (path, acceptEnc) => new Promise((resolve, reject) => {
+      const req = http.get(HTTP + path, { headers: { 'accept-encoding': acceptEnc } }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, len: Buffer.concat(chunks).length }));
+      });
+      req.on('error', reject);
+    });
+    const versioned = '/style.css?v=' + ver.json.build;
+    const cssCached = await rawGet(versioned, 'identity');
+    const cssCC = cssCached.headers['cache-control'] || '';
+    check('versioned static assets are cached immutably for a year', cssCached.status === 200 && cssCC.includes('max-age=31536000') && cssCC.includes('immutable'), cssCC);
+    const cssBr = await rawGet(versioned, 'br');
+    const cssGz = await rawGet(versioned, 'gzip');
+    const cssRaw = cssCached.len;
+    check('text assets prefer brotli when the client asks for it', (cssBr.headers['content-encoding'] || '') === 'br' && cssBr.len < cssRaw, String(cssBr.headers['content-encoding']) + ' ' + cssBr.len + '/' + cssRaw);
+    check('text assets still gzip for clients that only speak gzip', (cssGz.headers['content-encoding'] || '') === 'gzip' && cssGz.len < cssRaw, String(cssGz.headers['content-encoding']) + ' ' + cssGz.len + '/' + cssRaw);
+    const cssAgain = await rawGet(versioned, 'identity');
+    const notModified = await new Promise((resolve, reject) => {
+      const req = http.get(HTTP + versioned, { headers: { 'accept-encoding': 'identity', 'if-none-match': cssAgain.headers.etag } }, (res) => {
+        res.resume();
+        res.on('end', () => resolve({ status: res.statusCode, etag: res.headers.etag }));
+      });
+      req.on('error', reject);
+    });
+    check('a matching ETag revalidates with 304 and no body', notModified.status === 304 && !!notModified.etag);
   }
 
   // --------------------------------------------------------------- OPS DOOR ---
@@ -1143,8 +1171,12 @@ try {
     await t.waitFor((s) => s.players.find((p) => p.id === o.playerId).cash === oCash + 48000, 'Phase 2 rent landed');
     check('Phase 2 rent = printed ₦24,000 x lowest die 2 = ₦48,000', g.player(t.playerId).cash === tCash - 48000 && g.player(o.playerId).cash === oCash + 48000,
       't=' + g.player(t.playerId).cash + ' o=' + g.player(o.playerId).cash);
-    // finish the turn, then salary at Phase 2 for the other player
+    // finish the turn, then salary at Phase 2 for the other player.
+    // Same safe hop as nullTurn: stand on Family Meeting, roll 4, visit
+    // Kirikiri. Leaving the dice unhooked made this wait flake whenever
+    // the random roll landed on a deed (phase stays buy).
     g.hook('test_set_position', { playerId: t.playerId, space: 3 });
+    g.hook('test_dice', { rolls: [[1, 3]] });
     t.send('roll', {});
     await t.waitFor((s) => s.phase === 'end', 'turn ends');
     t.send('end_turn', {});
@@ -1205,7 +1237,7 @@ try {
     const bCash = g.player(pb.id).cash;
     bCli.send('call_deal_break', {});
     await bCli.waitFor((s) => !!s.inf.dealBreakEndsAt, 'deal break open');
-    bCli.send('contract_propose', { kind: 'pass', street: 8, chips: 1, price: 10000 });
+    bCli.send('contract_propose', { kind: 'pass', street: 11, chips: 1, price: 10000 });
     await aCli.waitFor((s) => !!s.inf.proposal && s.inf.proposal.kind === 'pass', 'pass offered');
     aCli.send('contract_respond', { accept: true });
     await g.host.waitFor((s) => s.inf.contracts.length === 1 && s.inf.contracts[0].chipsLeft === 1, 'pass registered');
@@ -1237,7 +1269,7 @@ try {
     const bCash = g.player(pb.id).cash;
     bCli.send('call_deal_break', {});
     await bCli.waitFor((s) => !!s.inf.dealBreakEndsAt, 'deal break open');
-    bCli.send('contract_propose', { kind: 'loan', to: pa.id, pledgedSpace: 8, amount: 90000, interestPct: 10, termLaps: 1 });
+    bCli.send('contract_propose', { kind: 'loan', to: pa.id, pledgedSpace: 11, amount: 90000, interestPct: 10, termLaps: 1 });
     await aCli.waitFor((s) => !!s.inf.proposal && s.inf.proposal.kind === 'loan', 'loan offered');
     aCli.send('contract_respond', { accept: true });
     try {

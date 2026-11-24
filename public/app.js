@@ -284,7 +284,7 @@ function duckAmbient() {
 // stored as kolopolyMusic. Long-press (or right-click) the sound button to
 // change it. Reduced-motion users start at Off until they pick a level.
 // ---------------------------------------------------------------------------
-const MUSIC_URL = '/sfx/ambient-highlife.mp3';
+const MUSIC_URL = '/sfx/ambient-highlife.mp3?v=__KOLOPOLY_BUILD__';
 const MUSIC_LEVELS = { off: 0, low: 0.07, medium: 0.13 };
 let musicLevel = (() => {
   try {
@@ -475,7 +475,7 @@ window.KPSfxEvents = ['diceStart', 'diceSettle', 'hop', 'land', 'credit', 'debit
 // Cash and siren are short self-generated samples (ffmpeg, public
 // domain, a few KB each). Money uses the register. The siren plays
 // only for a real siren beat (Kirikiri), never for a buy.
-const SAMPLE_FILES = { cash: '/sfx/cash.mp3', siren: '/sfx/siren.mp3' };
+const SAMPLE_FILES = { cash: '/sfx/cash.mp3?v=__KOLOPOLY_BUILD__', siren: '/sfx/siren.mp3?v=__KOLOPOLY_BUILD__' };
 const sampleRaw = {};
 const sampleBuf = {};
 window.__kpSamplePlays = [];

@@ -25,6 +25,7 @@ const TEST = process.env.KP_TEST === '1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const BUILD_FILES = [
   'public/index.html',
+  'public/classic.html',
   'public/app.js',
   'public/style.css',
   'public/premium.css',
@@ -35,7 +36,24 @@ const BUILD_FILES = [
   'public/game-data.js',
   'public/board.js',
   'public/board3d.js',
-  'public/manifest.webmanifest'
+  'public/icons.js',
+  'public/manifest.webmanifest',
+  'public/vendor/three.module.js',
+  'public/vendor/qrcode.js',
+  'public/fonts/aeonik-pro-bold.woff2',
+  'public/fonts/aeonik-pro-bold.woff',
+  'public/fonts/figtree-variable.woff2',
+  'public/tex/asphalt-col.webp',
+  'public/tex/asphalt-nor.webp',
+  'public/tex/concrete-col.webp',
+  'public/tex/concrete-nor.webp',
+  'public/sfx/ambient-highlife.mp3',
+  'public/sfx/cash.mp3',
+  'public/sfx/siren.mp3',
+  'public/icons/icon-192.png',
+  'public/icons/icon-512.png',
+  'public/icons/icon-512-maskable.png',
+  'public/icons/apple-touch-icon.png'
 ];
 function computeBuild() {
   const hash = crypto.createHash('sha256');
@@ -47,14 +65,17 @@ function computeBuild() {
   return hash.digest('hex').slice(0, 12);
 }
 const BUILD = computeBuild();
+const STAMP_EXT = new Set(['.html', '.js', '.css', '.webmanifest', '.json', '.svg', '.txt', '.md']);
 function stampAsset(cleanUrl, data) {
-  if (cleanUrl === '/' || cleanUrl === '/index.html') {
-    return Buffer.from(String(data).split('__KOLOPOLY_BUILD__').join(BUILD));
+  const file = cleanUrl === '/' ? '/index.html' : cleanUrl;
+  const ext = path.extname(file);
+  let buf = data;
+  if (STAMP_EXT.has(ext)) {
+    const text = data.toString('utf8');
+    if (text.includes('__KOLOPOLY_BUILD__')) buf = Buffer.from(text.split('__KOLOPOLY_BUILD__').join(BUILD));
   }
-  if (cleanUrl === '/sw.js') {
-    return Buffer.concat([data, Buffer.from('\n// kolopoly-build ' + BUILD + '\n')]);
-  }
-  return data;
+  if (cleanUrl === '/sw.js') buf = Buffer.concat([buf, Buffer.from('\n// kolopoly-build ' + BUILD + '\n')]);
+  return buf;
 }
 if (!String(process.env.KP_ADMIN_TOKEN || '').trim()) {
   console.log('Ops locked until KP_ADMIN_TOKEN is set.');
@@ -65,9 +86,60 @@ const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2', '.woff': 'font/woff',
-  '.txt': 'text/plain',
-  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg'
+  '.txt': 'text/plain', '.md': 'text/plain',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg',
+  '.glb': 'model/gltf-binary', '.wasm': 'application/wasm'
 };
+function typeWithCharset(type) {
+  if (/^(text\/|application\/(javascript|json|manifest\+json))/.test(type) && !/charset=/i.test(type)) {
+    return type + '; charset=utf-8';
+  }
+  return type;
+}
+function compressibleType(type) {
+  return /^(text\/|application\/(json|javascript|manifest\+json)|image\/svg)/.test(type);
+}
+function cacheControlFor(cleanUrl, version) {
+  if (cleanUrl === '/sw.js') return 'no-store';
+  if (cleanUrl === '/' || cleanUrl.endsWith('.html') || cleanUrl.startsWith('/api/')) return 'no-cache';
+  if (version === BUILD) return 'public, max-age=31536000, immutable';
+  if (cleanUrl.startsWith('/vendor/') || cleanUrl.startsWith('/fonts/')) return 'public, max-age=604800';
+  return 'no-cache';
+}
+function walkPublic(dir, acc) {
+  acc = acc || [];
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, ent.name);
+    if (ent.isDirectory()) walkPublic(abs, acc);
+    else acc.push(abs);
+  }
+  return acc;
+}
+const staticCache = new Map();
+function prepareStaticCache() {
+  for (const abs of walkPublic(PUBLIC_DIR)) {
+    const rel = '/' + path.relative(PUBLIC_DIR, abs).split(path.sep).join('/');
+    const raw = stampAsset(rel, fs.readFileSync(abs));
+    const type = MIME[path.extname(abs)] || 'application/octet-stream';
+    const entry = {
+      raw,
+      type,
+      etag: '"' + crypto.createHash('sha1').update(raw).digest('hex') + '"',
+      gzip: null,
+      br: null
+    };
+    if (compressibleType(type)) {
+      entry.gzip = zlib.gzipSync(raw, { level: 9 });
+      entry.br = zlib.brotliCompressSync(raw, {
+        params: {
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+          [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length
+        }
+      });
+    }
+    staticCache.set(rel, entry);
+  }
+}
 const MAX_PLAYERS = 6;
 function cleanClientId(v) {
   const s = String(v || '');
@@ -331,6 +403,8 @@ function bearerOf(req) {
 const bankTries = new Map();
 const SIGNIN_HTTP_MESSAGE = 'Sign in with your email first. Paid tables need an account, so your money and your record stay yours.';
 
+prepareStaticCache();
+
 const server = http.createServer((req, res) => {
   if (ops.accepts(req)) { ops.handle(req, res); return; }
   if (retention.accepts(req)) { retention.handle(req, res); return; }
@@ -539,30 +613,48 @@ const server = http.createServer((req, res) => {
     }));
     return;
   }
-  let filePath = cleanUrl === '/' ? '/index.html' : cleanUrl;
-  filePath = path.normalize(path.join(PUBLIC_DIR, filePath));
+  const rel = cleanUrl === '/' ? '/index.html' : cleanUrl;
+  const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
-  fs.readFile(filePath, (err, data) => {
-    if (err) { res.writeHead(404); res.end('Not found'); return; }
-    if (cleanUrl === '/' || cleanUrl === '/index.html' || cleanUrl === '/sw.js') data = stampAsset(cleanUrl, data);
-    const type = MIME[path.extname(filePath)] || 'application/octet-stream';
-    const headers = { 'Content-Type': type };
-    const cacheable = cleanUrl.startsWith('/vendor/') || cleanUrl.startsWith('/fonts/') || cleanUrl.startsWith('/assets/');
-    headers['Cache-Control'] = cleanUrl === '/sw.js' ? 'no-store' : (cacheable ? 'public, max-age=604800' : 'no-cache');
-    const compressible = /^(text\/|application\/json|image\/svg)/.test(type);
-    if (compressible && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
-      headers['Content-Encoding'] = 'gzip';
-      headers['Vary'] = 'Accept-Encoding';
-      res.writeHead(200, headers);
-      res.end(zlib.gzipSync(data));
-      return;
-    }
-    res.writeHead(200, headers);
-    res.end(data);
-  });
+  const entry = staticCache.get(rel);
+  if (!entry) { res.writeHead(404); res.end('Not found'); return; }
+  let version = null;
+  try { version = new URL(req.url, 'http://localhost').searchParams.get('v'); } catch (e) { version = null; }
+  const headers = {
+    'Content-Type': typeWithCharset(entry.type),
+    'Cache-Control': cacheControlFor(cleanUrl, version)
+  };
+  const accept = req.headers['accept-encoding'] || '';
+  let body = entry.raw;
+  let etag = entry.etag;
+  if (entry.br && /\bbr\b/.test(accept)) {
+    headers['Content-Encoding'] = 'br';
+    headers['Vary'] = 'Accept-Encoding';
+    body = entry.br;
+    etag = entry.etag.slice(0, -1) + '-br"';
+  } else if (entry.gzip && /\bgzip\b/.test(accept)) {
+    headers['Content-Encoding'] = 'gzip';
+    headers['Vary'] = 'Accept-Encoding';
+    body = entry.gzip;
+    etag = entry.etag.slice(0, -1) + '-gzip"';
+  } else if (entry.gzip || entry.br) {
+    headers['Vary'] = 'Accept-Encoding';
+  }
+  headers['ETag'] = etag;
+  headers['Content-Length'] = String(body.length);
+  const inm = req.headers['if-none-match'];
+  if (inm && inm === etag) {
+    const notMod = { 'ETag': etag, 'Cache-Control': headers['Cache-Control'] };
+    if (headers['Vary']) notMod['Vary'] = headers['Vary'];
+    res.writeHead(304, notMod);
+    res.end();
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(body);
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, perMessageDeflate: false });
 wss.on('connection', (ws) => host.handleConnection(ws));
 
 setInterval(() => { host.tick(); }, 500);

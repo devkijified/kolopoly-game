@@ -6,12 +6,12 @@
    (KP10). */
 @font-face {
   font-family: 'Aeonik Pro';
-  src: url('/fonts/aeonik-pro-bold.woff2') format('woff2'), url('/fonts/aeonik-pro-bold.woff') format('woff');
+  src: url('/fonts/aeonik-pro-bold.woff2?v=__KOLOPOLY_BUILD__') format('woff2'), url('/fonts/aeonik-pro-bold.woff?v=__KOLOPOLY_BUILD__') format('woff');
   font-weight: 700; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Figtree';
-  src: url('/fonts/figtree-variable.woff2') format('woff2');
+  src: url('/fonts/figtree-variable.woff2?v=__KOLOPOLY_BUILD__') format('woff2');
   font-weight: 300 900; font-style: normal; font-display: swap;
 }
 :root {
