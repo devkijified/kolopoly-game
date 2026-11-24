@@ -969,3 +969,76 @@ body:has(#view-landing.active) #muteBtn.on {
 }
 #view-landing .settings-toggle .st-name { font-size: 13px; font-weight: 700; }
 #view-landing .settings-toggle .st-chev { border-color: rgba(244, 236, 220, 0.55); }
+
+/* ---------------------------------------------------------------------
+   Play to Earn: payment confirm card, prize plate, winnings locker and
+   the bank form. Dark game glass with warm light ink (#f4ecdc on the
+   #1e222a panel is about 13:1; the soft line #cfc4b2 about 9:1), gold
+   only for money and the one primary button. Nothing below 12px.
+   --------------------------------------------------------------------- */
+.p2e-confirm {
+  position: fixed; left: 50%; top: max(14px, env(safe-area-inset-top)); z-index: 90;
+  width: min(420px, calc(100vw - 24px)); transform: translate(-50%, -140%);
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  background: var(--g-panel); color: var(--g-text); border-radius: 14px;
+  box-shadow: var(--g-drop), var(--g-bevel); border: 1px solid var(--g-rim);
+  transition: transform 0.35s var(--g-ease-pop); pointer-events: none;
+}
+.p2e-confirm.show { transform: translate(-50%, 0); pointer-events: auto; }
+.p2e-confirm.failed, .p2e-confirm.refund { border-color: rgba(255, 140, 110, 0.7); }
+.p2e-confirm.paid { border-color: rgba(120, 220, 150, 0.8); }
+.p2e-confirm-ico { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: #11141a; color: var(--g-gold); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.p2e-confirm.paid .p2e-confirm-ico { color: #7be09a; }
+.p2e-confirm.failed .p2e-confirm-ico, .p2e-confirm.refund .p2e-confirm-ico { color: #ff9a7f; }
+.p2e-confirm-body { flex: 1; min-width: 0; }
+.p2e-confirm-title { font-family: 'Aeonik Pro', sans-serif; font-weight: 800; font-size: 15px; letter-spacing: 0.2px; }
+.p2e-confirm-text { font-size: 13px; line-height: 1.4; color: #cfc4b2; margin-top: 2px; }
+.p2e-confirm-x { flex: none; width: 34px; height: 34px; border-radius: 10px; border: none; background: #2a2f39; color: var(--g-text); display: grid; place-items: center; }
+.p2e-spin { width: 20px; height: 20px; border-radius: 50%; border: 3px solid rgba(255, 200, 87, 0.25); border-top-color: var(--g-gold); animation: p2eSpin 0.9s linear infinite; }
+@keyframes p2eSpin { to { transform: rotate(360deg); } }
+
+.p2e-prize {
+  margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; text-align: center;
+  background: #12151b; color: var(--g-text); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.p2e-prize.win {
+  background: linear-gradient(180deg, #2a2210 0%, #15120a 100%);
+  box-shadow: inset 0 0 0 1px var(--g-rim), 0 0 24px rgba(255, 200, 87, 0.12);
+}
+.p2e-prize-k { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #e9c77a; display: inline-flex; align-items: center; gap: 6px; }
+.p2e-prize-v { font-family: 'Aeonik Pro', sans-serif; font-weight: 800; font-size: 40px; line-height: 1.05; color: var(--g-gold); margin: 4px 0 2px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6); }
+.p2e-prize-line { font-size: 15px; font-weight: 700; margin-top: 4px; }
+.p2e-prize-line b { color: var(--g-gold); }
+.p2e-prize-sub { font-size: 12.5px; color: #cfc4b2; margin-top: 4px; line-height: 1.4; }
+.p2e-prize .btn { margin-top: 10px; }
+
+.p2e-win { display: grid; gap: 12px; margin-top: 6px; }
+.p2e-tally { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.p2e-tally > div { background: #12151b; border-radius: 12px; padding: 10px 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); display: grid; gap: 2px; }
+.p2e-tally-k { font-size: 12px; font-weight: 700; color: #cfc4b2; text-transform: uppercase; letter-spacing: 0.6px; }
+.p2e-tally-v { font-family: 'Aeonik Pro', sans-serif; font-weight: 800; font-size: 22px; color: var(--g-gold); }
+.p2e-bank-card { display: flex; align-items: center; gap: 10px; background: #12151b; border-radius: 12px; padding: 10px 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+.p2e-bank-ico { color: var(--g-gold); flex: none; }
+.p2e-bank-main { flex: 1; min-width: 0; }
+.p2e-bank-name { font-weight: 800; font-size: 14px; color: var(--g-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p2e-bank-sub { font-size: 12.5px; color: #cfc4b2; }
+.p2e-form { display: grid; gap: 6px; background: #12151b; border-radius: 12px; padding: 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+.p2e-form-title { font-family: 'Aeonik Pro', sans-serif; font-weight: 800; font-size: 15px; color: var(--g-text); margin-bottom: 2px; }
+.p2e-label { font-size: 12px; font-weight: 800; color: #cfc4b2; letter-spacing: 0.5px; text-transform: uppercase; margin-top: 4px; }
+.p2e-input { width: 100%; min-height: 44px; font-size: 16px !important; }
+.p2e-form .btn { margin-top: 8px; }
+.p2e-msg { margin: 2px 0 0; font-size: 13px; color: #ffb59f; min-height: 0; }
+.p2e-msg:empty { display: none; }
+.p2e-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.p2e-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #171b22; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.p2e-row-main { flex: 1; min-width: 0; }
+.p2e-row-title { font-weight: 800; font-size: 14px; color: var(--g-text); }
+.p2e-row-sub { font-size: 12px; color: #cfc4b2; }
+.p2e-row-side { text-align: right; display: grid; gap: 4px; justify-items: end; }
+.p2e-row-amt { font-family: 'Aeonik Pro', sans-serif; font-weight: 800; font-size: 16px; color: var(--g-gold); }
+.p2e-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.p2e-chip.ok { background: #183823; color: #9ff0b6; }
+.p2e-chip.go { background: #3a2f12; color: #ffd98a; }
+.p2e-chip.warn { background: #3d1f17; color: #ffb59f; }
+.p2e-chip.muted { background: #262a33; color: #d6ccbb; }
+@media (prefers-reduced-motion: reduce) { .p2e-confirm { transition: none; } .p2e-spin { animation: none; } }

@@ -14,7 +14,9 @@ const path = require('path');
 function nodeFs() { return require('fs'); }
 
 const KINDS = new Set(['prize', 'house', 'refund-due']);
-const MAX_ENTRIES = 5000;
+// The ledger is the money record, so it keeps a deep history; the cap
+// only guards the file against runaway growth.
+const MAX_ENTRIES = 50000;
 
 function cleanEntry(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -33,7 +35,15 @@ function cleanEntry(raw) {
     accountId: raw.accountId ? String(raw.accountId).slice(0, 64) : null,
     email: raw.email ? String(raw.email).slice(0, 120) : null,
     at: Number(raw.at) || 0,
-    testMode: !!raw.testMode
+    testMode: !!raw.testMode,
+    // Money detail for the payout queue: the exact kobo, the Paystack
+    // reference a refund goes back through, the game it belongs to and
+    // any review flag. All optional, so older entries still read.
+    amountKobo: Number.isInteger(Number(raw.amountKobo)) && Number(raw.amountKobo) > 0 ? Number(raw.amountKobo) : amount * 100,
+    reference: raw.reference ? String(raw.reference).slice(0, 64) : null,
+    gameKey: raw.gameKey ? String(raw.gameKey).slice(0, 64) : null,
+    review: raw.review ? String(raw.review).slice(0, 24) : null,
+    why: raw.why ? String(raw.why).slice(0, 24) : null
   };
 }
 
@@ -43,6 +53,8 @@ function createPrizeLedger(opts) {
   const file = memory ? null : (opts.file || path.join(__dirname, 'data', 'prizes.json'));
   let entries = [];
   let saveWarned = false;
+  const mirror = opts.mirror || null;
+  const onAddRef = { fn: typeof opts.onAdd === 'function' ? opts.onAdd : null };
 
   function load() {
     if (memory) return;
@@ -55,6 +67,7 @@ function createPrizeLedger(opts) {
     }
   }
   function save() {
+    if (mirror) { try { mirror.push(entries); } catch (e) { /* the mirror is best effort */ } }
     if (memory) return;
     const fs = nodeFs();
     try {
@@ -81,7 +94,16 @@ function createPrizeLedger(opts) {
     entries.push(entry);
     if (entries.length > MAX_ENTRIES) entries = entries.slice(-MAX_ENTRIES);
     save();
+    if (onAddRef.fn) { try { onAddRef.fn(entry); } catch (e) { /* the payout queue never blocks the ledger */ } }
     return entry;
+  }
+  // Durable copy: when the local file is gone (a fresh container),
+  // the host hands back the mirrored copy once at boot.
+  function hydrate(doc) {
+    if (entries.length || !Array.isArray(doc)) return false;
+    entries = doc.map(cleanEntry).filter(Boolean).slice(-MAX_ENTRIES);
+    try { save(); } catch (e) { /* best effort */ }
+    return entries.length > 0;
   }
   function list() {
     return entries.slice();
@@ -96,7 +118,8 @@ function createPrizeLedger(opts) {
     }
     return { ok: true, entries: list(), totals };
   }
-  return { add, list, view };
+  function setOnAdd(fn) { onAddRef.fn = fn; }
+  return { add, list, view, hydrate, setOnAdd };
 }
 
 module.exports = { createPrizeLedger, cleanEntry };

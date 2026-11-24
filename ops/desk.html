@@ -121,10 +121,24 @@
         </aside>
       </div>
 
+      <section class="panel comp-panel money-panel" aria-label="Play to Earn money">
+        <div class="panel-head stack">
+          <h2>Play to Earn money</h2>
+          <p class="fine" id="money-mode">Payments in, prizes and refunds out, house take. Amounts in naira.</p>
+        </div>
+        <div id="money-totals" class="money-totals"></div>
+        <h3 class="comp-sub">Payout queue</h3>
+        <p class="fine">Send pays a prize by Paystack transfer, or a refund back through the original payment. Mark paid is for money you moved by hand. Approve releases a row held for review.</p>
+        <div id="money-payouts" class="money-list"></div>
+        <p id="money-note" class="comp-note" role="status"></p>
+        <h3 class="comp-sub">Recent payments</h3>
+        <div id="money-payments" class="money-list"></div>
+      </section>
+
       <section class="panel comp-panel" aria-label="Paid competitions">
         <div class="panel-head stack">
           <h2>Paid competitions</h2>
-          <p class="fine">The city ladder for paid tables. Each player pays the entry fee into the pot. The winner takes the winner share for that table size; the house keeps the rest. Live games do not read these settings yet.</p>
+          <p class="fine">The city ladder for paid tables. Each player pays the entry fee into the pot. The winner takes the winner share for that table size; the house keeps the rest. A paid game prices on the fee and share in force when it starts.</p>
         </div>
         <div id="comp-cities" class="comp-cities"></div>
         <h3 class="comp-sub">Winner share by table size</h3>

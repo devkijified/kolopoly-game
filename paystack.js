@@ -19,6 +19,9 @@ function createPaystack(opts) {
   const secret = opts.secretKey != null ? String(opts.secretKey).trim() : String(process.env.PAYSTACK_SECRET_KEY || '').trim();
   const base = String(opts.apiBase || process.env.PAYSTACK_API_BASE || 'https://api.paystack.co').replace(/\/+$/, '');
   const enabled = !!secret;
+  // Per attempt limit. 12 seconds in production; the suite shortens it
+  // with PAYSTACK_TIMEOUT_MS to prove the timeout and retry quickly.
+  const timeoutMs = Number(opts.timeoutMs || process.env.PAYSTACK_TIMEOUT_MS) || 12000;
 
   async function call(method, route, body) {
     // A stalled connection must never hold a player's tap hostage:
@@ -32,7 +35,7 @@ function createPaystack(opts) {
           method,
           headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
           body: body ? JSON.stringify(body) : undefined,
-          signal: AbortSignal.timeout(12000)
+          signal: AbortSignal.timeout(timeoutMs)
         });
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
@@ -53,6 +56,7 @@ function createPaystack(opts) {
       const out = await call('POST', '/transaction/initialize', {
         email: info.email,
         amount: info.amountKobo,
+        currency: 'NGN',
         reference: info.reference,
         metadata: info.metadata || {},
         callback_url: info.callbackUrl
@@ -76,9 +80,103 @@ function createPaystack(opts) {
       const out = await call('GET', '/transaction/verify/' + encodeURIComponent(reference));
       const d = out.data && out.data.data;
       if (!out.httpOk || !d) return { ok: false, error: 'verify' };
-      return { ok: true, status: String(d.status || ''), amountKobo: Number(d.amount) || 0, reference: d.reference || reference };
+      return { ok: true, status: String(d.status || ''), amountKobo: Number(d.amount) || 0, currency: String(d.currency || 'NGN').toUpperCase(), reference: d.reference || reference };
     } catch (e) {
       return { ok: false, error: 'verify' };
+    }
+  }
+
+  // ---- Payouts: banks, recipients, transfers and refunds -------------
+  // Transfers (prizes to the winner's bank) need a Paystack business
+  // that is verified and has transfers switched on, plus a funded
+  // balance. Refunds go back to the payer's card or bank and work on
+  // any live business. Every call here is idempotent by reference on
+  // Paystack's side, so the one network retry above can never send
+  // the same money twice.
+  let bankCache = { at: 0, banks: null };
+  async function listBanks() {
+    if (!enabled) return { ok: false, error: 'not-set-up' };
+    if (bankCache.banks && Date.now() - bankCache.at < 6 * 3600 * 1000) return { ok: true, banks: bankCache.banks };
+    try {
+      const out = await call('GET', '/bank?country=nigeria&currency=NGN&perPage=100');
+      const list = out.data && Array.isArray(out.data.data) ? out.data.data : null;
+      if (!out.httpOk || !list) return { ok: false, error: 'banks' };
+      const banks = list.filter((b) => b && b.code && b.name && b.active !== false && !b.is_deleted)
+        .map((b) => ({ code: String(b.code), name: String(b.name) }));
+      bankCache = { at: Date.now(), banks };
+      return { ok: true, banks };
+    } catch (e) {
+      return { ok: false, error: 'banks' };
+    }
+  }
+  async function resolveAccount(accountNumber, bankCode) {
+    if (!enabled) return { ok: false, error: 'not-set-up' };
+    try {
+      const out = await call('GET', '/bank/resolve?account_number=' + encodeURIComponent(accountNumber) + '&bank_code=' + encodeURIComponent(bankCode));
+      const d = out.data && out.data.data;
+      if (!out.httpOk || !d || !d.account_name) return { ok: false, error: 'resolve', message: 'That account number no match the bank. Check am again.' };
+      return { ok: true, accountName: String(d.account_name), accountNumber: String(d.account_number || accountNumber) };
+    } catch (e) {
+      return { ok: false, error: 'resolve', message: 'The bank check no answer. Try again.' };
+    }
+  }
+  async function createRecipient(info) {
+    if (!enabled) return { ok: false, error: 'not-set-up' };
+    try {
+      const out = await call('POST', '/transferrecipient', {
+        type: 'nuban', name: info.name, account_number: info.accountNumber, bank_code: info.bankCode, currency: 'NGN'
+      });
+      const d = out.data && out.data.data;
+      if (!out.httpOk || !d || !d.recipient_code) return { ok: false, error: 'recipient', message: (out.data && out.data.message) || 'Paystack no save the bank.' };
+      return { ok: true, recipientCode: String(d.recipient_code) };
+    } catch (e) {
+      return { ok: false, error: 'recipient', message: 'Paystack no answer. Try again.' };
+    }
+  }
+  // One transfer from the Paystack balance. Status comes back as
+  // success, pending, otp (the dashboard still asks for an OTP on
+  // every transfer) or failed; anything else reads as pending and the
+  // sweep asks again by reference.
+  async function transfer(info) {
+    if (!enabled) return { ok: false, error: 'not-set-up', message: 'Payments never set up yet.' };
+    try {
+      const out = await call('POST', '/transfer', {
+        source: 'balance', amount: info.amountKobo, recipient: info.recipientCode,
+        reference: info.reference, reason: info.reason || 'Kolopoly prize', currency: 'NGN'
+      });
+      const d = out.data && out.data.data;
+      if (!out.httpOk || !out.data || out.data.status !== true || !d) {
+        return { ok: false, error: 'transfer', message: (out.data && out.data.message) || 'Paystack refuse the transfer.' };
+      }
+      return { ok: true, status: String(d.status || 'pending'), transferCode: d.transfer_code || null };
+    } catch (e) {
+      return { ok: false, error: 'transfer', unsure: true, message: 'Paystack no answer. The desk go check the transfer by reference.' };
+    }
+  }
+  async function verifyTransfer(reference) {
+    if (!enabled) return { ok: false, error: 'not-set-up' };
+    try {
+      const out = await call('GET', '/transfer/verify/' + encodeURIComponent(reference));
+      const d = out.data && out.data.data;
+      if (!out.httpOk || !d) return { ok: false, error: 'verify', notFound: !!(out.data && out.data.status === false) };
+      return { ok: true, status: String(d.status || '') };
+    } catch (e) {
+      return { ok: false, error: 'verify' };
+    }
+  }
+  async function refund(info) {
+    if (!enabled) return { ok: false, error: 'not-set-up', message: 'Payments never set up yet.' };
+    try {
+      const body = { transaction: info.reference };
+      if (info.amountKobo) body.amount = info.amountKobo;
+      const out = await call('POST', '/refund', body);
+      const d = out.data && out.data.data;
+      if (!out.httpOk || !out.data || out.data.status !== true) {
+        return { ok: false, error: 'refund', message: (out.data && out.data.message) || 'Paystack refuse the refund.' };
+      }
+      return { ok: true, status: String((d && d.status) || 'pending') };
+    } catch (e) {
+      return { ok: false, error: 'refund', unsure: true, message: 'Paystack no answer. Try the refund again.' };
     }
   }
 
@@ -92,7 +190,7 @@ function createPaystack(opts) {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
-  return { enabled, initialize, verify, verifySignature };
+  return { enabled, initialize, verify, verifySignature, listBanks, resolveAccount, createRecipient, transfer, verifyTransfer, refund };
 }
 
 // The payment records: one row per seat payment attempt, keyed by the
@@ -107,6 +205,7 @@ function createPaymentStore(opts) {
   const file = memory ? null : (opts.file || path.join(__dirname, 'data', 'payments.json'));
   let records = new Map();
   let saveWarned = false;
+  const mirror = opts.mirror || null;
 
   function load() {
     if (memory) return;
@@ -119,6 +218,7 @@ function createPaymentStore(opts) {
     }
   }
   function save() {
+    if (mirror) { try { mirror.push([...records.values()]); } catch (e) { /* best effort */ } }
     if (memory) return;
     const fs = nodeFs();
     try {
@@ -145,6 +245,11 @@ function createPaymentStore(opts) {
       cityId: info.cityId || null,
       amountKobo: Number(info.amountKobo) || 0,
       status: 'pending',
+      // Where the money sits once it is paid: seated (a lobby seat holds
+      // it), in-game, consumed (a finished game paid it out as prize and
+      // house share), refund-due, or refunded. Null while unpaid.
+      seat: null,
+      lastCheckedAt: 0,
       authorizationUrl: info.authorizationUrl || null,
       events: [{ at: Date.now(), kind: 'created', via: info.via || 'initialize' }],
       createdAt: Date.now(),
@@ -172,14 +277,28 @@ function createPaymentStore(opts) {
     save();
     return rec;
   }
+  // Oldest-checked first, so a few never-finished payments can never
+  // starve the sweep of the newer ones behind them.
   function pendingOlderThan(ms) {
     const cut = Date.now() - ms;
-    return [...records.values()].filter((r) => r.status === 'pending' && r.createdAt <= cut);
+    return [...records.values()]
+      .filter((r) => r.status === 'pending' && r.createdAt <= cut)
+      .sort((a, b) => (a.lastCheckedAt || 0) - (b.lastCheckedAt || 0));
+  }
+  function touch(reference) {
+    const rec = get(reference);
+    if (rec) rec.lastCheckedAt = Date.now();
   }
   function list() {
     return [...records.values()];
   }
-  return { create, get, findPending, update, pendingOlderThan, list };
+  function hydrate(doc) {
+    if (records.size || !Array.isArray(doc)) return false;
+    for (const r of doc) if (r && r.reference) records.set(r.reference, r);
+    save();
+    return records.size > 0;
+  }
+  return { create, get, findPending, update, pendingOlderThan, touch, list, hydrate };
 }
 
 module.exports = { createPaystack, createPaymentStore };

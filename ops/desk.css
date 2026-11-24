@@ -399,3 +399,18 @@ button.gold.auto { width: auto; margin-top: 0; padding: 0 22px; }
   .comp-splits { grid-template-columns: repeat(2, 1fr); }
   .comp-sizes { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Play to Earn money */
+.money-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 4px; }
+.money-cell { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); }
+.money-k { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.money-v { font-size: 20px; font-weight: 800; margin: 2px 0; }
+.money-list { display: grid; gap: 8px; }
+.money-row { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); }
+.money-main { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.money-title { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.money-side { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.money-chip { font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.money-row.s-paid .money-chip, .money-row.s-refunded .money-chip, .money-row.s-paid-manual .money-chip, .money-row.s-refunded-manual .money-chip { color: #1d7a3e; }
+.money-row.s-failed .money-chip, .money-row.s-review .money-chip, .money-row.s-otp .money-chip, .money-row.s-awaiting-bank .money-chip { color: #b3401f; }
+.fine.bad { color: #b3401f; }

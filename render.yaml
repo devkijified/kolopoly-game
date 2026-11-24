@@ -1,6 +1,7 @@
-# Legacy. The live host is Cloudflare Workers on the free plan
-# (Durable Objects, no sleep). See deploy/CLOUDFLARE.md.
-# This file remains so the old Render service can still be rebuilt.
+# The Render web service that serves kolopoly.fun (Node host, server.js).
+# deploy/CLOUDFLARE.md describes the Worker host; Play to Earn payments,
+# payouts and the money desk live on this Node host. See
+# docs/PLAY-TO-EARN.md for what each variable does.
 services:
   - type: web
     name: kolopoly-game
@@ -18,3 +19,19 @@ services:
         sync: false
       - key: KP_ADMIN_TOKEN
         sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: KP_AUTH_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: KP_MAIL_FROM
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: KP_PUBLIC_URL
+        value: https://kolopoly.fun
+      - key: KP_PAYOUT_MODE
+        value: manual
