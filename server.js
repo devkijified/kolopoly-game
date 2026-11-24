@@ -1,5 +1,7 @@
 'use strict';
-// KOLOPOLY server. Node fallback: built-in http + ws, rooms in memory.
+// KOLOPOLY server. Node host: built-in http + ws. Live tables are
+// snapshotted to disk (KP_DATA_DIR/rooms.json) so a deploy or restart
+// restores the same games and players rejoin their seats.
 // The rules live in game-host.js, which the Cloudflare Worker uses too.
 const http = require('http');
 const fs = require('fs');
@@ -209,6 +211,31 @@ if (payProvider.mode === 'test') {
 // The full sign-in gate, same derivation as the game host: real
 // payment modes plus wired auth means every table needs an account.
 const signInRequired = payProvider.mode !== 'test' && !!auth;
+// Live tables. Off during the test suite unless a test opts in, so
+// suites that share a machine do not resurrect each other's rooms.
+// Production (KP_TEST unset) always snapshots.
+const PERSIST_ROOMS = !TEST || process.env.KP_PERSIST_ROOMS === '1';
+const ROOMS_FILE = process.env.KP_ROOMS_FILE || path.join(DATA_DIR, 'rooms.json');
+let roomSaveTimer = null;
+function flushRoomsSync() {
+  if (!PERSIST_ROOMS) return;
+  if (roomSaveTimer) { clearTimeout(roomSaveTimer); roomSaveTimer = null; }
+  try {
+    fs.mkdirSync(path.dirname(ROOMS_FILE), { recursive: true });
+    const doc = host.exportState();
+    doc.savedAt = Date.now();
+    const tmp = ROOMS_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(doc));
+    fs.renameSync(tmp, ROOMS_FILE);
+  } catch (e) {
+    console.log('Room snapshot could not be written (' + (e && e.message) + ').');
+  }
+}
+function scheduleRoomSave() {
+  if (!PERSIST_ROOMS || roomSaveTimer) return;
+  roomSaveTimer = setTimeout(flushRoomsSync, 200);
+  if (roomSaveTimer.unref) roomSaveTimer.unref();
+}
 const host = createGameHost({
   test: TEST,
   afkFast: TEST && process.env.KP_AFK_FAST === '1',
@@ -218,6 +245,8 @@ const host = createGameHost({
   prizeLedger,
   payProvider,
   auth,
+  onMutate() { scheduleRoomSave(); },
+  onDelete() { scheduleRoomSave(); },
   // The paid game tells the payment records where each entry's money
   // went: into a started game, then out as prize and house share.
   onPaidEvent(ev) {
@@ -230,6 +259,26 @@ const host = createGameHost({
   }
 });
 const rooms = host.rooms;
+function loadRooms() {
+  if (!PERSIST_ROOMS) return;
+  let raw;
+  try { raw = fs.readFileSync(ROOMS_FILE, 'utf8'); }
+  catch (e) {
+    if (e.code !== 'ENOENT') console.log('Room snapshot could not be read (' + e.message + '). Starting with no live tables.');
+    return;
+  }
+  try {
+    const data = JSON.parse(raw);
+    if (!data || !data.rooms) return;
+    host.importState(data);
+    host.restoredFromDisk(data.savedAt);
+    const n = host.rooms.size;
+    if (n) console.log('Restored ' + n + ' live table' + (n === 1 ? '' : 's') + ' from disk. Players rejoin the same game.');
+  } catch (e) {
+    console.log('Room snapshot could not be read (' + (e && e.message) + '). Starting with no live tables.');
+  }
+}
+if (PERSIST_ROOMS) console.log('Live tables snapshot to ' + ROOMS_FILE + ' on each change and on shutdown.');
 
 // The one settle funnel for real payments. The webhook, verify on
 // return and the reconcile sweep all land here; a payment confirmed
@@ -672,12 +721,18 @@ if (!TEST) {
     if (got.length) console.log('Restored from the durable copy: ' + got.join(', ') + '.');
   }
   try { bootReconcile(); } catch (e) { console.log('Boot reconcile skipped: ' + (e && e.message)); }
+  try { loadRooms(); } catch (e) { console.log('Room restore skipped: ' + (e && e.message)); }
   startSweeps();
   server.listen(PORT, () => {
     console.log('Kolopoly listening on port ' + PORT);
   });
 })();
-// Flush the durable copy on the way down so the last write lands.
+// Flush money and the live tables on the way down. The room file is
+// synchronous so a deploy cannot exit before the snapshot lands.
 for (const sig of ['SIGTERM', 'SIGINT']) {
-  process.on(sig, () => { durable.flush().catch(() => {}).finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
+  process.on(sig, () => {
+    try { flushRoomsSync(); } catch (e) { /* the log already said why */ }
+    durable.flush().catch(() => {}).finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
 }
