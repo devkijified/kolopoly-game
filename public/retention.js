@@ -183,10 +183,12 @@
   }
   function whispersOn() {
     if (iosNeedsHome()) return false;
-    if (!browserCanPush() || pushDenied() || localMuted() || serverMuted) return false;
-    // A live PushSubscription on this phone is the witness. iOS can
-    // report permission as "default" after a relaunch even when the
-    // subscription is still there.
+    if (!browserCanPush() || pushDenied()) return false;
+    // The server is the witness once this phone is subscribed. A stale
+    // mute bit on the phone, or the game sound being off, does not put
+    // the switch back to Muted after the owner turned whispers on.
+    if (subscribed && !serverMuted) return true;
+    if (localMuted() || serverMuted) return false;
     if (deviceHasSub) return true;
     return notificationPermission() === 'granted' && subscribed;
   }
@@ -308,10 +310,7 @@
       serverDenied = !!(view.push && view.push.denied);
       renderClaim(view);
       refreshV2();
-      if (localMuted() && subscribed && !serverMuted) {
-        await post('/api/push/mute', { muted: true });
-        serverMuted = true;
-      }
+      if (subscribed && !serverMuted && localMuted()) setLocalMuted(false);
       if (view && view.installed) accountInstalled = true;
       else if (localInstalled() && authToken()) rememberInstalled();
       renderSwitch();
@@ -551,7 +550,6 @@
   const whisperBtn = $('retentionWhisper');
   if (whisperBtn) whisperBtn.addEventListener('click', () => { enableWhispers(); });
 
-  try { if (localStorage.getItem('kolopolyAudio') === '3') setLocalMuted(true); } catch (e) { /* sound pref can be unread */ }
   placeMarket();
   refresh();
 
@@ -835,6 +833,13 @@
       if (out && out.ok) b.disabled = true;
     });
   }
+  function liveScore(view, row) {
+    const live = (view && view.rivalries || []).find((r) => r && row && r.id && r.id === row.to);
+    return {
+      wins: live ? (live.wins || 0) : ((row && row.wins) || 0),
+      losses: live ? (live.losses || 0) : ((row && row.losses) || 0)
+    };
+  }
   function paintRematch(view) {
     const el = $('rematchBanner');
     if (!el) return;
@@ -845,8 +850,9 @@
     const name = String(rawName).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const letter = rawName.trim().charAt(0).toUpperCase() || '?';
     const token = (row.token && window.tokenArt) ? window.tokenArt(row.token, 48) : ('<span class="payback-letter">' + letter + '</span>');
-    const wins = row.wins || 0;
-    const losses = row.losses || 0;
+    const score = liveScore(view, row);
+    const wins = score.wins;
+    const losses = score.losses;
     el.innerHTML =
       '<img class="payback-daddy" alt="" width="256" height="320" decoding="async" src="/mascot/daddy-money.webp?v=__KOLOPOLY_BUILD__">' +
       '<div class="payback-body">' +
@@ -1001,7 +1007,7 @@
       if (refreshed) maybeAsk('win');
     },
     placeMarket,
-    muteFromSound() { muteWhispers(true); },
+    muteFromSound() { /* sound and whispers are separate switches */ },
     maybeInstall,
     showInstall: showInstallSheet,
     endInstallHtml() {

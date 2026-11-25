@@ -119,6 +119,12 @@
     extra = extra || {};
     const spec = LINES[id];
     if (!spec || !enabled()) return false;
+    const lesson = window.__kolopolyState && window.__kolopolyState();
+    if (lesson && lesson.practice && lesson.practice.kind !== 'free') {
+      pending.push({ id, extra });
+      hide();
+      return true;
+    }
     if (gamePaused() || held) {
       if (current) pending.unshift({ id: current, extra: {} });
       pending.push({ id, extra });

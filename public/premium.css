@@ -1225,3 +1225,84 @@ body:has(#view-landing.active) #muteBtn.on {
 .sheet .deed-doc .ladder,
 .sheet .deed-doc .ladder td,
 .sheet .deed-doc .ladder th { color: #2b2018; }
+
+/* Card reveal: a paper sticker, not a settings sheet. */
+#cardModal.card-reveal {
+  width: min(100%, 340px);
+  margin: 0 auto;
+  padding: 14px 14px 12px;
+  text-align: center;
+  color: #1a140c;
+  background: #fff6e4;
+  border: 3px solid #1a140c;
+  border-radius: 22px;
+  box-shadow: 6px 8px 0 #1a140c, inset 0 0 0 3px #ffc857;
+  animation: cardflip 0.55s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+#cardModal.card-reveal .card-daddy { width: 92px; height: 112px; object-fit: contain; }
+#cardModal.card-reveal .card-kicker {
+  margin: 4px 0 0; font-size: 12px; font-weight: 900; letter-spacing: 1.4px; color: #8a5a00;
+}
+#cardModal.card-reveal.mood-bad .card-kicker { color: #9a2e24; }
+#cardModal.card-reveal.mood-good .card-kicker { color: #0f7a50; }
+#cardModal.card-reveal .card-daddy-line {
+  margin: 4px 0; font-size: 18px; line-height: 1.25; font-weight: 800; color: #1a140c;
+}
+#cardModal.card-reveal .card-text {
+  margin: 0; font-size: 15px; line-height: 1.35; font-weight: 650; color: #2b2018;
+}
+#cardModal.card-reveal .card-hint { margin: 8px 0 0; font-size: 13px; font-weight: 800; color: #8a5a00; }
+#coachPop {
+  position: fixed; left: 10px; right: 10px; bottom: 168px; z-index: 70;
+  display: flex; align-items: flex-end; gap: 8px; pointer-events: none;
+}
+#coachPop[hidden] { display: none; }
+#coachPop .coach-daddy { width: 72px; height: 90px; object-fit: contain; flex: none; filter: drop-shadow(2px 4px 0 rgba(26,20,12,.3)); }
+#coachPop .coach-bubble {
+  pointer-events: auto; flex: 1; min-width: 0;
+  background: #fff6e4; color: #1a140c; border: 3px solid #1a140c; border-radius: 16px;
+  box-shadow: 4px 5px 0 #1a140c; padding: 8px 10px 10px;
+}
+#coachPop .coach-title { margin: 0; font-size: 13px; font-weight: 900; letter-spacing: 0.4px; color: #8a5a00; }
+#coachPop .coach-line { margin: 2px 0 8px; font-size: 15px; line-height: 1.3; font-weight: 750; color: #1a140c; }
+.coach-live { outline: 3px solid #ffc857 !important; box-shadow: 0 0 0 5px rgba(255, 200, 87, 0.45) !important; position: relative; z-index: 45; }
+@media (prefers-reduced-motion: reduce) {
+  #cardModal.card-reveal { animation: none; }
+  .coach-live { outline: 3px solid #ffc857 !important; }
+}
+.train-sticker {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  text-align: left; padding: 8px 12px; margin: 8px 0;
+  background: #fff6e4; color: #1a140c;
+  border: 3px solid #1a140c; border-radius: 16px;
+  box-shadow: 4px 4px 0 #e8a90c; font: inherit; cursor: pointer;
+}
+.train-sticker b { display: block; font-size: 16px; line-height: 1.2; }
+.train-sticker small { display: block; font-size: 13px; font-weight: 700; color: #3a2e22; }
+.train-sticker img { width: 48px; height: 64px; object-fit: contain; flex: none; }
+#trainSheet, #trainOffer, #profileSheet {
+  position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(20, 12, 4, 0.55); padding: 12px;
+}
+#trainSheet[hidden], #trainOffer[hidden], #profileSheet[hidden] { display: none; }
+.train-card, #coachPop .coach-bubble {
+  color: #1a140c;
+}
+.train-card {
+  width: min(100%, 380px); background: #fff6e4; color: #1a140c;
+  border: 3px solid #1a140c; border-radius: 18px; padding: 14px;
+  box-shadow: 6px 8px 0 #1a140c;
+}
+.train-card h3 { margin: 4px 0 8px; font-size: 22px; color: #1a140c; }
+.train-card p, .train-card .caption { font-size: 15px; font-weight: 700; color: #2b2018; }
+.train-badge {
+  display: inline-block; margin: 0 8px 8px 0; padding: 4px 10px;
+  background: #1a140c; color: #ffc857; border-radius: 999px;
+  font-weight: 900; letter-spacing: 1px; font-size: 13px;
+}
+#coachPop .coach-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#coachPop .btn { min-height: 40px; }
+.prof-card h4 { margin: 12px 0 4px; font-size: 14px; letter-spacing: 0.4px; color: #8a5a00; }
+.prof-balance { margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #1a140c; }
+.prof-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid rgba(26,20,12,.12); color: #1a140c; font-size: 14px; }
+.prof-card { max-height: min(78vh, 640px); overflow: auto; }
