@@ -3948,7 +3948,9 @@ function openHud(kind) {
       balogun: 'balogun-market', suya: 'suya-spot', 'computer-village': 'computer-village',
       tbs: 'tafawa-balewa-square', 'national-theatre': 'national-theatre', 'eko-atlantic': 'eko-atlantic',
       danfo: 'danfo', molue: 'molue', okada: 'okada', kirikiri: 'kirikiri',
-      'owambe-hall': 'owambe-hall', 'marina-lights': 'marina-lights'
+      'owambe-hall': 'owambe-hall', 'marina-lights': 'marina-lights',
+      'event-owambe': 'event-owambe', 'event-nepa': 'event-nepa',
+      'event-toll': 'event-toll', 'event-marina': 'event-marina'
     };
     const deck = [
       { id: 'bail', name: 'Bail', line: 'Kirikiri gate don open. Walk out free.', does: 'Clears Kirikiri. One card for this match, and only on a free table.' },
@@ -4076,8 +4078,12 @@ const TRADE_FILE = {
   'lekki-toll': 'lekki-toll-gate', carter: 'carter-bridge', 'third-mainland': 'third-mainland-bridge',
   balogun: 'balogun-market', suya: 'suya-spot', 'computer-village': 'computer-village',
   tbs: 'tafawa-balewa-square', 'national-theatre': 'national-theatre', 'eko-atlantic': 'eko-atlantic',
-  danfo: 'danfo', molue: 'molue', okada: 'okada', kirikiri: 'kirikiri', 'owambe-hall': 'owambe-hall',
-  'marina-lights': 'marina-lights'
+  danfo: 'danfo', molue: 'molue', okada: 'okada', kirikiri: 'kirikiri',   'owambe-hall': 'owambe-hall',
+  'marina-lights': 'marina-lights',
+  'event-owambe': 'event-owambe',
+  'event-nepa': 'event-nepa',
+  'event-toll': 'event-toll',
+  'event-marina': 'event-marina'
 };
 function tradeArt(id) {
   return '/stickers/' + (TRADE_FILE[id] || id) + '.webp?v=__KOLOPOLY_BUILD__';

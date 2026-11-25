@@ -4,6 +4,8 @@
 // deploy must land on the phone, including low-end ones.
 // The server appends a kolopoly-build line when it serves this file,
 // so a deploy changes these bytes even when the handlers stay quiet.
+// Week stickers (event-owambe, event-nepa, event-toll, event-marina)
+// ride that same build stamp.
 self.addEventListener('install', () => { self.skipWaiting(); });
 self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', () => {

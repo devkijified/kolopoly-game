@@ -57,3 +57,7 @@
 }
 .pack-kicker, .album-set { font-size: 13px; font-weight: 800; }
 .album-note { font-size: 13px; color: #cfc4b2; }
+.album-k { margin: 4px 0 0; font-size: 12px; letter-spacing: 0.08em; color: #ffc857; }
+.album-limited { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.album-limited .sticker { flex: none; padding: 6px 3px 6px; }
+.album-limited .st-name { font-size: 10px; }
