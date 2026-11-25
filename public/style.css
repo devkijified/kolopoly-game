@@ -2256,6 +2256,84 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
+/* Cash sheet: power cards and the sticker book, same die-cut tiles
+   as the album. The grid stays inside the sheet, so a phone does not
+   scroll sideways. */
+.cash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  min-width: 0;
+}
+.play-tile, .album-book {
+  position: relative;
+  min-width: 0;
+  padding: 6px 6px 8px;
+  border-radius: 16px;
+  border: 3px solid #f6ead2;
+  background: #1a140c;
+  color: #f4ecdc;
+  font: inherit;
+  text-align: left;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.play-tile { transform: rotate(-1.2deg); }
+.play-tile:nth-child(2) { transform: rotate(1.3deg); }
+.play-tile:nth-child(3) { transform: rotate(1deg); }
+.play-tile:nth-child(4) { transform: rotate(-1.1deg); }
+.play-tile.on { outline: 2px solid #ffc857; outline-offset: 1px; }
+.pc-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88px;
+}
+.pc-art img, .fan img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.play-tile.missing .pc-art img { filter: brightness(0); opacity: 0.72; }
+.pc-q {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-size: 22px; font-weight: 800; color: #f6ead2;
+}
+.pc-badge {
+  position: absolute; top: 2px; right: 2px;
+  min-width: 22px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: #ffc857; color: #1a1408;
+  font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+}
+.pc-name { display: block; margin-top: 4px; font-size: 13px; font-weight: 800; }
+.pc-line { display: block; margin-top: 2px; font-size: 11px; line-height: 1.25; color: #cfc4b2; font-weight: 700; }
+.play-tile.owned::after {
+  content: '';
+  position: absolute; inset: 0; border-radius: 13px; pointer-events: none;
+  background: linear-gradient(115deg, transparent 32%, rgba(255, 248, 220, 0.38) 50%, transparent 66%);
+  background-size: 220% 100%;
+  animation: foil 2.8s linear infinite;
+}
+.album-book { grid-column: 1 / -1; transform: none; }
+.fan { position: relative; display: block; height: 72px; margin: 2px 8px 4px; }
+.fan img {
+  position: absolute; top: 6px; width: 58px; height: 58px;
+  background: #241c14; border-radius: 10px;
+  border: 2px solid #f6ead2; box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+}
+.fan img:nth-child(1) { left: 4%; transform: rotate(-12deg); }
+.fan img:nth-child(2) { left: 24%; transform: rotate(-3deg); z-index: 1; }
+.fan img:nth-child(3) { left: 46%; transform: rotate(7deg); z-index: 2; }
+.fan img:nth-child(4) { left: 66%; transform: rotate(14deg); z-index: 3; }
+.prog { display: block; height: 8px; margin-top: 6px; border-radius: 99px; background: #2a241c; overflow: hidden; }
+.prog > span { display: block; height: 100%; background: #ffc857; }
+.card-detail {
+  margin-top: 10px; padding: 10px 12px; border-radius: 14px;
+  background: #12151b; border: 1px solid rgba(255, 200, 87, 0.5); color: #f4ecdc;
+}
+.card-detail .btn { margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .play-tile, .fan img, .play-tile.owned::after { animation: none; transform: none; }
+}
+
 /* The playing shell is the visible viewport. A short phone shrinks the
    board; the cash row and Roll stay inside it, above the home indicator.
    The page behind the rounded dock stays the table colour. */

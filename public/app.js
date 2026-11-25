@@ -3841,34 +3841,78 @@ function openHud(kind) {
   }
   if (kind === 'wallet') {
     const fp = focusPlayer();
-    const sapa = fp && fp.sapa && fp.sapa.warn
-      ? '<p class="caption">Sapa dey near: one bad landing fit cost you ' + fmtN(fp.sapa.exposure) + '.</p>' : '';
+    const sheet = $('hudSheet');
     const rewards = window.KPRewards && window.KPRewards.current;
     const usable = !!(room && !room.paid && room.status === 'playing' && !spectator && fp);
-    const names = { bail: 'Bail', shield: 'Area Boys', double: 'Double Alert', dash: 'Danfo dash' };
     const cards = (rewards && rewards.cards) || {};
-    const held = usable ? Object.keys(names).filter((id) => (cards[id] || 0) > 0) : [];
-    const cardsHtml = held.map((id) =>
-      '<button type="button" class="btn block" data-play-card="' + id + '" style="margin-top:8px;">' + names[id] + ' · ' + cards[id] + '</button>').join('');
     const stickers = (rewards && rewards.stickers) || [];
-    const owned = stickers.filter((s) => s.count > 0).length;
-    const prog = stickers.length ? (' · ' + owned + '/' + stickers.length) : '';
-    $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + (fp ? esc($('walletLabel').textContent) : 'Cash') + '</h3>' +
-      '<p class="lead">' + (fp ? fmtN(fp.cash) : 'Spectating') + '</p>' + sapa +
-      (held.length ? '<p class="caption" style="margin-top:10px;">Power cards</p>' + cardsHtml : '') +
-      '<button type="button" class="btn block" id="cashAlbum" style="margin-top:10px;">Lagos sticker album' + prog + '</button>' +
-      '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+    const slug = {
+      'lekki-toll': 'lekki-toll-gate', carter: 'carter-bridge', 'third-mainland': 'third-mainland-bridge',
+      balogun: 'balogun-market', suya: 'suya-spot', 'computer-village': 'computer-village',
+      tbs: 'tafawa-balewa-square', 'national-theatre': 'national-theatre', 'eko-atlantic': 'eko-atlantic',
+      danfo: 'danfo', molue: 'molue', okada: 'okada', kirikiri: 'kirikiri',
+      'owambe-hall': 'owambe-hall', 'marina-lights': 'marina-lights'
+    };
+    const deck = [
+      { id: 'bail', name: 'Bail', line: 'Kirikiri gate don open. Walk out free.', does: 'Clears Kirikiri. One card for this match, and only on a free table.' },
+      { id: 'shield', name: 'Area Boys', line: 'The boys don stand. This rent no go touch you.', does: 'The next rent misses you. One card for this match, free tables only.' },
+      { id: 'double', name: 'Double Alert', line: 'Two alerts don land. Next salary na times two.', does: 'Your next salary pays double, once. Free tables only.' },
+      { id: 'dash', name: 'Danfo dash', line: 'Hold tight. One fresh roll dey come.', does: 'Throw away one roll and roll again. Free tables only.' }
+    ];
+    const paint = (selected) => {
+      const sapa = fp && fp.sapa && fp.sapa.warn
+        ? '<p class="caption">Sapa dey near: one bad landing fit cost you ' + fmtN(fp.sapa.exposure) + '.</p>' : '';
+      const tiles = deck.map((c) => {
+        const n = cards[c.id] || 0;
+        const on = selected === c.id ? ' on' : '';
+        return '<button type="button" class="play-tile' + (n ? ' owned' : ' missing') + on + '" data-card="' + c.id + '">' +
+          '<span class="pc-art"><img alt="" width="512" height="512" decoding="async" loading="lazy" src="/cards/' + c.id + '.webp?v=__KOLOPOLY_BUILD__">' +
+          (n ? '<span class="pc-badge">x' + n + '</span>' : '<span class="pc-q">?</span>') + '</span>' +
+          '<span class="pc-name">' + esc(c.name) + '</span>' +
+          '<span class="pc-line">' + esc(c.line) + '</span></button>';
+      }).join('');
+      const held = stickers.filter((s) => s.count > 0).slice(0, 4);
+      const ownedN = stickers.filter((s) => s.count > 0).length;
+      const total = stickers.length || 15;
+      const pct = Math.round(100 * ownedN / total);
+      const fan = (held.length ? held : stickers.slice(0, 3)).map((s) =>
+        '<img alt="" width="64" height="64" decoding="async" loading="lazy" src="/stickers/' + (slug[s.id] || s.id) + '.webp?v=__KOLOPOLY_BUILD__">').join('');
+      const picked = deck.find((c) => c.id === selected);
+      const have = picked ? (cards[picked.id] || 0) : 0;
+      const detail = picked
+        ? '<div class="card-detail" id="cardDetail"><p class="pc-name">' + esc(picked.name) + '</p><p class="pc-line">' + esc(picked.does) + '</p>' +
+          (have && usable
+            ? '<button type="button" class="btn block" id="cashUse">Use ' + esc(picked.name) + '</button>'
+            : '<p class="caption">' + (have ? 'Free tables only. This card no go play here.' : 'You no hold this card yet.') + '</p>') +
+          '</div>'
+        : '';
+      sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + (fp ? esc($('walletLabel').textContent) : 'Cash') + '</h3>' +
+        '<p class="lead">' + (fp ? fmtN(fp.cash) : 'Spectating') + '</p>' + sapa +
+        '<div class="cash-grid">' + tiles +
+        '<button type="button" class="album-book" id="cashAlbum">' +
+        '<span class="fan">' + fan + '</span>' +
+        '<span class="pc-name">Sticker album</span>' +
+        '<span class="prog" aria-hidden="true"><span style="width:' + pct + '%"></span></span>' +
+        '<span class="pc-line">' + ownedN + '/' + total + ' stickers</span></button></div>' +
+        detail +
+        '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+      wireSheetButtons(sheet, myId);
+      sheet.querySelectorAll('[data-card]').forEach((b) => b.addEventListener('click', () => paint(b.dataset.card)));
+      const album = $('cashAlbum');
+      if (album) album.addEventListener('click', () => {
+        closeScrim('hudScrim');
+        if (window.KPRewards && window.KPRewards.openAlbum) window.KPRewards.openAlbum();
+      });
+      const use = $('cashUse');
+      if (use && picked) use.addEventListener('click', () => {
+        send('play_card', { card: picked.id });
+        closeScrim('hudScrim');
+      });
+      const box = $('cardDetail');
+      if (box) box.scrollIntoView({ block: 'nearest' });
+    };
     $('hudScrim').classList.add('show');
-    wireSheetButtons($('hudSheet'), myId);
-    const album = $('cashAlbum');
-    if (album) album.addEventListener('click', () => {
-      closeScrim('hudScrim');
-      if (window.KPRewards && window.KPRewards.openAlbum) window.KPRewards.openAlbum();
-    });
-    $('hudSheet').querySelectorAll('[data-play-card]').forEach((b) => b.addEventListener('click', () => {
-      send('play_card', { card: b.dataset.playCard });
-      closeScrim('hudScrim');
-    }));
+    paint(null);
     return;
   }
   const meId = focusPlayer() ? focusPlayer().id : null;
