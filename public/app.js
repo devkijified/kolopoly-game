@@ -1776,6 +1776,7 @@ window.addEventListener('pageshow', (ev) => {
 // bank by Paystack before it saves; only the bank, the account name and
 // the last four digits ever come back to this phone.
 // ---------------------------------------------------------------------------
+const HOUSE_HOLD_WORDS = ['Queued — house sends it soon', 'warn'];
 const PAYOUT_WORDS = {
   'awaiting-bank': ['Add your bank', 'warn'],
   ready: ['On the way', 'go'],
@@ -1790,6 +1791,10 @@ const PAYOUT_WORDS = {
   'refunded-manual': ['Refunded', 'ok'],
   test: ['Test mode, no money', 'muted']
 };
+function payoutWords(p) {
+  if (p && p.houseHold) return HOUSE_HOLD_WORDS;
+  return PAYOUT_WORDS[p && p.status] || [p && p.status || '', 'muted'];
+}
 let payoutBanks = null;
 let walletSummary = null;
 let walletAskedAt = 0;
@@ -1840,6 +1845,10 @@ async function collectPrize(room, btn) {
     const data = await res.json().catch(() => null);
     if (!data) { finish('Try again', 'The house did not answer. Your prize is still queued.'); return; }
     if (data.error === 'bank') { finish('Add your bank', data.message || 'Add your bank, then collect again.'); return; }
+    if (data.houseHold || (data.payout && data.payout.houseHold)) {
+      finish(HOUSE_HOLD_WORDS[0], data.message || HOUSE_HOLD_WORDS[0]);
+      return;
+    }
     if (data.ok && (data.status === 'paid' || data.status === 'paid-manual')) { finish(data.already ? 'Already paid' : 'Paid to your bank', data.message || 'Paid to your bank.'); return; }
     if (data.ok) { finish(data.already ? 'Already on the way' : 'On the way', data.message || 'On the way to your bank. It will not be sent twice.'); return; }
     finish('Collect failed', data.message || 'The house could not send it. Try again.');
@@ -1881,7 +1890,7 @@ async function openWinnings(focusBank) {
   html += '<div class="p2e-bank" id="winBank"></div>';
   html += rows.length
     ? '<ul class="p2e-list">' + rows.map((r) => {
-      const w = PAYOUT_WORDS[r.status] || [r.status, 'muted'];
+      const w = payoutWords(r);
       return '<li class="p2e-row"><div class="p2e-row-main"><div class="p2e-row-title">' + (r.kind === 'prize' ? 'Prize · table ' : 'Entry back · table ') + esc(r.roomCode) + '</div>' +
         '<div class="p2e-row-sub">' + new Date(r.createdAt).toLocaleDateString() + '</div></div>' +
         '<div class="p2e-row-side"><div class="p2e-row-amt">' + fmtN(r.amount) + '</div><span class="p2e-chip ' + w[1] + '">' + esc(w[0]) + '</span></div></li>';
@@ -3001,8 +3010,8 @@ function paintProfile(data) {
   const fees = (data && data.fees) || [];
   const credit = (data && data.credit) || [];
   const rows = payouts.map((p) => {
-    const word = (PAYOUT_WORDS[p.status] || [p.status, 'muted'])[0];
-    const collect = p.kind === 'prize' && (p.status === 'ready' || p.status === 'failed')
+    const word = payoutWords(p)[0];
+    const collect = p.kind === 'prize' && !p.houseHold && (p.status === 'ready' || p.status === 'failed')
       ? '<button type="button" class="btn small" data-collect="' + esc(p.roomCode || '') + '" data-key="' + esc(p.gameKey || '') + '">Collect</button>' : '';
     return '<div class="prof-row"><b>' + esc(p.kind || 'payout') + ' · ' + fmtN(p.amount || 0) + '</b><span>' + esc(word) + '</span>' + collect + '</div>';
   }).join('') || '<p class="caption">No prizes yet.</p>';
