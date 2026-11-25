@@ -586,6 +586,76 @@ function knockSfx(at, vol) {
   tone({ f: 210, at: at || 0, dur: 0.06, type: 'triangle', vol: v * 0.8 });
 }
 function paperSlide(at, dur) { noiseHit({ at: at || 0, dur: dur || 0.22, vol: 0.04, freq: 850, freq2: 2400, q: 1.1 }); }
+const EMOTE_PACKS = [
+  { city: null, lines: [
+    { id: 'shine', line: 'Shine your eye!' },
+    { id: 'cast', line: 'E don cast!' },
+    { id: 'pay', line: 'Pay me my money!' },
+    { id: 'nawa', line: 'Na wa o!' },
+    { id: 'who', line: 'Who send you?' },
+    { id: 'oya', line: 'Oya roll!' }
+  ] },
+  { city: 'lagos', lines: [
+    { id: 'jam', line: 'Third Mainland jam!' },
+    { id: 'island', line: 'Island people, pay up!' }
+  ] }
+];
+function emotesForCity(cityId) {
+  const out = [];
+  for (const pack of EMOTE_PACKS) {
+    if (pack.city && pack.city !== cityId) continue;
+    for (const line of pack.lines) out.push(line);
+  }
+  return out;
+}
+function emotesMuted() {
+  try { return localStorage.getItem('kolopolyMuteEmotes') === '1'; } catch (e) { return false; }
+}
+let seenEmoteAt = 0;
+function showRoomEmote(room) {
+  const e = room && room.emote;
+  if (!e || !e.at || e.at === seenEmoteAt) return;
+  seenEmoteAt = e.at;
+  const mine = e.playerId === myId;
+  if (!mine && emotesMuted()) return;
+  try { if (window.KPPreviewSfx) window.KPPreviewSfx('emote'); } catch (err) { /* quiet */ }
+  const token = document.querySelector('.btoken[data-player="' + e.playerId + '"]');
+  const bubble = document.createElement('div');
+  bubble.className = 'emote-bubble';
+  bubble.textContent = e.line;
+  if (token) token.appendChild(bubble);
+  else {
+    bubble.classList.add('emote-float');
+    document.body.appendChild(bubble);
+  }
+  setTimeout(() => { if (bubble.parentNode) bubble.remove(); }, 2200);
+}
+function openEmoteWheel(room) {
+  let wheel = document.getElementById('emoteWheel');
+  if (wheel) { wheel.remove(); return; }
+  const city = room.contentCity || null;
+  const lines = emotesForCity(city);
+  wheel = document.createElement('div');
+  wheel.id = 'emoteWheel';
+  wheel.className = 'emote-wheel';
+  wheel.innerHTML = '<div class="emote-card"><p class="pack-kicker">TALK</p><h2>Say something</h2><div class="emote-grid">' +
+    lines.map((l) => '<button type="button" class="emote-line" data-emote="' + l.id + '">' + l.line + '</button>').join('') +
+    '</div><label class="emote-mute"><input type="checkbox" id="emoteMute"' + (emotesMuted() ? ' checked' : '') + '> Mute other people talk</label>' +
+    '<button type="button" class="btn ghost block" id="emoteClose">Close</button></div>';
+  document.body.appendChild(wheel);
+  wheel.addEventListener('click', (ev) => { if (ev.target === wheel) wheel.remove(); });
+  wheel.querySelector('#emoteClose').addEventListener('click', () => wheel.remove());
+  wheel.querySelector('#emoteMute').addEventListener('change', (ev) => {
+    try {
+      if (ev.target.checked) localStorage.setItem('kolopolyMuteEmotes', '1');
+      else localStorage.removeItem('kolopolyMuteEmotes');
+    } catch (e) { /* private mode */ }
+  });
+  wheel.querySelectorAll('[data-emote]').forEach((b) => b.addEventListener('click', () => {
+    send('emote', { id: b.dataset.emote });
+    wheel.remove();
+  }));
+}
 const sfx = {
   credit(amount) { duckAmbient(); playCash(0.9); },
   debit() { playCash(0.8); },
@@ -629,6 +699,7 @@ const sfx = {
   phaseToll() { tone({ f: 196, dur: 0.7, vol: 0.08 }); tone({ f: 147, at: 0.4, dur: 0.9, vol: 0.07 }); },
   phase() { tone({ f: 392, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 523, at: 0.13, dur: 0.16, type: 'triangle', vol: 0.09 }); tone({ f: 659, at: 0.26, dur: 0.24, type: 'triangle', vol: 0.09 }); },
   daddy() { tone({ f: 392, dur: 0.07, type: 'triangle', vol: 0.05 }); tone({ f: 523, at: 0.08, dur: 0.1, type: 'triangle', vol: 0.055 }); tone({ f: 784, at: 0.18, dur: 0.12, type: 'triangle', vol: 0.04 }); },
+  emote() { tone({ f: 520, dur: 0.07, type: 'triangle', vol: 0.06 }); tone({ f: 780, at: 0.07, dur: 0.09, type: 'triangle', vol: 0.05 }); noiseHit({ at: 0.02, dur: 0.05, vol: 0.03, freq: 1400, q: 1.2 }); },
   turnRise() { tone({ f: 660, dur: 0.1, vol: 0.045 }); tone({ f: 880, at: 0.09, dur: 0.16, vol: 0.045 }); },
   tap() { tone({ f: 1900, dur: 0.02, vol: 0.012, ambient: true }); }
 };
@@ -2061,6 +2132,7 @@ function onState(room) {
   processFeed(room, prev);
   processPositions(room);
   funMoments(room, prev);
+  showRoomEmote(room);
   if (prev && window.KPBigDaddy) {
     const beat = window.KPBigDaddy.detect(prev, room, myId);
     if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1 });
@@ -2843,6 +2915,7 @@ function renderActionBar(room) {
     '<span class="u-lb">' + label + '</span></button>';
   let secHtml = ubtn('sbDeeds', 'docText', 'Deeds');
   secHtml += ubtn('sbLog', 'book', 'Log');
+  if (!spectator && me && room.status === 'playing') secHtml += ubtn('sbEmote', 'messages', 'Talk');
   // Lesson 11: a way out, with an honest two tap confirm. The host also
   // carries the room ending option.
   if (!spectator && me && !me.bankrupt && room.status === 'playing' && !room.paid) {
@@ -2855,6 +2928,7 @@ function renderActionBar(room) {
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
   wire('sbLog', () => openGist());
+  wire('sbEmote', () => openEmoteWheel(room));
   wire('sbCards', () => {
     const rewards = window.KPRewards && window.KPRewards.current;
     const cards = (rewards && rewards.cards) || {};

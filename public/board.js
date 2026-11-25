@@ -368,6 +368,7 @@ const KPBoard = {
       if (!el) {
         el = document.createElement('div');
         el.className = 'btoken';
+        el.dataset.player = String(p.id);
         this.tokenEls[p.id] = el;
         layer.appendChild(el);
       }

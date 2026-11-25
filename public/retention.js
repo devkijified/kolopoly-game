@@ -116,6 +116,7 @@
     }
     renderShelf();
     paintShelfBtn(view);
+    paintSpin(view);
     lastView = view;
     paintStrip();
     if (window.KPpaintAccountChip) window.KPpaintAccountChip(v2view);
@@ -783,6 +784,67 @@
   else detectAndroidInstall();
   paintInstallButton();
 
+  function paintSpin(view) {
+    const b = $('spinBtn');
+    if (!b) return;
+    const ready = !!(view && view.spin && view.spin.canSpin);
+    b.disabled = !ready;
+    b.textContent = ready ? 'Big Daddy spin' : 'Spin don finish today';
+  }
+  async function openSpin() {
+    const b = $('spinBtn');
+    if (b) b.disabled = true;
+    let out = null;
+    try { out = await post('/api/rewards/spin', {}); } catch (e) { out = null; }
+    if (!out || !out.segments) {
+      if (b) b.disabled = false;
+      setLine('The wheel no answer. Try again.');
+      return;
+    }
+    if (!out.ok) {
+      paintSpin({ spin: out.spin });
+      setLine('You don spin today. The next one opens at dawn.');
+      return;
+    }
+    let stage = $('spinStage');
+    if (!stage) {
+      stage = document.createElement('div');
+      stage.id = 'spinStage';
+      stage.className = 'spin-scrim';
+      document.body.appendChild(stage);
+    }
+    const segs = out.segments;
+    const colors = ['#9c2b3a', '#1f7a45', '#e8a317', '#2f6f8f', '#c4552a'];
+    const slice = 360 / segs.length;
+    const stops = segs.map((s, i) => colors[i % colors.length] + ' ' + (i * slice) + 'deg ' + ((i + 1) * slice) + 'deg').join(', ');
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const turns = reduce ? 0 : 4;
+    const landing = turns * 360 + (360 - (out.index * slice) - slice / 2);
+    stage.innerHTML = '<div class="spin-card"><p class="pack-kicker">BIG DADDY</p><h2>Spin am</h2>' +
+      '<div class="spin-pointer" aria-hidden="true"></div>' +
+      '<div class="spin-wheel" id="spinWheel" style="background:conic-gradient(' + stops + ');transform:rotate(0deg)"></div>' +
+      '<p class="spin-result" id="spinResult">The wheel dey turn…</p>' +
+      '<button type="button" class="btn ghost block" id="spinClose">Close</button></div>';
+    stage.querySelector('#spinClose').addEventListener('click', () => stage.remove());
+    const wheel = stage.querySelector('#spinWheel');
+    const labels = '<div class="spin-labels">' + segs.map((s) => '<span>' + s.label + '</span>').join('') + '</div>';
+    wheel.insertAdjacentHTML('afterend', labels);
+    if (window.KPPreviewSfx) window.KPPreviewSfx('auctionTick');
+    requestAnimationFrame(() => { wheel.style.transform = 'rotate(' + landing + 'deg)'; });
+    const finish = () => {
+      const prize = out.prize || {};
+      const result = stage.querySelector('#spinResult');
+      if (result) result.textContent = prize.line || prize.label || 'Something don land.';
+      if (out.rewards && window.KPRewards) window.KPRewards.paintShelf(out.rewards);
+      paintSpin({ spin: out.spin });
+      if (window.KPBigDaddy) window.KPBigDaddy.show('drop', { force: true, line: prize.line || 'Spin don land!' });
+      if (window.KPPreviewSfx) window.KPPreviewSfx('cheer');
+    };
+    if (reduce) finish();
+    else setTimeout(finish, 2500);
+  }
+  const spinBtn = $('spinBtn');
+  if (spinBtn) spinBtn.addEventListener('click', () => openSpin());
   window.KPRetention = {
     recordInflationGame,
     infProfile() { return infLoad(); },

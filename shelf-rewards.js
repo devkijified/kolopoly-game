@@ -9,35 +9,44 @@ const CARDS = {
   dash: { id: 'dash', name: 'Danfo dash', line: 'Danfo dash! One fresh roll, hold am.' }
 };
 const STICKERS = [
-  { id: 'lekki-toll', name: 'Lekki Toll Gate', set: 'bridges', stars: 1 },
-  { id: 'carter', name: 'Carter Bridge', set: 'bridges', stars: 1 },
-  { id: 'third-mainland', name: 'Third Mainland Bridge', set: 'bridges', stars: 2 },
-  { id: 'balogun', name: 'Balogun Market', set: 'markets', stars: 1 },
-  { id: 'suya', name: 'Suya Spot', set: 'markets', stars: 1 },
-  { id: 'computer-village', name: 'Computer Village', set: 'markets', stars: 2 },
-  { id: 'tbs', name: 'Tafawa Balewa Square', set: 'squares', stars: 1 },
-  { id: 'national-theatre', name: 'National Theatre', set: 'squares', stars: 2 },
-  { id: 'eko-atlantic', name: 'Eko Atlantic', set: 'squares', stars: 3, gold: true },
-  { id: 'danfo', name: 'Danfo', set: 'motors', stars: 1 },
-  { id: 'molue', name: 'Molue', set: 'motors', stars: 2 },
-  { id: 'okada', name: 'Okada', set: 'motors', stars: 1 },
-  { id: 'kirikiri', name: 'Kirikiri', set: 'night', stars: 2 },
-  { id: 'owambe-hall', name: 'Owambe Hall', set: 'night', stars: 1 },
-  { id: 'marina-lights', name: 'Marina Lights', set: 'night', stars: 3, gold: true }
+  { id: 'lekki-toll', name: 'Lekki Toll Gate', set: 'bridges', city: 'lagos', stars: 1 },
+  { id: 'carter', name: 'Carter Bridge', set: 'bridges', city: 'lagos', stars: 1 },
+  { id: 'third-mainland', name: 'Third Mainland Bridge', set: 'bridges', city: 'lagos', stars: 2 },
+  { id: 'balogun', name: 'Balogun Market', set: 'markets', city: 'lagos', stars: 1 },
+  { id: 'suya', name: 'Suya Spot', set: 'markets', city: 'lagos', stars: 1 },
+  { id: 'computer-village', name: 'Computer Village', set: 'markets', city: 'lagos', stars: 2 },
+  { id: 'tbs', name: 'Tafawa Balewa Square', set: 'squares', city: 'lagos', stars: 1 },
+  { id: 'national-theatre', name: 'National Theatre', set: 'squares', city: 'lagos', stars: 2 },
+  { id: 'eko-atlantic', name: 'Eko Atlantic', set: 'squares', city: 'lagos', stars: 3, gold: true },
+  { id: 'danfo', name: 'Danfo', set: 'motors', city: 'lagos', stars: 1 },
+  { id: 'molue', name: 'Molue', set: 'motors', city: 'lagos', stars: 2 },
+  { id: 'okada', name: 'Okada', set: 'motors', city: 'lagos', stars: 1 },
+  { id: 'kirikiri', name: 'Kirikiri', set: 'night', city: 'lagos', stars: 2 },
+  { id: 'owambe-hall', name: 'Owambe Hall', set: 'night', city: 'lagos', stars: 1 },
+  { id: 'marina-lights', name: 'Marina Lights', set: 'night', city: 'lagos', stars: 3, gold: true }
 ];
 const SETS = {
-  bridges: { name: 'Bridges', reward: { kind: 'card', card: 'dash' } },
-  markets: { name: 'Markets', reward: { kind: 'card', card: 'shield' } },
-  squares: { name: 'Squares', reward: { kind: 'cosmetic', id: 'board-night' } },
-  motors: { name: 'Motors', reward: { kind: 'cosmetic', id: 'token-gold-danfo' } },
-  night: { name: 'Night Lagos', reward: { kind: 'cosmetic', id: 'daddy-gold' } }
+  bridges: { name: 'Bridges', city: 'lagos', reward: { kind: 'card', card: 'dash' }, cosmetic: 'frame-bridge' },
+  markets: { name: 'Markets', city: 'lagos', reward: { kind: 'card', card: 'shield' }, cosmetic: 'token-suya' },
+  squares: { name: 'Squares', city: 'lagos', reward: { kind: 'cosmetic', id: 'board-night' } },
+  motors: { name: 'Motors', city: 'lagos', reward: { kind: 'cosmetic', id: 'token-gold-danfo' } },
+  night: { name: 'Night Market', city: 'lagos', reward: { kind: 'cosmetic', id: 'daddy-gold' } }
 };
 const COSMETICS = {
-  'token-gold-danfo': { id: 'token-gold-danfo', slot: 'token', name: 'Gold Danfo' },
-  'board-night': { id: 'board-night', slot: 'board', name: 'Night Market' },
-  'daddy-gold': { id: 'daddy-gold', slot: 'daddy', name: 'Gold Agbada' },
-  'celebrate-spray': { id: 'celebrate-spray', slot: 'celebrate', name: 'Naira Spray' }
+  'token-gold-danfo': { id: 'token-gold-danfo', slot: 'token', city: 'lagos', name: 'Gold Danfo' },
+  'token-suya': { id: 'token-suya', slot: 'token', city: 'lagos', name: 'Suya Gold' },
+  'board-night': { id: 'board-night', slot: 'board', city: 'lagos', name: 'Night Market' },
+  'daddy-gold': { id: 'daddy-gold', slot: 'daddy', city: 'lagos', name: 'Gold Agbada' },
+  'frame-bridge': { id: 'frame-bridge', slot: 'frame', city: 'lagos', name: 'Bridge Name Frame' },
+  'celebrate-spray': { id: 'celebrate-spray', slot: 'celebrate', city: 'lagos', name: 'Naira Spray' }
 };
+const SPIN_SEGMENTS = [
+  { id: 'pack', weight: 34, kind: 'pack', label: 'A fresh pack' },
+  { id: 'card', weight: 22, kind: 'card', label: 'A power card' },
+  { id: 'sticker', weight: 18, kind: 'sticker', label: 'A rare sticker' },
+  { id: 'look', weight: 10, kind: 'cosmetic', label: 'A new look' },
+  { id: 'wink', weight: 16, kind: 'fun', label: 'Big Daddy wink' }
+];
 const CARD_IDS = Object.keys(CARDS);
 
 function hashSeed(s) {
@@ -66,7 +75,9 @@ function blankRewards() {
     album: {},
     setsDone: {},
     cosmetics: [],
-    equipped: { token: null, board: null, daddy: null, celebrate: null }
+    equipped: { token: null, board: null, daddy: null, celebrate: null, frame: null },
+    spinDay: null,
+    lastSpin: null
   };
 }
 function ensureRewards(p) {
@@ -77,7 +88,9 @@ function ensureRewards(p) {
   r.album = r.album || {};
   r.setsDone = r.setsDone || {};
   r.cosmetics = Array.isArray(r.cosmetics) ? r.cosmetics : [];
-  r.equipped = r.equipped || { token: null, board: null, daddy: null, celebrate: null };
+  r.equipped = Object.assign({ token: null, board: null, daddy: null, celebrate: null, frame: null }, r.equipped || {});
+  if (r.spinDay != null && typeof r.spinDay !== 'string') r.spinDay = null;
+  if (!r.lastSpin || typeof r.lastSpin !== 'object') r.lastSpin = null;
   r.packs = Math.max(0, Math.floor(Number(r.packs) || 0));
   r.migrated = !!r.migrated;
   return r;
@@ -123,22 +136,113 @@ function drawSticker(rnd) {
   if (!pool.length) pool = STICKERS;
   return pool[Math.floor(rnd() * pool.length) % pool.length];
 }
+function grantLook(r, id) {
+  const c = COSMETICS[id];
+  if (!c) return null;
+  if (!r.cosmetics.includes(id)) r.cosmetics.push(id);
+  return c;
+}
 function completeSets(r) {
   const rewards = [];
   for (const [setId, set] of Object.entries(SETS)) {
     if (r.setsDone[setId]) continue;
     const members = STICKERS.filter((s) => s.set === setId);
-    if (!members.every((s) => (r.album[s.id] || 0) >= 1)) continue;
+    if (!members.length || !members.every((s) => (r.album[s.id] || 0) >= 1)) continue;
     r.setsDone[setId] = true;
+    const row = { set: setId, name: set.name, city: set.city || null, kind: set.reward.kind };
     if (set.reward.kind === 'card') {
       r.cards[set.reward.card] += 1;
-      rewards.push({ set: setId, name: set.name, kind: 'card', card: set.reward.card });
-    } else if (set.reward.kind === 'cosmetic' && COSMETICS[set.reward.id]) {
-      if (!r.cosmetics.includes(set.reward.id)) r.cosmetics.push(set.reward.id);
-      rewards.push({ set: setId, name: set.name, kind: 'cosmetic', id: set.reward.id });
+      row.card = set.reward.card;
+    } else if (set.reward.kind === 'cosmetic') {
+      const c = grantLook(r, set.reward.id);
+      if (c) { row.id = c.id; row.cosmeticName = c.name; }
     }
+    if (set.cosmetic) {
+      const extra = grantLook(r, set.cosmetic);
+      if (extra) { row.cosmetic = extra.id; row.cosmeticName = extra.name; }
+    }
+    rewards.push(row);
   }
   return rewards;
+}
+function homeCity() {
+  const tagged = STICKERS.find((s) => s.city);
+  return tagged ? tagged.city : null;
+}
+function stickersIn(cityId) {
+  if (!cityId) return STICKERS.slice();
+  const mine = STICKERS.filter((s) => s.city === cityId);
+  return mine.length ? mine : [];
+}
+function spinSegments() {
+  return SPIN_SEGMENTS.map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
+}
+function spinView(p, day) {
+  const r = ensureRewards(p);
+  const today = String(day || '');
+  return { canSpin: r.spinDay !== today, last: r.lastSpin || null, segments: spinSegments() };
+}
+function spinWheel(p, day, seed, cityId) {
+  const r = ensureRewards(p);
+  migrateGoods(p);
+  const today = String(day || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) return { ok: false, error: 'day' };
+  if (r.spinDay === today) return { ok: false, error: 'spent', prize: r.lastSpin || null, segments: spinSegments() };
+  const rnd = mulberry(hashSeed(seed || (today + ':spin')));
+  const total = SPIN_SEGMENTS.reduce((n, s) => n + s.weight, 0);
+  let roll = rnd() * total;
+  let seg = SPIN_SEGMENTS[0];
+  for (const s of SPIN_SEGMENTS) {
+    roll -= s.weight;
+    if (roll <= 0) { seg = s; break; }
+  }
+  const prize = { id: seg.id, kind: seg.kind, label: seg.label, city: cityId || null };
+  if (seg.kind === 'pack') {
+    r.packs += 1;
+    prize.packs = 1;
+    prize.line = 'Oya, pack don land. Come open am!';
+  } else if (seg.kind === 'card') {
+    const id = CARD_IDS[Math.floor(rnd() * CARD_IDS.length) % CARD_IDS.length];
+    r.cards[id] += 1;
+    prize.card = id;
+    prize.line = CARDS[id].name + ' don enter your hand.';
+  } else if (seg.kind === 'sticker') {
+    const pool = stickersIn(cityId).filter((s) => s.gold);
+    const any = pool.length ? pool : stickersIn(cityId);
+    if (!any.length) {
+      r.packs += 1;
+      prize.kind = 'pack';
+      prize.packs = 1;
+      prize.line = 'No rare sticker for this city yet. Take a pack.';
+    } else {
+      const s = any[Math.floor(rnd() * any.length) % any.length];
+      r.album[s.id] = (r.album[s.id] || 0) + 1;
+      prize.sticker = { id: s.id, name: s.name, city: s.city, gold: !!s.gold };
+      prize.line = s.name + ' don land for your album.';
+      prize.completed = completeSets(r);
+    }
+  } else if (seg.kind === 'cosmetic') {
+    const pool = Object.values(COSMETICS).filter((c) => !cityId || c.city === cityId);
+    const fresh = pool.filter((c) => !r.cosmetics.includes(c.id));
+    const pick = (fresh.length ? fresh : pool)[0];
+    if (!pick) {
+      r.packs += 1;
+      prize.kind = 'pack';
+      prize.packs = 1;
+      prize.line = 'The looks don finish. Take a pack.';
+    } else {
+      grantLook(r, pick.id);
+      prize.cosmetic = { id: pick.id, name: pick.name, city: pick.city };
+      prize.line = pick.name + ' don land. Wear am when you ready.';
+    }
+  } else {
+    r.packs += 1;
+    prize.packs = 1;
+    prize.line = 'Big Daddy wink you. Small pack follow.';
+  }
+  r.spinDay = today;
+  r.lastSpin = { id: prize.id, kind: prize.kind, label: prize.label, line: prize.line };
+  return { ok: true, index: SPIN_SEGMENTS.findIndex((s) => s.id === seg.id), prize, segments: spinSegments() };
 }
 function openPack(p, seed) {
   const r = ensureRewards(p);
@@ -197,7 +301,13 @@ function publicRewards(p) {
   const sets = Object.keys(SETS).map((id) => {
     const members = STICKERS.filter((s) => s.set === id);
     const have = members.filter((s) => (r.album[s.id] || 0) >= 1).length;
-    return { id, name: SETS[id].name, have, size: members.length, done: !!r.setsDone[id] };
+    const rewardId = SETS[id].cosmetic || (SETS[id].reward && SETS[id].reward.id);
+    const look = rewardId && COSMETICS[rewardId];
+    const card = SETS[id].reward && SETS[id].reward.card && CARDS[SETS[id].reward.card];
+    return {
+      id, name: SETS[id].name, city: SETS[id].city || null, have, size: members.length, done: !!r.setsDone[id],
+      reward: look ? look.name : (card ? card.name : '')
+    };
   });
   return {
     packs: r.packs,
@@ -206,7 +316,7 @@ function publicRewards(p) {
     sets,
     cosmetics: r.cosmetics.slice(),
     equipped: Object.assign({}, r.equipped),
-    stickers: STICKERS.map((s) => ({ id: s.id, name: s.name, set: s.set, stars: s.stars, gold: !!s.gold, count: r.album[s.id] || 0 }))
+    stickers: STICKERS.map((s) => ({ id: s.id, name: s.name, set: s.set, city: s.city || null, stars: s.stars, gold: !!s.gold, count: r.album[s.id] || 0 }))
   };
 }
 // Free and private free tables only. One card per player per match.
@@ -224,7 +334,8 @@ function judgePlay(room, player, card, have) {
 }
 
 module.exports = {
-  CARDS, STICKERS, SETS, COSMETICS, CARD_IDS,
+  CARDS, STICKERS, SETS, COSMETICS, CARD_IDS, SPIN_SEGMENTS,
   blankRewards, ensureRewards, migrateGoods, grantPack, openPack, completeSets, giftDuplicate, receiveSticker,
-  spendCard, giveCard, equipCosmetic, publicRewards, judgePlay, hashSeed
+  spendCard, giveCard, equipCosmetic, publicRewards, judgePlay, hashSeed,
+  homeCity, spinView, spinWheel, stickersIn
 };

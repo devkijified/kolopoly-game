@@ -9,6 +9,7 @@ const { createCompetition, competitionTable } = require('./competition.js');
 const { createPrizeLedger } = require('./prize-ledger.js');
 const { createPayProvider } = require('./pay-provider.js');
 const shelfRewards = require('./shelf-rewards.js');
+const emotes = require('./emotes.js');
 
 function randomHex(n) {
   const bytes = new Uint8Array(n);
@@ -766,6 +767,8 @@ function publicRoom(room) {
     } : null,
     // The gist and the alert pump only need the recent lines. The server
     // still keeps 40. Sending all 14 on every tick was most of a fat update.
+    contentCity: room.cityId || emotes.homeCity(),
+    emote: room.emote || null,
     feed: room.feed.slice(-6),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
@@ -3375,6 +3378,21 @@ function handleConnection(ws) {
     // Shelf spend. Goods stay on the phone until this moment. Cowries and
     // cloth become cash. Kola arms the next rent. Yam arms the next fee.
     // The auction clock is not touched.
+    if (msg.type === 'emote') {
+      if (!me || me.bankrupt) return fail('You no fit talk now.');
+      if (room.status !== 'playing') return fail('Talk when the table dey play.');
+      const talk = emotes.byId(String(msg.id || ''));
+      if (!talk) return fail('That talk no dey.');
+      const city = room.cityId || emotes.homeCity();
+      if (talk.city && talk.city !== city) return fail('That talk no match this city.');
+      const nowMs = now();
+      if (me.emoteAt && nowMs - me.emoteAt < 8000) return fail('Small time. Let the last talk land.');
+      me.emoteAt = nowMs;
+      room.emote = { playerId: me.id, id: talk.id, line: talk.line, at: nowMs };
+      pushFeed(room, 'emote', me.name + ': ' + talk.line, { playerId: me.id, emote: talk.id });
+      broadcast(room);
+      return;
+    }
     if (msg.type === 'play_card') {
       if (!me || me.bankrupt || me.bot) return fail('You no fit play a card now.');
       if (room.status !== 'playing') return fail('Play a card when the table dey play.');

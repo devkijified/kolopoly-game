@@ -1,4 +1,5 @@
-import { migrateGoods, openPack, grantPack, ensureRewards, judgePlay, completeSets, STICKERS, SETS } from './shelf-rewards.js';
+import { migrateGoods, openPack, grantPack, ensureRewards, judgePlay, completeSets, spinWheel, homeCity, STICKERS, SETS } from './shelf-rewards.js';
+import { linesFor, byId } from './emotes.js';
 
 let n = 0, fail = 0;
 const check = (name, cond, extra) => {
@@ -36,6 +37,18 @@ check('one card per match', judgePlay({ paid: false }, { cardPlayed: 'shield', b
 check('an empty hand is refused', judgePlay({ paid: false }, { cardPlayed: null, bot: false }, 'shield', false).error === 'empty');
 check('bail needs Kirikiri', judgePlay({ paid: false }, { cardPlayed: null, bot: false, inJail: false }, 'bail', true).error === 'jail');
 check('a free table accepts a shield', judgePlay({ paid: false }, { cardPlayed: null, bot: false }, 'shield', true).ok === true);
+
+const spinner = { inventory: { cowries: 0, kola: 0, yams: 0, cloth: 0 } };
+const spun = spinWheel(spinner, '2026-11-25', 'spin-seed', homeCity());
+check('the first spin of the day lands a prize', spun.ok && spun.prize && spun.prize.line && spinner.rewards.spinDay === '2026-11-25', JSON.stringify(spun.prize));
+const again = spinWheel(spinner, '2026-11-25', 'spin-seed', homeCity());
+check('a second spin the same day is refused', again.ok === false && again.error === 'spent');
+const otherCity = linesFor('aso-rock').map((l) => l.id);
+check('another city does not hear the home-city lines', !otherCity.includes('jam') && otherCity.includes('oya'));
+const homeLines = linesFor(homeCity()).map((l) => l.id);
+check('the home city hears its own lines', homeLines.includes('jam') && homeLines.includes('shine'));
+check('an unknown talk is refused', byId('nope') == null && byId('jam').city === homeCity());
+check('a finished set names its cosmetic', done[0].cosmeticName === 'Bridge Name Frame', JSON.stringify(done[0]));
 
 console.log(fail ? fail + ' failed' : 'all ' + n + ' passed');
 process.exit(fail ? 1 : 0);
