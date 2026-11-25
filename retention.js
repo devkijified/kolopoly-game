@@ -1166,19 +1166,29 @@ function createRetention(opts) {
     bumpRival(info.payer, info.owner, info.ownerName, 'youPaid', info.amount || 0);
     bumpRival(info.owner, info.payer, info.payerName, 'theyPaid', info.amount || 0);
     if ((info.amount || 0) >= 100000 && info.payer) {
-      const p = ensure(info.payer);
-      p.rematch = { to: info.owner, name: info.ownerName || '', amount: info.amount, at: Date.now() };
+      offerRematch(info.payer, info.owner, info.ownerName, info.amount, info.ownerToken);
     }
     save();
+  }
+  function offerRematch(id, otherId, name, amount, token) {
+    if (!id) return;
+    const p = ensure(id);
+    const row = (p.rivalries && p.rivalries[otherId]) || {};
+    p.rematch = {
+      to: otherId,
+      name: name || '',
+      amount: amount || 0,
+      at: Date.now(),
+      token: token || '',
+      wins: row.wins || 0,
+      losses: row.losses || 0
+    };
   }
   function noteMatch(info) {
     info = info || {};
     bumpRival(info.winner, info.loser, info.loserName, 'wins', 1);
     bumpRival(info.loser, info.winner, info.winnerName, 'losses', 1);
-    if (info.loser) {
-      const p = ensure(info.loser);
-      p.rematch = { to: info.winner, name: info.winnerName || '', amount: 0, at: Date.now() };
-    }
+    if (info.loser) offerRematch(info.loser, info.winner, info.winnerName, 0, info.winnerToken);
     save();
   }
   function tradePreview(body) {

@@ -629,9 +629,20 @@ function showRoomEmote(room) {
   const token = document.querySelector('.btoken[data-player="' + e.playerId + '"]');
   const bubble = document.createElement('div');
   bubble.className = 'emote-bubble';
-  bubble.textContent = e.line;
-  if (token) token.appendChild(bubble);
-  else {
+  const face = e.id ? '<img alt="" src="/emotes/' + e.id + '.webp?v=__KOLOPOLY_BUILD__">' : '';
+  bubble.innerHTML = face + '<span>' + esc(e.line) + '</span>';
+  const tokenVisible = token && token.offsetParent !== null;
+  const board = document.getElementById('board');
+  const left = token ? parseFloat(token.style.left) : NaN;
+  const top = token ? parseFloat(token.style.top) : NaN;
+  if (tokenVisible) token.appendChild(bubble);
+  else if (token && board && !Number.isNaN(left) && !Number.isNaN(top)) {
+    const br = board.getBoundingClientRect();
+    bubble.classList.add('emote-anchored');
+    bubble.style.left = (br.left + br.width * left / 100) + 'px';
+    bubble.style.top = (br.top + br.height * top / 100) + 'px';
+    document.body.appendChild(bubble);
+  } else {
     bubble.classList.add('emote-float');
     document.body.appendChild(bubble);
   }
@@ -646,7 +657,9 @@ function openEmoteWheel(room) {
   wheel.id = 'emoteWheel';
   wheel.className = 'emote-wheel';
   wheel.innerHTML = '<div class="emote-card"><p class="pack-kicker">TALK</p><h2>Say something</h2><div class="emote-grid">' +
-    lines.map((l) => '<button type="button" class="emote-line" data-emote="' + l.id + '">' + l.line + '</button>').join('') +
+    lines.map((l) => '<button type="button" class="emote-tile" data-emote="' + l.id + '">' +
+      '<img alt="" src="/emotes/' + l.id + '.webp?v=__KOLOPOLY_BUILD__">' +
+      '<span>' + esc(l.line) + '</span></button>').join('') +
     '</div><label class="emote-mute"><input type="checkbox" id="emoteMute"' + (emotesMuted() ? ' checked' : '') + '> Mute other people talk</label>' +
     '<button type="button" class="btn ghost block" id="emoteClose">Close</button></div>';
   document.body.appendChild(wheel);
@@ -663,6 +676,8 @@ function openEmoteWheel(room) {
     wheel.remove();
   }));
 }
+window.KPOpenTalk = openEmoteWheel;
+window.KPShowTalk = showRoomEmote;
 const sfx = {
   credit(amount) { duckAmbient(); playCash(0.9); },
   debit() { playCash(0.8); },
@@ -4057,36 +4072,72 @@ async function openStickerTrade(otherId, name) {
   }
   paintTrade(info, otherId, name);
 }
+const TRADE_FILE = {
+  'lekki-toll': 'lekki-toll-gate', carter: 'carter-bridge', 'third-mainland': 'third-mainland-bridge',
+  balogun: 'balogun-market', suya: 'suya-spot', 'computer-village': 'computer-village',
+  tbs: 'tafawa-balewa-square', 'national-theatre': 'national-theatre', 'eko-atlantic': 'eko-atlantic',
+  danfo: 'danfo', molue: 'molue', okada: 'okada', kirikiri: 'kirikiri', 'owambe-hall': 'owambe-hall',
+  'marina-lights': 'marina-lights'
+};
+function tradeArt(id) {
+  return '/stickers/' + (TRADE_FILE[id] || id) + '.webp?v=__KOLOPOLY_BUILD__';
+}
+function tradeTile(s, side) {
+  return '<button type="button" class="trade-tile" data-side="' + side + '" data-id="' + esc(s.id) + '">' +
+    '<img alt="" width="512" height="512" decoding="async" src="' + tradeArt(s.id) + '">' +
+    '<span class="trade-count">×' + s.count + '</span>' +
+    '<span class="trade-name">' + esc(s.name) + '</span></button>';
+}
+function tradeStageCard(s, empty) {
+  if (!s) return '<div class="trade-face empty"><span>' + empty + '</span></div>';
+  return '<div class="trade-face"><img alt="" src="' + tradeArt(s.id) + '"><span class="trade-count">×' + s.count + '</span><span class="trade-name">' + esc(s.name) + '</span></div>';
+}
 function paintTrade(info, otherId, name) {
   const yours = info.yours || [];
   const theirs = info.theirs || [];
-  const opt = (rows) => rows.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + ' ×' + s.count + '</option>').join('');
-  $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Trade a sticker</h3>' +
-    '<p class="caption">Only a duplicate fit move. ' + esc(name || 'Your person') + ' must confirm.</p>' +
-    '<div class="trade-card"><label>Your duplicate<select id="tradeGive">' + (opt(yours) || '<option value="">None yet</option>') + '</select></label>' +
-    '<label>Their duplicate<select id="tradeWant">' + (opt(theirs) || '<option value="">None yet</option>') + '</select></label>' +
-    '<button type="button" class="btn gold" id="tradeSend">Send offer</button></div>' +
-    '<p class="caption" id="tradeNote"></p>' +
-    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
-  $('hudScrim').classList.add('show');
-  wireSheetButtons($('hudSheet'), myId);
-  const sendBtn = $('tradeSend');
-  if (sendBtn) sendBtn.addEventListener('click', async () => {
-    const give = $('tradeGive').value;
-    const want = $('tradeWant').value;
-    const note = $('tradeNote');
-    if (!give || !want) { if (note) note.textContent = 'Pick two duplicates first.'; return; }
-    const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
-    let out = null;
-    try {
-      const res = await fetch('/api/rewards/trade', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: id, to: otherId, give, want })
+  let give = yours[0] ? yours[0].id : '';
+  let want = theirs[0] ? theirs[0].id : '';
+  const find = (rows, id) => rows.find((s) => s.id === id) || null;
+  function draw() {
+    $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Trade a sticker</h3>' +
+      '<p class="caption">Only a duplicate fit move. ' + esc(name || 'Your person') + ' must confirm.</p>' +
+      '<div class="trade-pair">' + tradeStageCard(find(yours, give), 'Your duplicate') +
+        '<span class="trade-arrow" aria-hidden="true">⇄</span>' +
+        tradeStageCard(find(theirs, want), 'Their duplicate') + '</div>' +
+      '<p class="trade-k">Your duplicates</p><div class="trade-grid">' +
+        (yours.map((s) => tradeTile(s, 'give')).join('') || '<p class="caption">No duplicate yet.</p>') + '</div>' +
+      '<p class="trade-k">Their duplicates</p><div class="trade-grid">' +
+        (theirs.map((s) => tradeTile(s, 'want')).join('') || '<p class="caption">Them no get extra yet.</p>') + '</div>' +
+      '<button type="button" class="btn gold block" id="tradeSend">Send offer</button>' +
+      '<p class="caption" id="tradeNote"></p>' +
+      '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+    $('hudSheet').querySelectorAll('.trade-tile').forEach((b) => {
+      if ((b.dataset.side === 'give' && b.dataset.id === give) || (b.dataset.side === 'want' && b.dataset.id === want)) b.classList.add('on');
+      b.addEventListener('click', () => {
+        if (b.dataset.side === 'give') give = b.dataset.id;
+        else want = b.dataset.id;
+        draw();
       });
-      out = await res.json();
-    } catch (e) { out = null; }
-    if (note) note.textContent = out && out.ok ? 'Offer don go. Them go confirm.' : ((out && out.message) || 'That trade no send.');
-  });
+    });
+    wireSheetButtons($('hudSheet'), myId);
+    const sendBtn = $('tradeSend');
+    if (sendBtn) sendBtn.addEventListener('click', async () => {
+      const note = $('tradeNote');
+      if (!give || !want) { if (note) note.textContent = 'Pick two duplicates first.'; return; }
+      const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
+      let out = null;
+      try {
+        const res = await fetch('/api/rewards/trade', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: id, to: otherId, give, want })
+        });
+        out = await res.json();
+      } catch (e) { out = null; }
+      if (note) note.textContent = out && out.ok ? 'Offer don go. Them go confirm.' : ((out && out.message) || 'That trade no send.');
+    });
+  }
+  $('hudScrim').classList.add('show');
+  draw();
 }
 window.KPShowTrade = paintTrade;
 function openTheirDeeds(playerId) {
