@@ -3123,6 +3123,15 @@ function handleConnection(ws) {
         return;
       }
       if (msg.type === 'test_bot_hold') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p && p.botBrain) p.botBrain.hold = !!msg.hold; broadcast(room); return; }
+      if (msg.type === 'test_expire_link') {
+        const p = room.players.find((x) => x.id === Number(msg.playerId)) || ctx.player;
+        if (p) {
+          if (!p.linkHold) p.linkHold = { until: now() - 1, armed: now() - 1 };
+          else p.linkHold.until = now() - 1;
+        }
+        broadcast(room);
+        return;
+      }
       if (msg.type === 'test_set_paid') {
         room.paid = true;
         room.paidFee = Number(msg.fee || 200);

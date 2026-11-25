@@ -745,7 +745,7 @@ const server = http.createServer((req, res) => {
   }
   if (cleanUrl === '/api/version') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ ok: true, build: BUILD }));
+    res.end(JSON.stringify({ ok: true, build: BUILD, playCredit: true }));
     return;
   }
   if (cleanUrl === '/api/competition') {
