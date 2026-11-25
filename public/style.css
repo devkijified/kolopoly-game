@@ -400,20 +400,25 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   container-type: inline-size;
 }
 .bspace {
-  position: relative; border: 0.5px solid rgba(43, 32, 24, 0.35);
-  background: linear-gradient(180deg, #fffef9, #fdf3da);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(92, 76, 61, 0.10);
+  position: relative; border: 2px solid #2b2018; border-radius: 7px;
+  background:
+    radial-gradient(rgba(43, 32, 24, 0.09) 0.7px, transparent 0.8px) 0 0 / 4px 4px,
+    linear-gradient(180deg, #fffdf8, #f4e4c0);
+  box-shadow: 1px 2px 0 rgba(20, 12, 4, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.85);
   overflow: hidden; cursor: pointer;
   display: flex; flex-direction: column; align-items: center;
 }
 @media (hover: hover) { .bspace:hover { filter: brightness(1.05); } }
 .bspace .band {
-  width: 100%; height: 26%; flex: none; /* board20: thick, bold colour band */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--band) 68%, #ffffff), var(--band) 58%, color-mix(in srgb, var(--band) 78%, #000000));
-  box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  width: 100%; height: 22%; flex: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 42%, rgba(0, 0, 0, 0.18)),
+    linear-gradient(180deg, color-mix(in srgb, var(--band) 72%, #ffffff), var(--band) 55%, color-mix(in srgb, var(--band) 70%, #000));
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 .bspace .tile-art { flex: 1 1 0; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding-top: 1px; }
 .bspace .tileart { height: 100%; width: auto; max-width: 94%; }
+.bspace .tile-photo { width: 92%; height: 92%; object-fit: contain; filter: drop-shadow(0 1px 0 rgba(20, 12, 4, 0.45)); }
 .bspace .nm {
   font-size: 12px; font-size: clamp(12px, 3.8cqw, 20px); /* board20: 4 long tiles per side, big bold type */
   font-weight: 900; line-height: 1.06; text-align: center;
@@ -693,9 +698,33 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 
 /* Deed sheet as a printed deed */
 .deed-doc {
-  position: relative; background: #fffdf4; border: 1.5px solid #d9c9a3; border-radius: 14px;
-  overflow: hidden; box-shadow: 0 6px 18px rgba(43, 32, 24, 0.12);
+  position: relative;
+  background:
+    radial-gradient(rgba(43, 32, 24, 0.06) 0.7px, transparent 0.85px) 0 0 / 5px 5px,
+    linear-gradient(180deg, #fffdf6, #f6ead2);
+  border: 3px solid #2b2018; border-radius: 16px;
+  overflow: hidden; box-shadow: 4px 6px 0 rgba(20, 12, 4, 0.35);
 }
+.deed-art {
+  height: 132px; display: flex; align-items: flex-end; justify-content: center;
+  background:
+    radial-gradient(circle at 50% 120%, rgba(255, 200, 87, 0.35), transparent 55%),
+    #1a140c;
+}
+.deed-art img { height: 124px; width: auto; max-width: 86%; object-fit: contain; filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35)); }
+.deed-doc.deed-mort { filter: grayscale(0.72); }
+.deed-doc.deed-mort::after {
+  content: 'MORTGAGED'; position: absolute; left: 50%; top: 46%; z-index: 3;
+  transform: translate(-50%, -50%) rotate(-14deg);
+  border: 4px solid #9c2b3a; color: #9c2b3a; background: rgba(255, 248, 236, 0.88);
+  font-weight: 900; letter-spacing: 0.12em; font-size: 22px; padding: 4px 12px; border-radius: 8px;
+  pointer-events: none;
+}
+.rent-ico { display: inline-flex; width: 16px; height: 14px; margin-right: 4px; vertical-align: -2px; }
+.rent-ico svg { width: 16px; height: 14px; }
+.deed-mini { align-items: center; }
+.deed-mini-art { width: 48px; height: 48px; object-fit: contain; flex: none; filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.35)); }
+.deed-mini.is-mortgaged { filter: grayscale(0.75); }
 .deed-head { position: relative; display: flex; gap: 12px; align-items: center; padding: 14px 16px; color: #fff; }
 .deed-head::before {
   content: ''; position: absolute; inset: 0;
@@ -2618,7 +2647,7 @@ body.in-game {
   justify-content: center;
   padding: 4px 6px 0;
 }
-.swap-deed .tileart { width: 62%; height: auto; max-height: 72px; }
+.swap-deed .tileart, .swap-deed .tile-photo { width: 70%; height: 72px; object-fit: contain; }
 .swap-deed .pr {
   flex: none;
   font-family: 'Aeonik Pro', 'Figtree', sans-serif;

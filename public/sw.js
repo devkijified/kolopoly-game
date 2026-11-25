@@ -6,6 +6,7 @@
 // so a deploy changes these bytes even when the handlers stay quiet.
 // Week stickers (event-owambe, event-nepa, event-toll, event-marina)
 // and the eight player tokens ride that same build stamp.
+// Tile and deed art reuses those sticker files, so this stamp covers them too.
 self.addEventListener('install', () => { self.skipWaiting(); });
 self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', () => {

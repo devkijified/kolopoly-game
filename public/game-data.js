@@ -208,6 +208,25 @@ function canonToken(id) {
   if (TOKENS.some((t) => t.id === raw)) return raw;
   return TOKEN_LEGACY[raw] || 'big-man';
 }
+// Landmark art already drawn for the album. Tiles and deeds reuse it
+// when the space is that same place. Everything else keeps its emblem.
+const SPACE_STICKER = {
+  'Third Mainland Bridge': '/stickers/third-mainland-bridge.webp',
+  'Lekki Tollgate': '/stickers/lekki-toll-gate.webp',
+  'Computer Village': '/stickers/computer-village.webp',
+  'Kirikiri Prison': '/stickers/kirikiri.webp',
+  'Go to Kirikiri': '/stickers/kirikiri.webp',
+  'Owambe Grounds': '/stickers/owambe-hall.webp',
+  'Danfo Park': '/stickers/danfo.webp',
+  'Eko Atlantic': '/stickers/eko-atlantic.webp',
+  'The Marina': '/stickers/marina-lights.webp',
+  'NEPA (PHCN)': '/stickers/event-nepa.webp',
+  'Mama Put': '/tokens/mama-put.webp',
+  'Alaba Market': '/stickers/balogun-market.webp'
+};
+function stickerFor(sp) {
+  return (sp && SPACE_STICKER[sp.name]) || '';
+}
 
 const PLAYER_COLORS = ['#ff6b4a', '#ffc857', '#39c2a5', '#5aa9e6', '#c39bff', '#ff8fb2'];
 
@@ -230,6 +249,6 @@ function buildCostOf(sp) {
   return sp.duplex;
 }
 
-const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;
