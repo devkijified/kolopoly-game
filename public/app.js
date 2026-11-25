@@ -917,7 +917,27 @@ $('toast').addEventListener('click', (e) => {
 });
 const alertQueue = [];
 let alertBusy = false;
+let alertEpoch = 0;
+let lessonDropAlerts = false;
+const LESSON_MONEY_STEPS = { bought: 1, adacheer: 1, paidcheer: 1, cardcheer: 1, salarycheer: 1 };
+function dismissLessonAlerts() {
+  alertEpoch += 1;
+  alertQueue.length = 0;
+  alertBusy = false;
+  const layer = document.getElementById('alerts');
+  if (layer) layer.querySelectorAll('.alert-card').forEach((el) => el.remove());
+}
+function syncLessonAlerts(room, prev) {
+  lessonDropAlerts = false;
+  const now = room && room.practice;
+  const before = prev && prev.practice;
+  if (!now || now.kind !== 'intro') return;
+  if (!before || before.kind !== 'intro' || before.step === now.step) return;
+  dismissLessonAlerts();
+  lessonDropAlerts = !LESSON_MONEY_STEPS[now.step];
+}
 function queueAlert(kind, amount, text, balanceAfter, voiceLine) {
+  if (lessonDropAlerts) return;
   alertQueue.push({ kind, amount, text, balanceAfter, voiceLine: voiceLine || null });
   if (alertQueue.length > 3) alertQueue.splice(0, alertQueue.length - 3);
   pumpAlerts();
@@ -961,7 +981,17 @@ function pumpAlerts() {
   requestAnimationFrame(countUp);
   if (a.voiceLine) setTimeout(() => speakCredit(a.voiceLine), durMs + 120);
   const hold = isCredit ? 3200 : 2600; // alerts dwell ~2.8s; credits a beat longer, OPay style
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); alertBusy = false; pumpAlerts(); }, 260); }, hold);
+  const epoch = alertEpoch;
+  setTimeout(() => {
+    if (epoch !== alertEpoch) return;
+    el.classList.add('out');
+    setTimeout(() => {
+      if (epoch !== alertEpoch) return;
+      el.remove();
+      alertBusy = false;
+      pumpAlerts();
+    }, 260);
+  }, hold);
 }
 function spray() {
   for (let k = 0; k < 14; k++) {
@@ -2275,7 +2305,9 @@ function onState(room) {
     mp.title = full;
     mp.setAttribute('aria-label', full);
   } else mp.classList.add('hidden');
+  syncLessonAlerts(room, prev);
   processFeed(room, prev);
+  lessonDropAlerts = false;
   processPositions(room);
   funMoments(room, prev);
   showRoomEmote(room);
@@ -3075,6 +3107,13 @@ function placeFinger(el, big) {
     if (tipBox && lessonRectsHit(box, tipBox, 1)) return false;
     if (cardBox && lessonRectsHit(box, cardBox, 1)) return false;
     if (navBox && navBox.height > 8 && lessonRectsHit(box, navBox, 0)) return false;
+    const notes = document.querySelectorAll('#deedSheet p, #deedSheet .kv, #deedSheet td');
+    for (const note of notes) {
+      const st = getComputedStyle(note);
+      if (st.visibility === 'hidden' || st.display === 'none') continue;
+      const b = note.getBoundingClientRect();
+      if (b.height > 8 && lessonRectsHit(box, b, 0)) return false;
+    }
     if (siblings.some((node) => {
       const b = node.getBoundingClientRect();
       return b.width > 8 && b.height > 8 && lessonRectsHit(box, b, 0);

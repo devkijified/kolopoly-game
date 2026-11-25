@@ -618,7 +618,7 @@ const KPBoard = {
           '<button class="btn small ghost" data-act="sell-building" data-space="' + i + '"' + dis + '>Sell building</button>' : '') +
         (pr && !pr.m ? '<button class="btn small ghost" data-act="mortgage" data-space="' + i + '"' + dis + '>Mortgage for ' + D.fmtN(D.mortgageOf(sp.price)) + '</button>'
           : '<button class="btn small ghost" data-act="unmortgage" data-space="' + i + '"' + dis + '>Lift mortgage ' + D.fmtN(D.unmortgageCost(sp.price)) + '</button>') +
-        '</div><p class="caption mt8">' + (owner.inJail
+        '</div><p class="caption mt8 deed-aside">' + (owner.inJail
           ? 'You dey Kirikiri. You no fit build, sell building, mortgage or redeem till you comot.'
           : 'You fit build anytime, even when no be your turn. The server checks the live state when your action land. Even building, full sets and pledges still apply.') + '</p>';
     }

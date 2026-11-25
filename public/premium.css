@@ -1272,6 +1272,7 @@ body:has(#view-landing.active) #muteBtn.on {
 #coachPop.coach-dock { left: 0; right: 0; bottom: 0; max-width: none; align-items: flex-start; background: #fff6e4; }
 #coachPop.coach-dock .coach-bubble { box-shadow: 4px 5px 0 #1a140c; }
 body.train-gate .msgbar.tip-covered { visibility: hidden; }
+body.train-gate #deedSheet .deed-aside { visibility: hidden; min-height: 96px; }
 .coach-live { position: relative; z-index: 172; }
 @media (prefers-reduced-motion: reduce) {
   #cardModal.card-reveal { animation: none; }

@@ -163,12 +163,38 @@
     if (card && !card.hidden) boxes.push(card.getBoundingClientRect());
     const topbar = document.querySelector('.topbar');
     if (topbar) boxes.push(topbar.getBoundingClientRect());
+    document.querySelectorAll('#deedSheet p, #deedSheet .kv, #deedSheet td, #deedSheet .flavour, #deedSheet .meaning').forEach((node) => {
+      const st = getComputedStyle(node);
+      if (st.visibility === 'hidden' || st.display === 'none') return;
+      const b = node.getBoundingClientRect();
+      if (b.width > 8 && b.height > 8) boxes.push(b);
+    });
     return boxes;
   }
   function placeBubble(tip, el) {
     const r = el.getBoundingClientRect();
     const blocked = blockedBoxes(el);
     tip.hidden = false;
+    const aside = document.querySelector('#deedSheet .deed-aside');
+    if (aside && getComputedStyle(aside).visibility === 'hidden') {
+      const gapBox = aside.getBoundingClientRect();
+      if (gapBox.width > 40 && gapBox.height > 24) {
+        const tw0 = tip.offsetWidth;
+        const th0 = tip.offsetHeight;
+        const left = Math.max(8, Math.min(window.innerWidth - tw0 - 8, gapBox.left));
+        const target = el.getBoundingClientRect();
+        let top = Math.max(gapBox.top, target.bottom + 10);
+        top = Math.max(8, Math.min(window.innerHeight - th0 - 8, top));
+        const parked = { left: left, top: top, right: left + tw0, bottom: top + th0 };
+        if (!overlaps(parked, el.getBoundingClientRect(), 2)) {
+          tip.style.left = left + 'px';
+          tip.style.top = top + 'px';
+          const msg = document.querySelector('.msgbar');
+          if (msg) msg.classList.remove('tip-covered');
+          return;
+        }
+      }
+    }
     const tw = tip.offsetWidth;
     const th = tip.offsetHeight;
     const gap = 10;
