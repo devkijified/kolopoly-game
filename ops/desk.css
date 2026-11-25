@@ -414,3 +414,29 @@ button.gold.auto { width: auto; margin-top: 0; padding: 0 22px; }
 .money-row.s-paid .money-chip, .money-row.s-refunded .money-chip, .money-row.s-paid-manual .money-chip, .money-row.s-refunded-manual .money-chip { color: #1d7a3e; }
 .money-row.s-failed .money-chip, .money-row.s-review .money-chip, .money-row.s-otp .money-chip, .money-row.s-awaiting-bank .money-chip { color: #b3401f; }
 .fine.bad { color: #b3401f; }
+
+.legacy { display: none; }
+.live-nav { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin: 8px 0 12px; }
+.live-nav button { flex: none; border: 1px solid var(--line); background: transparent; color: var(--cream); border-radius: 999px; padding: 8px 12px; font-weight: 800; }
+.live-nav button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+.live-root { display: grid; gap: 10px; }
+.live-card { background: var(--paper); color: var(--ink); border-radius: 16px; padding: 12px; box-shadow: 0 8px 0 rgba(0, 0, 0, 0.25); }
+.live-card h2, .live-card h3 { margin: 0 0 6px; font-family: 'Aeonik Pro', sans-serif; }
+.live-card p, .live-card li { color: var(--ink); }
+.live-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.live-stat b { display: block; font-size: 22px; }
+.live-stat span { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-soft); }
+.live-health { display: flex; flex-wrap: wrap; gap: 6px; }
+.live-health span { background: var(--cream); border-radius: 999px; padding: 4px 8px; font-size: 12px; font-weight: 800; }
+.live-row, .live-player { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.live-card button, .live-row button, .live-actions button, .live-player button { border: 0; background: var(--ink); color: var(--gold); border-radius: 999px; padding: 6px 10px; font-weight: 800; }
+.live-search, .live-card input, .live-card textarea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 10px; font: inherit; background: #fff; color: var(--ink); }
+.live-bars { display: grid; gap: 6px; }
+.live-bar { display: grid; grid-template-columns: 72px 1fr 36px; gap: 6px; align-items: center; font-size: 12px; font-weight: 700; }
+.live-bar i { display: block; height: 10px; border-radius: 99px; background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
+.live-confirm { border: 0; border-radius: 16px; padding: 0; background: var(--paper); color: var(--ink); max-width: 360px; }
+.live-confirm form { padding: 16px; display: grid; gap: 8px; }
+.live-confirm-row { display: flex; gap: 8px; }
+.live-confirm-row button { flex: 1; }
+.chip-bad { color: var(--red); font-weight: 800; }
+.chip-ok { color: var(--green); font-weight: 800; }

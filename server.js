@@ -471,7 +471,27 @@ async function moneyAction(body) {
   return { ok: false, error: 'action', message: 'Unknown action.' };
 }
 
-const ops = createOps({ rooms, retention, competition, prizes: prizeLedger, money: { view: moneyView, action: moneyAction } });
+let socketCount = () => 0;
+const recentErrors = [];
+function noteServerError() {
+  recentErrors.push(Date.now());
+  if (recentErrors.length > 40) recentErrors.shift();
+}
+function errorRate() {
+  const cut = Date.now() - 60000;
+  while (recentErrors.length && recentErrors[0] < cut) recentErrors.shift();
+  return recentErrors.length;
+}
+const ops = createOps({
+  rooms, retention, competition, prizes: prizeLedger,
+  money: { view: moneyView, action: moneyAction },
+  seed: TEST,
+  build: BUILD,
+  wsCount: () => socketCount(),
+  errorRate,
+  admin: (body) => host.adminAct(body),
+  auditFile: process.env.KP_OPS_AUDIT_FILE || path.join(DATA_DIR, 'ops-audit.json')
+});
 function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -806,6 +826,7 @@ function allowAuthIp(ip) { return noteWindow(authTimes, ip, AUTH_IP_WINDOW_MS, A
 function allowWsMessage(ip) { return noteWindow(msgTimes, ip, WS_MSG_WINDOW_MS, WS_MSG_MAX); }
 
 const wss = new WebSocketServer({ server, perMessageDeflate: false, maxPayload: WS_MAX_PAYLOAD });
+socketCount = () => wss.clients.size;
 wss.on('connection', (ws, req) => {
   // An oversized frame is an 'error' on this socket. Without a listener
   // the whole process dies, which is the opposite of a payload cap.
