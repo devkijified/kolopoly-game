@@ -113,7 +113,7 @@ const NUDGE_GAP_MS = 30 * 60 * 1000;
 const NUDGES = {
   drop: {
     title: 'Market drop ready',
-    body: 'Big Daddy don drop your pack. Come open am!',
+    body: 'Big Daddy don drop your pack. Come open am! Big Daddy spin is ready.',
     tag: 'kolopoly-drop',
     url: '/'
   },
@@ -696,6 +696,7 @@ function createRetention(opts) {
       },
       nextDrop: p.lastClaimDay !== day ? { pack: warmReady ? 2 : 1 } : null,
       rewards: shelfRewards.publicRewards(p),
+      spin: shelfRewards.spinView(p, day),
       uses: {
         cowries: { cost: USES.cowries.cost, kind: USES.cowries.kind, amount: USES.cowries.amount },
         kola: { cost: USES.kola.cost, kind: USES.kola.kind, amount: USES.kola.amount },
@@ -770,7 +771,7 @@ function createRetention(opts) {
           first: false,
           warm: false,
           granted: null,
-          line: 'You don collect today market drop. The next one opens with Lagos dawn.'
+          line: 'You don collect today market drop. The next one opens at dawn.'
         })
       };
     }
@@ -927,7 +928,7 @@ function createRetention(opts) {
           first: false,
           granted: null,
           chest: null,
-          line: 'You don collect today kolo drop. The next one opens with Lagos dawn.'
+          line: 'You don collect today kolo drop. The next one opens at dawn.'
         })
       };
     }
@@ -1139,6 +1140,18 @@ function createRetention(opts) {
     return { endpoint, keys: { p256dh, auth } };
   }
 
+  function spinReward(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const p = ensure(who.id);
+    const day = lagosDay(new Date());
+    const asked = String(body.cityId || '');
+    const cityId = shelfRewards.stickersIn(asked).length ? asked : shelfRewards.homeCity();
+    const out = shelfRewards.spinWheel(p, day, who.id + ':spin:' + day, cityId);
+    if (!out.ok && out.error !== 'spent') return { status: 400, body: out };
+    save();
+    return { status: 200, body: Object.assign({ ok: out.ok }, out, { rewards: shelfRewards.publicRewards(p), spin: shelfRewards.spinView(p, day) }) };
+  }
   function openRewardPack(body) {
     const who = resolve(body);
     if (who.error) return { status: 400, body: { ok: false, error: who.error } };
@@ -1446,6 +1459,7 @@ function createRetention(opts) {
       || clean === '/api/push/unsubscribe'
       || clean === '/api/account/installed'
       || clean === '/api/rewards/open'
+      || clean === '/api/rewards/spin'
       || clean === '/api/rewards/gift'
       || clean === '/api/rewards/equip'
       || (test && (clean === '/api/test/nudge' || clean === '/api/test/sweep' || clean === '/api/test/push-roundtrip' || clean === '/api/test/grant-card'));
@@ -1527,6 +1541,7 @@ function createRetention(opts) {
       if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/account/installed') { const out = markInstalled(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/open') { const out = openRewardPack(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/spin') { const out = spinReward(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/gift') { const out = giftSticker(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/equip') { const out = equipReward(body); sendJson(res, out.status, out.body); return; }
       if (test && clean === '/api/test/grant-card') {
@@ -1621,6 +1636,7 @@ function createRetention(opts) {
       if (clean === '/api/push/unsubscribe') { const out = unsubscribe(body); return json(out.status, out.body); }
       if (clean === '/api/account/installed') { const out = markInstalled(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/open') { const out = openRewardPack(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/spin') { const out = spinReward(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/gift') { const out = giftSticker(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/equip') { const out = equipReward(body); return json(out.status, out.body); }
       if (test && clean === '/api/test/grant-card') {

@@ -2330,6 +2330,45 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   background: #12151b; border: 1px solid rgba(255, 200, 87, 0.5); color: #f4ecdc;
 }
 .card-detail .btn { margin-top: 8px; }
+.spin-scrim, .emote-wheel {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(8, 10, 14, 0.55); padding: 12px;
+}
+.spin-card, .emote-card {
+  width: min(420px, 100%); max-height: min(78dvh, 640px); overflow: auto;
+  background: #171a21; color: #f4ecdc; border-radius: 16px; padding: 14px;
+  border: 1px solid rgba(255, 200, 87, 0.45);
+}
+.spin-pointer {
+  width: 0; height: 0; margin: 0 auto -4px;
+  border-left: 10px solid transparent; border-right: 10px solid transparent;
+  border-top: 16px solid #ffc857;
+}
+.spin-wheel {
+  width: min(220px, 62vw); height: min(220px, 62vw); margin: 8px auto 10px;
+  border-radius: 50%; border: 4px solid #ffc857;
+  transition: transform 2.4s cubic-bezier(0.12, 0.8, 0.16, 1);
+}
+.spin-labels { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 8px; }
+.spin-labels span { font-size: 11px; font-weight: 800; background: #12151b; border-radius: 999px; padding: 3px 8px; }
+.spin-result { font-weight: 800; text-align: center; min-height: 2.6em; }
+.emote-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.emote-line {
+  min-height: 44px; border-radius: 12px; border: 2px solid #f6ead2;
+  background: #1a140c; color: #fff8ea; font: inherit; font-weight: 800; padding: 8px;
+}
+.emote-mute { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 700; margin: 8px 0; }
+.emote-bubble {
+  position: absolute; left: 50%; bottom: calc(100% + 22px); transform: translateX(-50%);
+  max-width: 148px; background: #12151b; color: #fff8ea; border: 2px solid #ffc857;
+  border-radius: 12px; padding: 4px 8px; font-size: 12px; font-weight: 800;
+  z-index: 8; pointer-events: none; text-align: center;
+}
+.emote-float { position: fixed; left: 50%; bottom: 30%; z-index: 64; }
+@media (prefers-reduced-motion: reduce) {
+  .spin-wheel { transition: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .play-tile, .fan img, .play-tile.owned::after { animation: none; transform: none; }
 }

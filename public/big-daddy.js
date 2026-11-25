@@ -122,7 +122,7 @@
       bubble.appendChild(stamp);
     }
     const line = document.createElement('div');
-    line.textContent = spec.line;
+    line.textContent = extra.line || spec.line;
     bubble.appendChild(line);
     current = id;
     clearTimeout(timer);

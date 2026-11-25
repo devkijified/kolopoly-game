@@ -77,8 +77,9 @@
     }
     const sets = rewards.sets || [];
     const stickers = rewards.stickers || [];
-    el.innerHTML = '<div class="album-card"><h2>Lagos sticker album</h2>' +
-      sets.map((s) => '<p class="album-set"><b>' + s.name + '</b> ' + s.have + '/' + s.size + (s.done ? ' · complete' : '') + '</p>').join('') +
+    el.innerHTML = '<div class="album-card"><h2>Sticker album</h2>' +
+      sets.map((s) => '<p class="album-set"><b>' + s.name + '</b> ' + s.have + '/' + s.size + (s.done ? ' · complete' : '') +
+        (s.reward ? ' · reward: ' + s.reward : '') + '</p>').join('') +
       '<div class="album-grid">' + stickers.map((s) =>
         '<button type="button" class="sticker' + (s.count ? '' : ' missing') + (s.gold ? ' gold' : '') + '" data-sticker="' + s.id + '" data-count="' + s.count + '">' +
         art(s.id) + (s.count ? '<span class="st-badge">' + s.count + '</span>' : '<span class="st-q">?</span>') +
@@ -108,9 +109,11 @@
     const draw = () => {
       const shown = stickers.slice(0, i);
       const done = (i >= stickers.length && completed && completed.length)
-        ? '<p class="album-set">Set complete: ' + completed.map((c) => c.name).join(', ') + '</p><div class="pack-row">' +
+        ? '<div class="set-reveal"><p class="pack-kicker">SET COMPLETE</p><h2>' + completed.map((c) => c.name).join(', ') + '</h2>' +
+          '<p class="album-set">' + completed.map((c) => c.cosmeticName || c.name).join(' · ') + ' don land.</p>' +
+          '<div class="pack-row">' +
           ((lastRewards && lastRewards.stickers) || []).filter((s) => completed.some((c) => c.set === s.set)).map((s) =>
-            '<div class="sticker">' + art(s.id) + '<span class="st-name">' + s.name + '</span></div>').join('') + '</div>'
+            '<div class="sticker">' + art(s.id) + '<span class="st-name">' + s.name + '</span></div>').join('') + '</div></div>'
         : '';
       el.innerHTML = '<div class="pack-card"><p class="pack-kicker">BIG DADDY PACK</p><h2>Open am</h2><div class="pack-row">' +
         shown.map((s) => '<div class="sticker pack-flip' + (s.gold ? ' gold' : '') + '">' + art(s.id) + '<span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span></div>').join('') +
@@ -128,6 +131,10 @@
     el.onclick = skip;
     i = 1;
     draw();
+    if (completed && completed.length && window.KPBigDaddy) {
+      const prize = completed.map((c) => c.cosmeticName || c.name).join(', ');
+      window.KPBigDaddy.show('drop', { force: true, line: 'Set complete! ' + prize + ' don land.' });
+    }
   }
   async function openPack() {
     const out = await post('/api/rewards/open', {});
