@@ -2,6 +2,7 @@
 // idea at a time, and free practice is an unpaid table with friendly bots.
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
+import fs from 'fs';
 import WebSocket from 'ws';
 const require = createRequire(import.meta.url);
 const gameData = require('./public/game-data.js');
@@ -15,6 +16,11 @@ function check(name, cond, extra) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const appSrc = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
+const realClick = appSrc.match(/dataset\.act === 'real'[\s\S]{0,90}/);
+const endReal = appSrc.match(/const real = \$\('endReal'\);[\s\S]{0,140}/);
+check('the coach Play-real button leaves training', !!(realClick && realClick[0].includes('exitTrainingHome') && !realClick[0].includes('KPStartPractice')));
+check('the final-table Play-real button leaves training', !!(endReal && endReal[0].includes('exitTrainingHome') && !endReal[0].includes("KPStartPractice('free')")));
 check('a collect card is good news', gameData.cardMood('bankPays') === 'good' && /Collect/.test(gameData.cardCaption('bankPays')));
 check('NEPA blackout is bad news', gameData.cardMood('nepaLight') === 'bad' && /NEPA/.test(gameData.cardCaption('nepaLight')));
 

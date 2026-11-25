@@ -2707,9 +2707,9 @@ class EndScene {
       tok.position.set(slot[0], slot[1], slot[2]);
       tok.rotation.y = rank === 0 ? 0 : (rank === 1 ? 0.5 : -0.5);
       this.podiumGroup.add(tok);
-      const label = nameSprite((rank + 1) + ' · ' + row.name, p.color);
-      label.position.set(slot[0], slot[1] + (rank === 0 ? 2.2 : 1.8), slot[2]);
-      this.podiumGroup.add(label);
+      // The final-table card already names the places. A "1 · Ada"
+      // sprite above the podium sits in the phone's top edge and gets
+      // clipped behind that card, so the backdrop keeps the piece only.
     });
   }
   update(dt, t) {

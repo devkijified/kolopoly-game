@@ -159,6 +159,8 @@ let myToken = null;
 let hasSeat = false;
 let pendingLessonKind = null;
 let lessonIntent = null;
+let trainingHome = false;
+let leftPracticeCode = null;
 let sessionLive = false;
 let rejoinPending = false;
 let connectedOnce = false;
@@ -927,6 +929,46 @@ function dismissLessonAlerts() {
   const layer = document.getElementById('alerts');
   if (layer) layer.querySelectorAll('.alert-card').forEach((el) => el.remove());
 }
+function exitTrainingHome() {
+  trainingHome = true;
+  leftPracticeCode = (state && state.code) || leftPracticeCode;
+  markTraining({ seen: true, done: true });
+  pendingLessonKind = null;
+  lessonIntent = null;
+  try { sessionStorage.removeItem('kolopolyRoomGone'); } catch (e) { /* private mode */ }
+  toastQueue.length = 0;
+  dismissToast();
+  dismissLessonAlerts();
+  clearLessonChrome();
+  document.querySelectorAll('.cash-float').forEach((node) => node.remove());
+  const end = $('endOverlay');
+  if (end) { end.classList.remove('show'); end.innerHTML = ''; }
+  ['deedScrim', 'cardScrim', 'hudScrim', 'listScrim', 'shareOverlay'].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.remove('show');
+  });
+  const how = $('howScrim');
+  if (how) how.hidden = true;
+  const sheet = $('trainSheet');
+  if (sheet) sheet.hidden = true;
+  const offer = $('trainOffer');
+  if (offer) offer.hidden = true;
+  hideConnBanner();
+  updateRoomChip(null);
+  const modePill = $('modePill');
+  if (modePill) { modePill.classList.add('hidden'); modePill.textContent = ''; }
+  if (window.KPBigDaddy && window.KPBigDaddy.hide) window.KPBigDaddy.hide();
+  window.scrollTo(0, 0);
+  if (sessionLive && ws && ws.readyState === 1) {
+    try { ws.send(JSON.stringify({ type: 'leave' })); } catch (e) { /* the room closes either way */ }
+  }
+  clearSeat();
+  entrySent = false;
+  sessionLive = false;
+  rejoinPending = false;
+  state = null;
+  showView('view-landing');
+}
 function syncLessonAlerts(room, prev) {
   lessonDropAlerts = false;
   const now = room && room.practice;
@@ -1183,6 +1225,13 @@ function connect() {
       return;
     }
     if (msg.type === 'rejoin_failed') {
+      if (trainingHome) {
+        lessonIntent = null;
+        pendingLessonKind = null;
+        rejoinPending = false;
+        clearSeat();
+        return;
+      }
       const kind = (lessonIntent && lessonIntent.kind) || pendingLessonKind;
       lessonIntent = null;
       pendingLessonKind = null;
@@ -1207,12 +1256,14 @@ function connect() {
       return;
     }
     if (msg.type === 'error') {
+      if (trainingHome) return;
       // A bound seat can never be told to join a room: that error only makes
       // sense on the landing screen before any room exists.
       if (msg.message === 'Join a room first.' && (state || hasSeat)) return;
       toast(esc(msg.message)); return;
     }
     if (msg.type === 'notice') {
+      if (trainingHome) return;
       const quiet = msg.action === 'here' || /quiet|seat|bot/i.test(msg.message || '');
       toast({
         title: msg.title || (quiet ? 'You dey quiet' : 'Kolopoly'),
@@ -1276,6 +1327,7 @@ function flushQueue() {
 // now queue exactly once while the socket is down and flush on open.
 const ENTRY_TYPES = new Set(['create_room', 'quick_join', 'join_room']);
 function send(type, obj) {
+  if (ENTRY_TYPES.has(type)) trainingHome = false;
   if (window.KOLOPOLY_EDGE && ENTRY_TYPES.has(type)) {
     let want = '/lobby';
     if (type === 'join_room') {
@@ -2245,6 +2297,8 @@ function byId(id) { return state ? state.players.find((p) => p.id === id) : null
 
 function freshPractice(kind) {
   const k = kind === 'free' ? 'free' : 'intro';
+  trainingHome = false;
+  leftPracticeCode = null;
   pendingLessonKind = k;
   lessonIntent = null;
   rejoinPending = false;
@@ -2261,6 +2315,9 @@ function freshPractice(kind) {
   });
 }
 function onState(room) {
+  if (trainingHome) return;
+  if (leftPracticeCode && room && room.code === leftPracticeCode) return;
+  if (leftPracticeCode && room && room.code !== leftPracticeCode) leftPracticeCode = null;
   if (room && room.practice && (room.practice.kind === 'intro' || room.practice.kind === 'free')) {
     pendingLessonKind = room.practice.kind;
     saveSeat();
@@ -3281,7 +3338,7 @@ function renderCoach(room) {
       if (b.dataset.act === 'skip') send('practice_skip', {});
       if (b.dataset.act === 'back') send('practice_ack', { what: 'back' });
       if (b.dataset.act === 'replay') send('practice_ack', { what: 'replay' });
-      if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
+      if (b.dataset.act === 'real' || b.dataset.act === 'home') exitTrainingHome();
       if (b.dataset.act === 'again') window.KPStartPractice('intro');
     });
   }
@@ -3341,7 +3398,7 @@ function renderCoach(room) {
     actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn block" data-act="real">Play your first real game</button><button type="button" class="btn block ghost" data-act="again">Replay lesson</button>';
     lessonSpot(null, false);
   } else if (step.kind === 'free') {
-    if (nav) nav.innerHTML = '<button type="button" class="btn small ghost" data-act="skip" aria-label="Leave" title="Leave">»</button>';
+    if (nav) nav.innerHTML = '<button type="button" class="btn small ghost" data-act="home" aria-label="Leave" title="Leave">»</button>';
     actions.innerHTML = '';
     parkCoach(null);
   } else {
@@ -5164,7 +5221,7 @@ function renderEnd(room) {
   o.classList.add('show');
   if (trainingEnd) {
     const real = $('endReal');
-    if (real) real.addEventListener('click', () => { o.classList.remove('show'); window.KPStartPractice('free'); });
+    if (real) real.addEventListener('click', () => exitTrainingHome());
     const replay = $('endReplay');
     if (replay) replay.addEventListener('click', () => { o.classList.remove('show'); window.KPStartPractice('intro'); });
   } else {
@@ -5193,6 +5250,7 @@ function renderEnd(room) {
     send('play_again', {});
   });
   $('endLeave').addEventListener('click', () => {
+    if (trainingEnd) { exitTrainingHome(); return; }
     send('leave', {});
     clearSeat();
     releaseWakeLock();

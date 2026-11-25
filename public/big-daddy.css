@@ -11,6 +11,7 @@
   align-items: flex-end;
   gap: 8px;
 }
+.bd-stage[hidden] { display: none !important; }
 .bd-dim { display: none; }
 .bd-pop {
   position: absolute;
