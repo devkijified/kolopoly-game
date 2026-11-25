@@ -260,6 +260,25 @@ function openPack(p, seed) {
   const completed = completeSets(r);
   return { ok: true, stickers: pulled, completed, packs: r.packs, cards: Object.assign({}, r.cards), album: Object.assign({}, r.album) };
 }
+function tradeSwap(from, to, give, want) {
+  const a = ensureRewards(from);
+  const b = ensureRewards(to);
+  const giveId = String(give || '');
+  const wantId = String(want || '');
+  if (!STICKERS.some((s) => s.id === giveId) || !STICKERS.some((s) => s.id === wantId)) return { ok: false, error: 'sticker' };
+  if (giveId === wantId) return { ok: false, error: 'same' };
+  if ((a.album[giveId] || 0) < 2) return { ok: false, error: 'nodupe' };
+  if ((b.album[wantId] || 0) < 2) return { ok: false, error: 'theirs' };
+  a.album[giveId] -= 1;
+  b.album[giveId] = (b.album[giveId] || 0) + 1;
+  b.album[wantId] -= 1;
+  a.album[wantId] = (a.album[wantId] || 0) + 1;
+  return { ok: true, give: giveId, want: wantId, completedFrom: completeSets(a), completedTo: completeSets(b) };
+}
+function duplicatesOf(p) {
+  const r = ensureRewards(p);
+  return STICKERS.filter((s) => (r.album[s.id] || 0) >= 2).map((s) => ({ id: s.id, name: s.name, city: s.city || null, count: r.album[s.id] }));
+}
 function giftDuplicate(from, stickerId) {
   const r = ensureRewards(from);
   const id = String(stickerId || '');
@@ -336,6 +355,6 @@ function judgePlay(room, player, card, have) {
 module.exports = {
   CARDS, STICKERS, SETS, COSMETICS, CARD_IDS, SPIN_SEGMENTS,
   blankRewards, ensureRewards, migrateGoods, grantPack, openPack, completeSets, giftDuplicate, receiveSticker,
-  spendCard, giveCard, equipCosmetic, publicRewards, judgePlay, hashSeed,
+  spendCard, giveCard, equipCosmetic, publicRewards, judgePlay, hashSeed, tradeSwap, duplicatesOf,
   homeCity, spinView, spinWheel, stickersIn
 };

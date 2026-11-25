@@ -612,6 +612,13 @@ function emotesMuted() {
   try { return localStorage.getItem('kolopolyMuteEmotes') === '1'; } catch (e) { return false; }
 }
 let seenEmoteAt = 0;
+let seenPayback = 0;
+function showPayback(room) {
+  const p = room && room.payback;
+  if (!p || p.fromId !== myId || p.at === seenPayback) return;
+  seenPayback = p.at;
+  if (window.KPBigDaddy) window.KPBigDaddy.show('rent', { force: true, line: 'Pay ' + (p.toName || 'them') + ' back. Next table, you go shine.' });
+}
 function showRoomEmote(room) {
   const e = room && room.emote;
   if (!e || !e.at || e.at === seenEmoteAt) return;
@@ -2133,6 +2140,7 @@ function onState(room) {
   processPositions(room);
   funMoments(room, prev);
   showRoomEmote(room);
+  showPayback(room);
   if (prev && window.KPBigDaddy) {
     const beat = window.KPBigDaddy.detect(prev, room, myId);
     if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1 });
@@ -4014,7 +4022,9 @@ function openOpponent(playerId) {
   $('hudSheet').innerHTML = '<div class="grab"></div><div id="oppMenu" data-player="' + p.id + '">' +
     '<h3 class="title">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + '</h3>' +
     '<p class="caption">' + p.deeds + ' deeds · ' + fmtN(p.cash) + (dead ? ' · out of the table' : '') + '</p>' +
+    '<p class="caption" id="oppRival"></p>' +
     '<div class="btnrow"><button class="btn" id="oppTrade"' + (dead ? ' disabled' : '') + '>Offer a trade</button>' +
+    '<button class="btn" id="oppStickers">Trade a sticker</button>' +
     '<button class="btn" id="oppDeeds">View deeds</button></div>' +
     '<div class="btnrow"><button class="btn ghost" id="oppBack">Back</button><button class="btn ghost" data-close="1">Close</button></div></div>';
   wireSheetButtons($('hudSheet'), myId);
@@ -4024,7 +4034,61 @@ function openOpponent(playerId) {
   if (trade) trade.addEventListener('click', () => { closeScrim('hudScrim'); openTrade(p.id); });
   const deeds = $('oppDeeds');
   if (deeds) deeds.addEventListener('click', () => { closeScrim('hudScrim'); openTheirDeeds(p.id); });
+  const rival = $('oppRival');
+  const rows = window.__kpRivalries || [];
+  const key = p.accountId ? ('acct:' + p.accountId) : '';
+  const hit = key && rows.find((r) => r.id === key);
+  if (rival) rival.textContent = hit ? ('Head to head: you ' + (hit.wins || 0) + ', them ' + (hit.losses || 0) + '. Rent you paid ' + fmtN(hit.youPaid || 0) + '.') : 'No head-to-head yet.';
+  const stick = $('oppStickers');
+  if (stick) stick.addEventListener('click', () => openStickerTrade(key, p.name));
 }
+async function openStickerTrade(otherId, name) {
+  const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
+  let info = { yours: [], theirs: [], open: [] };
+  if (otherId && id) {
+    try {
+      const res = await fetch('/api/rewards/trade/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: id, other: otherId })
+      });
+      const body = await res.json();
+      if (body && body.ok) info = body;
+    } catch (e) { /* the sheet can still explain */ }
+  }
+  paintTrade(info, otherId, name);
+}
+function paintTrade(info, otherId, name) {
+  const yours = info.yours || [];
+  const theirs = info.theirs || [];
+  const opt = (rows) => rows.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + ' ×' + s.count + '</option>').join('');
+  $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">Trade a sticker</h3>' +
+    '<p class="caption">Only a duplicate fit move. ' + esc(name || 'Your person') + ' must confirm.</p>' +
+    '<div class="trade-card"><label>Your duplicate<select id="tradeGive">' + (opt(yours) || '<option value="">None yet</option>') + '</select></label>' +
+    '<label>Their duplicate<select id="tradeWant">' + (opt(theirs) || '<option value="">None yet</option>') + '</select></label>' +
+    '<button type="button" class="btn gold" id="tradeSend">Send offer</button></div>' +
+    '<p class="caption" id="tradeNote"></p>' +
+    '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
+  $('hudScrim').classList.add('show');
+  wireSheetButtons($('hudSheet'), myId);
+  const sendBtn = $('tradeSend');
+  if (sendBtn) sendBtn.addEventListener('click', async () => {
+    const give = $('tradeGive').value;
+    const want = $('tradeWant').value;
+    const note = $('tradeNote');
+    if (!give || !want) { if (note) note.textContent = 'Pick two duplicates first.'; return; }
+    const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
+    let out = null;
+    try {
+      const res = await fetch('/api/rewards/trade', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: id, to: otherId, give, want })
+      });
+      out = await res.json();
+    } catch (e) { out = null; }
+    if (note) note.textContent = out && out.ok ? 'Offer don go. Them go confirm.' : ((out && out.message) || 'That trade no send.');
+  });
+}
+window.KPShowTrade = paintTrade;
 function openTheirDeeds(playerId) {
   const room = state;
   const p = byId(playerId);

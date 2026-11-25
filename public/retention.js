@@ -117,6 +117,9 @@
     renderShelf();
     paintShelfBtn(view);
     paintSpin(view);
+    paintEvent(view);
+    paintRematch(view);
+    window.__kpRivalries = (view && view.rivalries) || [];
     lastView = view;
     paintStrip();
     if (window.KPpaintAccountChip) window.KPpaintAccountChip(v2view);
@@ -784,6 +787,31 @@
   else detectAndroidInstall();
   paintInstallButton();
 
+  function paintEvent(view) {
+    const el = $('eventBanner');
+    if (!el) return;
+    const ev = view && view.event;
+    if (!ev) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    el.classList.remove('hidden');
+    el.innerHTML = '<p class="event-kicker">THIS WEEK</p><h3>' + ev.name + '</h3><p>' + ev.blurb + '</p>' +
+      '<p class="caption">Ends ' + ev.ends + '</p>' +
+      '<button type="button" class="btn gold block" id="eventClaim">Collect ' + ev.sticker.name + '</button>';
+    const b = $('eventClaim');
+    if (b) b.addEventListener('click', async () => {
+      let out = null;
+      try { out = await post('/api/events/claim', {}); } catch (e) { out = null; }
+      setLine(out && out.ok ? (ev.sticker.name + ' don enter your album.') : ((out && out.message) || 'That sticker no land.'));
+      if (out && out.ok) b.disabled = true;
+    });
+  }
+  function paintRematch(view) {
+    const el = $('rematchBanner');
+    if (!el) return;
+    const row = view && view.rematch;
+    if (!row) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    el.classList.remove('hidden');
+    el.innerHTML = '<p class="event-kicker">BIG DADDY</p><h3>Pay them back</h3><p>' + (row.name || 'Your person') + ' collect from you. Challenge am again.</p>';
+  }
   function paintSpin(view) {
     const b = $('spinBtn');
     if (!b) return;

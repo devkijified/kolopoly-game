@@ -219,7 +219,7 @@ function createRetention(opts) {
   const roundtripSelfTest = pushLib.roundtripSelfTest;
   const env = opts.env || (typeof process !== 'undefined' ? process.env : {});
   const vapid = opts.vapid || loadVapid(env, test);
-  const db = { players: {}, tokens: {}, stats: emptyStats() };
+  const db = { players: {}, tokens: {}, stats: emptyStats(), trades: {} };
   let saveWarned = false;
   const testLog = [];
 
@@ -228,6 +228,7 @@ function createRetention(opts) {
     db.players = parsed.players && typeof parsed.players === 'object' ? parsed.players : {};
     db.tokens = parsed.tokens && typeof parsed.tokens === 'object' ? parsed.tokens : {};
     db.stats = mergeStats(parsed.stats);
+    db.trades = parsed.trades && typeof parsed.trades === 'object' ? parsed.trades : {};
   }
   function load() {
     if (memory) { applyParsed(opts.db); return; }
@@ -697,6 +698,9 @@ function createRetention(opts) {
       nextDrop: p.lastClaimDay !== day ? { pack: warmReady ? 2 : 1 } : null,
       rewards: shelfRewards.publicRewards(p),
       spin: shelfRewards.spinView(p, day),
+      event: eventsForHome(day),
+      rivalries: rivalList(p),
+      rematch: p.rematch || null,
       uses: {
         cowries: { cost: USES.cowries.cost, kind: USES.cowries.kind, amount: USES.cowries.amount },
         kola: { cost: USES.kola.cost, kind: USES.kola.kind, amount: USES.kola.amount },
@@ -1140,6 +1144,105 @@ function createRetention(opts) {
     return { endpoint, keys: { p256dh, auth } };
   }
 
+  const cityEvents = require('./events.js');
+  function eventsForHome(day) {
+    return cityEvents.forCity(day, shelfRewards.homeCity());
+  }
+  function rivalList(p) {
+    const bag = p && p.rivalries && typeof p.rivalries === 'object' ? p.rivalries : {};
+    return Object.keys(bag).slice(0, 20).map((id) => Object.assign({ id }, bag[id]));
+  }
+  function bumpRival(id, otherId, otherName, field, amount) {
+    if (!id || !otherId || id === otherId) return;
+    const p = ensure(id);
+    p.rivalries = p.rivalries && typeof p.rivalries === 'object' ? p.rivalries : {};
+    const row = p.rivalries[otherId] || { name: otherName || 'Opponent', wins: 0, losses: 0, youPaid: 0, theyPaid: 0 };
+    row.name = otherName || row.name;
+    row[field] = Math.max(0, Math.floor(Number(row[field]) || 0) + (amount || 0));
+    p.rivalries[otherId] = row;
+  }
+  function noteRivalry(info) {
+    info = info || {};
+    bumpRival(info.payer, info.owner, info.ownerName, 'youPaid', info.amount || 0);
+    bumpRival(info.owner, info.payer, info.payerName, 'theyPaid', info.amount || 0);
+    if ((info.amount || 0) >= 100000 && info.payer) {
+      const p = ensure(info.payer);
+      p.rematch = { to: info.owner, name: info.ownerName || '', amount: info.amount, at: Date.now() };
+    }
+    save();
+  }
+  function noteMatch(info) {
+    info = info || {};
+    bumpRival(info.winner, info.loser, info.loserName, 'wins', 1);
+    bumpRival(info.loser, info.winner, info.winnerName, 'losses', 1);
+    if (info.loser) {
+      const p = ensure(info.loser);
+      p.rematch = { to: info.winner, name: info.winnerName || '', amount: 0, at: Date.now() };
+    }
+    save();
+  }
+  function tradePreview(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const other = cleanShelfId(body.other);
+    if (!other || !db.players[other]) return { status: 400, body: { ok: false, error: 'who', message: 'That person no get a shelf yet.' } };
+    const mine = ensure(who.id);
+    const theirs = normalize(db.players[other]);
+    const open = Object.values(db.trades).filter((t) => t && t.status === 'open' && (t.from === who.id || t.to === who.id));
+    return { status: 200, body: { ok: true, yours: shelfRewards.duplicatesOf(mine), theirs: shelfRewards.duplicatesOf(theirs), open, log: (mine.tradeLog || []).slice(-8) } };
+  }
+  function offerTrade(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const to = cleanShelfId(body.to);
+    const give = String(body.give || '');
+    const want = String(body.want || '');
+    if (!to || to === who.id || !db.players[to]) return { status: 400, body: { ok: false, error: 'who', message: 'That person no get a shelf yet.' } };
+    const from = ensure(who.id);
+    const dest = normalize(db.players[to]);
+    if ((from.rewards.album[give] || 0) < 2) return { status: 400, body: { ok: false, error: 'nodupe', message: 'You need two of that sticker before you fit trade one.' } };
+    if ((dest.rewards.album[want] || 0) < 2) return { status: 400, body: { ok: false, error: 'theirs', message: 'Them no get two of that sticker.' } };
+    const id = 't' + Date.now().toString(36);
+    db.trades[id] = { id, from: who.id, to, give, want, status: 'open', at: Date.now() };
+    save();
+    return { status: 200, body: { ok: true, trade: db.trades[id] } };
+  }
+  function acceptTrade(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const t = db.trades[String(body.id || '')];
+    if (!t || t.status !== 'open') return { status: 400, body: { ok: false, error: 'trade', message: 'That trade don close.' } };
+    if (t.to !== who.id) return { status: 400, body: { ok: false, error: 'who', message: 'Na the other person fit confirm this trade.' } };
+    const from = ensure(t.from);
+    const dest = ensure(t.to);
+    const out = shelfRewards.tradeSwap(from, dest, t.give, t.want);
+    if (!out.ok) return { status: 400, body: Object.assign({ ok: false }, out, { message: 'The duplicates no dey again.' }) };
+    t.status = 'done';
+    const stamp = { id: t.id, at: Date.now(), give: t.give, want: t.want };
+    from.tradeLog = (from.tradeLog || []).slice(-19);
+    dest.tradeLog = (dest.tradeLog || []).slice(-19);
+    from.tradeLog.push(Object.assign({ with: t.to, side: 'gave' }, stamp));
+    dest.tradeLog.push(Object.assign({ with: t.from, side: 'got' }, stamp));
+    save();
+    return { status: 200, body: { ok: true, trade: t, rewards: shelfRewards.publicRewards(dest) } };
+  }
+  function claimEvent(body) {
+    const who = resolve(body);
+    if (who.error) return { status: 400, body: { ok: false, error: who.error } };
+    const day = lagosDay(new Date());
+    const asked = String(body.cityId || '');
+    const cityId = shelfRewards.stickersIn(asked).length ? asked : shelfRewards.homeCity();
+    const ev = cityEvents.forCity(day, cityId);
+    if (!ev) return { status: 400, body: { ok: false, error: 'none', message: 'No event for this city this week.' } };
+    const p = ensure(who.id);
+    p.eventsClaimed = p.eventsClaimed && typeof p.eventsClaimed === 'object' ? p.eventsClaimed : {};
+    if (p.eventsClaimed[ev.id]) return { status: 200, body: { ok: false, error: 'spent', message: 'You don collect this week sticker.', event: ev } };
+    const r = shelfRewards.ensureRewards(p);
+    r.album[ev.sticker.id] = (r.album[ev.sticker.id] || 0) + 1;
+    p.eventsClaimed[ev.id] = day;
+    save();
+    return { status: 200, body: { ok: true, event: ev, rewards: shelfRewards.publicRewards(p) } };
+  }
   function spinReward(body) {
     const who = resolve(body);
     if (who.error) return { status: 400, body: { ok: false, error: who.error } };
@@ -1460,6 +1563,10 @@ function createRetention(opts) {
       || clean === '/api/account/installed'
       || clean === '/api/rewards/open'
       || clean === '/api/rewards/spin'
+      || clean === '/api/rewards/trade'
+      || clean === '/api/rewards/trade/accept'
+      || clean === '/api/rewards/trade/preview'
+      || clean === '/api/events/claim'
       || clean === '/api/rewards/gift'
       || clean === '/api/rewards/equip'
       || (test && (clean === '/api/test/nudge' || clean === '/api/test/sweep' || clean === '/api/test/push-roundtrip' || clean === '/api/test/grant-card'));
@@ -1542,6 +1649,10 @@ function createRetention(opts) {
       if (clean === '/api/account/installed') { const out = markInstalled(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/open') { const out = openRewardPack(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/spin') { const out = spinReward(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/trade') { const out = offerTrade(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/trade/accept') { const out = acceptTrade(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/rewards/trade/preview') { const out = tradePreview(body); sendJson(res, out.status, out.body); return; }
+      if (clean === '/api/events/claim') { const out = claimEvent(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/gift') { const out = giftSticker(body); sendJson(res, out.status, out.body); return; }
       if (clean === '/api/rewards/equip') { const out = equipReward(body); sendJson(res, out.status, out.body); return; }
       if (test && clean === '/api/test/grant-card') {
@@ -1637,6 +1748,10 @@ function createRetention(opts) {
       if (clean === '/api/account/installed') { const out = markInstalled(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/open') { const out = openRewardPack(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/spin') { const out = spinReward(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/trade') { const out = offerTrade(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/trade/accept') { const out = acceptTrade(body); return json(out.status, out.body); }
+      if (clean === '/api/rewards/trade/preview') { const out = tradePreview(body); return json(out.status, out.body); }
+      if (clean === '/api/events/claim') { const out = claimEvent(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/gift') { const out = giftSticker(body); return json(out.status, out.body); }
       if (clean === '/api/rewards/equip') { const out = equipReward(body); return json(out.status, out.body); }
       if (test && clean === '/api/test/grant-card') {
@@ -1686,6 +1801,8 @@ function createRetention(opts) {
     rewardsOf,
     spendRewardCard,
     noteDay,
+    noteRivalry,
+    noteMatch,
     opsSummary,
     testLog,
     exportDb,
