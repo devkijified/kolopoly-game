@@ -552,6 +552,11 @@ body:has(#view-signin.active) { background: #0f1116; }
 .swap-deed { --ink: #2b2018; --ink-soft: #5c4c3d; }
 .end-row.winner { --ink: #1a140c; --ink-soft: #3d2e22; color: #1a140c; }
 #paidScrim { z-index: 140; }
+#view-game #viewToggle { display: none; }
+.pause-card { background: #fff8ea !important; color: #1a140c !important; }
+.pause-card .title, .pause-card .lead, .pause-card .caption { color: #1a140c !important; }
+#view-tutorial, #view-tutorial .title, #view-tutorial .lead, #view-tutorial .caption { color: #1a140c; }
+#view-tutorial .overline { color: #8a5a00; }
 .p2e-collect-note { margin-top: 8px; font-size: 13px; font-weight: 700; color: #1a140c; }
 .end-table .winner-row { --ink: #7a5200; --ink-soft: #5c4c3d; }
 .end-rank { background: #2b2018; color: var(--gold); }

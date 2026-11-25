@@ -1597,6 +1597,7 @@ async function initializePayment() {
       window.location.assign(data.authorizationUrl);
       return;
     }
+    if (data && data.credited) { payOpen = null; toast('Play credit cover this seat. No Paystack charge.'); payRender(); return; }
     if (data && data.alreadyPaid) { payOpen = null; toast('You don pay your entry already.'); payRender(); return; }
     if (res.status === 401) { payFail(code, 'Your sign-in don expire. Sign in again, then pay.'); return; }
     payFail(code, (data && data.message) || 'Paystack no open this time. Nothing was charged. Try again.');
@@ -2541,7 +2542,7 @@ function renderLobby(room) {
     const ladder = (room.salaryLadder && room.salaryLadder.length) ? room.salaryLadder : [200000, 140000, 100000, 70000, 40000, 20000, 10000];
     chips.push('Salary ' + ladder.map((n) => fmtN(n)).join(' → '));
   }
-  else chips.push(room.settings.timed ? 'Timed: 60 minutes' : 'Untimed: last landlord standing');
+    else chips.push(room.inf ? 'First phase 15 min, then 10' : (room.settings.timed ? 'Timed: 60 minutes' : 'Untimed: last landlord standing'));
   if (room.settings.doubleStart) chips.push('Double salary on exact START landing');
   if (room.settings.noRentInJail) chips.push('No rent while in Kirikiri');
   if (room.settings.firstLapNoBuy) chips.push('First lap: no buying');
@@ -2710,21 +2711,25 @@ function wireSheetButtons(root, viewer) {
 // who is missing, how long the wait has run, the frozen turn clock value,
 // and the controls underneath visibly disabled instead of silently dead.
 function renderPause(room) {
+  if (window.__pauseShot) room = window.__pauseShot;
   const o = $('pauseOverlay');
   const show = !!(room.paused && room.status === 'playing' && room.mode !== 'pass');
   $('view-game').classList.toggle('is-paused', show);
   if (!show) { o.classList.remove('show'); o.innerHTML = ''; return; }
   const missing = room.players.filter((p) => !p.connected && !p.bankrupt).map((p) => p.name);
+  const who = (room.linkWait && room.linkWait.name) || missing.join(', ') || 'a player';
+  const left = room.linkWait && room.linkWait.until ? Math.max(0, Math.ceil((room.linkWait.until - Date.now()) / 1000)) : null;
   const clockTxt = room.pauseClockMs != null
-    ? 'Turn clock dey frozen at ' + Math.round(room.pauseClockMs / 1000) + 's. E go continue from there when dem return.'
-    : 'Turn clock no dey run for this turn.';
-  o.innerHTML = '<div class="pause-card"><h3 class="title">Game dey pause</h3>' +
-    '<p class="lead" style="margin-top:8px;">We dey wait for <b>' + esc(missing.join(', ') || 'a player') + '</b> to return.</p>' +
-    '<p class="caption" id="pauseElapsed">Waiting don reach 0:00.</p>' +
-    '<p class="caption">' + clockTxt + '</p>' +
-    '<p class="caption">Your seat and your money dey held. Controls go wake the moment dem return.</p></div>';
+    ? 'Turn clock and the room clock dey frozen. Dem go continue when ' + who + ' return.'
+    : 'Clocks no dey run while we dey wait.';
+  o.innerHTML = '<div class="pause-card"><h3 class="title">Big Daddy: hold the table</h3>' +
+    '<p class="lead" style="margin-top:8px;">Waiting for <b>' + esc(who) + '</b> to reconnect.' + (left != null ? ' ' + left + 's left on this drop.' : '') + '</p>' +
+    '<p class="caption" id="pauseElapsed">Network don blink. Nobody dey play their seat for them.</p>' +
+    '<p class="caption">' + esc(clockTxt) + '</p>' +
+    '<p class="caption">Your money dey held. A paid seat wey no return get play credit, not a bot.</p></div>';
   o.classList.add('show');
 }
+window.__kolopolyRenderPause = renderPause;
 
 // KP13 WS4: per-seat banner copy. The server sends a key + actor +
 // params; each client picks the form for its own seat. Short enough to
@@ -2946,7 +2951,7 @@ function renderActionBar(room) {
         }
       }
     } else if (room.phase === 'jail') {
-      html = '<button class="btn" id="abJailPay">Pay bail ' + fmtN(50000) + '</button>' +
+      html = '<button class="btn" id="abJailPay">Pay bail ' + fmtN((room.fees && room.fees.bail) || 50000) + '</button>' +
         (actor.goojf > 0 ? '<button class="btn" id="abJailCard">' + window.icon('card', 18) + ' Use Get Out card</button>' : '') +
         '<button class="btn green" id="abJailRoll">' + window.icon('dice', 20) + ' Roll for double</button>';
     } else if (room.phase === 'buy') {
@@ -2954,9 +2959,9 @@ function renderActionBar(room) {
       html = '<button class="btn green" id="abBuy">' + window.icon('check', 18) + ' Buy ' + fmtN(price) + '</button>' +
         '<button class="btn ghost" id="abDecline">' + window.icon('gavel', 18) + ' Send to auction</button>';
     } else if (room.phase === 'tax') {
-      const pct = Math.floor((actor.netWorth || 0) * 0.10);
-      html = '<button class="btn" id="abTaxFlat">Pay flat ' + fmtN(200000) + '</button>' +
-        '<button class="btn" id="abTaxPct">Pay 10%: ' + fmtN(pct) + '</button>';
+      const quote = room.taxQuote || { flat: 200000, percent: Math.floor((actor.netWorth || 0) * 0.10), showPercent: true };
+      html = '<button class="btn" id="abTaxFlat">Pay flat ' + fmtN(quote.flat) + '</button>' +
+        (quote.showPercent ? '<button class="btn" id="abTaxPct">Pay 10%: ' + fmtN(quote.percent) + '</button>' : '<p class="caption">10% pass the flat bill, so flat na the only choice.</p>');
     } else if (room.phase === 'end') {
       html = '<button class="btn dark" id="abEnd">End turn</button>' + clockChip(room.turnDeadline);
     } else {

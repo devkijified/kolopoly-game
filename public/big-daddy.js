@@ -32,9 +32,12 @@
     paid: { pose: 'clap', edge: 'right', ms: 1800, line: 'All seats paid, table locked. Play sharp!', stamp: 'PAID' },
     afk: { pose: 'stand', edge: 'left', ms: 2200, line: 'Your person don waka? I go hold the seat small. I no go sell your house.' },
     drop: { pose: 'clap', edge: 'right', ms: 1800, line: "Today's drop don land. Come collect before e expire!" },
-    card: { pose: 'stand', edge: 'right', ms: 1800, line: 'Power card don land for the table!' }
+    card: { pose: 'stand', edge: 'right', ms: 1800, line: 'Power card don land for the table!' },
+    low: { pose: 'money', edge: 'left', ms: 5000, line: 'Your cash dey low. Mortgage or trade before the next rent catch you.' },
+    build: { pose: 'deed', edge: 'right', ms: 5000, line: 'If you get the colour set, build now. Rent go fat for the next person.' }
   };
   let lastAt = 0;
+  const pending = [];
   let timer = null;
   let swapTimer = null;
   let current = null;
@@ -97,7 +100,10 @@
     const spec = LINES[id];
     if (!spec || !enabled()) return false;
     const now = extra.now || Date.now();
-    if (!extra.force && lastAt && now - lastAt < GAP_MS) return false;
+    if (!extra.force && (current || (lastAt && now - lastAt < 800))) {
+      pending.push({ id, extra });
+      return true;
+    }
     lastAt = now;
     const el = ensure();
     const pose = spec.pose;
@@ -127,8 +133,14 @@
     current = id;
     clearTimeout(timer);
     clearTimeout(swapTimer);
-    const ms = Math.max(1200, Math.min(2200, spec.ms || 1800));
-    timer = setTimeout(hide, extra.ms || ms);
+    const words = (extra.line || spec.line || '').length;
+    const ms = Math.max(4500, Math.min(8000, 4000 + words * 45));
+    timer = setTimeout(() => {
+      hide();
+      const next = pending.shift();
+      if (next) show(next.id, Object.assign({ force: true }, next.extra || {}));
+    }, extra.ms || ms);
+    bubble.addEventListener('click', () => { hide(); const next = pending.shift(); if (next) show(next.id, Object.assign({ force: true }, next.extra || {})); });
     if (spec.then && !reduced() && !extra.still) {
       swapTimer = setTimeout(() => {
         if (current !== id || !img) return;
@@ -191,10 +203,13 @@
         if (was && !was.bankrupt) return 'lose';
       }
     }
+    const me = (room.players || []).find((p) => p.id === meId);
+    const prevMe = (prev.players || []).find((p) => p.id === meId);
+    if (me && prevMe && me.cash < 80000 && prevMe.cash >= 80000) return 'low';
+    if (room.phase === 'end' && prev.phase !== 'end' && me && me.cash > 200000) return 'build';
     return null;
   }
 
-  document.addEventListener('pointerdown', () => { if (current) hide(); }, true);
 
   function bootToggle() {
     const box = document.getElementById('optBigDaddy');

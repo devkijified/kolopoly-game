@@ -195,6 +195,12 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   display: none;
 }
 .banner.show { display: block; }
+.open-tables { display: grid; gap: 8px; margin-top: 12px; }
+.open-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 12px; background: #fffaf1; color: #1a140c; }
+.open-row span { display: block; font-size: 12px; }
+.tut-offer { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fff3d1; color: #1a140c; }
+#view-tutorial { display: none; }
+#view-tutorial.active { display: block; }
 .invite-title { font-family: 'Aeonik Pro', sans-serif; font-size: var(--fs-title); }
 .invite-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 12px; }
 .invite-row .grow { flex: 1; min-width: 0; }
@@ -1945,8 +1951,9 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   #infBar button { min-width: 40px; min-height: 40px; padding: 4px; font-size: 0; gap: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 
   /* Message bar: the KP13 cap becomes a hard cap, one line, ellipsis. */
-  .msgbar { padding: 6px 10px; min-height: 36px; max-height: 40px; }
-  #msgText { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .msgbar { padding: 6px 10px; min-height: 36px; max-height: none; height: auto; }
+  #msgText { flex: 1 1 auto; min-width: 0; white-space: normal; overflow: visible; text-overflow: unset; line-height: 1.25; }
+  .msgbar { max-height: none; height: auto; }
 
   /* Player pills hold KP12's 34px; the strip stops paying a bottom pad. */
   .players-strip { padding-bottom: 0; }

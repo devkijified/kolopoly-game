@@ -1310,7 +1310,7 @@ try {
     for (const c of g.clients) c.ws.close();
   }
 
-  console.log('I7: the seven phase schedule (Standard runs 20 minutes, the deadline lands 67 minutes out) and a fully claimed board ends Standard at the turn boundary');
+  console.log('I7: the seven phase schedule (Standard runs 15 minutes, the deadline lands 57 minutes out) and a fully claimed board ends Standard at the turn boundary');
   {
     for (const preset of ['quick', 'standard', 'fullnight']) {
       const g = await makeGame({ gameMode: 'inflation', preset, timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
@@ -1322,9 +1322,9 @@ try {
     }
     const sched = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const p1Left = Math.round((sched.S().inf.phaseEndsAt - Date.now()) / 1000);
-    check('Standard preset Phase 1 (Standard) runs about 1200s', Math.abs(p1Left - 1200) < 6, 'left=' + p1Left);
+    check('Standard preset Phase 1 (Standard) runs about 900s', Math.abs(p1Left - 900) < 6, 'left=' + p1Left);
     const totalLeft = Math.round((sched.S().inf.deadlineAt - Date.now()) / 1000);
-    check('the Standard match deadline lands about 4020s (67 minutes) after the start', Math.abs(totalLeft - 4020) < 8, 'left=' + totalLeft);
+    check('the Standard match deadline lands about 3420s (57 minutes) after the start', Math.abs(totalLeft - 3420) < 8, 'left=' + totalLeft);
     for (const c of sched.clients) c.ws.close();
     const g = await makeGame({ gameMode: 'inflation', preset: 'standard', timed: false, turnTimerSec: 0 }, ['Ada', 'Bola']);
     const ids = g.S().players.map((p) => p.id);

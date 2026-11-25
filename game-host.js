@@ -101,6 +101,15 @@ function createGameHost(deps) {
   // entry is written, so no road can refund the same seat twice.
   function refundSeat(room, p) {
     if (!room.paid || room.paidGameStarted || !p || p.bot || !p.paidSeat) return;
+    if (p.paidRef && String(p.paidRef).startsWith('spend:') && deps.playCredit && p.accountId) {
+      p.paidSeat = false;
+      deps.playCredit.grant({
+        id: 'return:' + p.paidRef, accountId: p.accountId, kobo: room.paidFee * 100,
+        reason: 'left before the game', roomCode: room.code, by: 'house'
+      });
+      p.paidRef = null;
+      return;
+    }
     p.paidSeat = false;
     try {
       prizeLedger.add({
@@ -365,15 +374,18 @@ function eligibleForBuild(room, playerId, kind) {
 // secs: listed length of live play. goPct: percent of the normal salary.
 // multKind keys INF_MULT below and the client formula explainer.
 const INF_PHASES = [
-  { name: 'Standard', secs: 1200, goPct: 100, multKind: 'none' },
-  { name: 'Squeeze', secs: 900, goPct: 70, multKind: 'lower' },
+  // The clock players see in Inflation is this phase list. Standard was
+  // 20 minutes. The first phase is now 15 minutes, and every later phase
+  // is at most 10 minutes. A rematch window is separate (10 minutes).
+  { name: 'Standard', secs: 900, goPct: 100, multKind: 'none' },
+  { name: 'Squeeze', secs: 600, goPct: 70, multKind: 'lower' },
   { name: 'Heat', secs: 600, goPct: 50, multKind: 'higher' },
   { name: 'Crunch', secs: 420, goPct: 35, multKind: 'sum' },
   { name: 'Crisis', secs: 300, goPct: 20, multKind: 'sumLower' },
   { name: 'Meltdown', secs: 300, goPct: 10, multKind: 'sumHigher' },
   { name: 'Final Reckoning', secs: 300, goPct: 5, multKind: 'sumSq' }
 ];
-const INF_TOTAL_SECS = INF_PHASES.reduce((s, p) => s + p.secs, 0); // 4020 = 67 minutes
+const INF_TOTAL_SECS = INF_PHASES.reduce((s, p) => s + p.secs, 0); // 3420 = 57 minutes
 // Salary = floor(START_PAY x pct / 100). Every pct divides 200000 exactly,
 // so salaries are whole naira: 200000, 140000, 100000, 70000, 40000, 20000, 10000.
 const INF_SALARIES = INF_PHASES.map((p) => Math.floor(200000 * p.goPct / 100));
@@ -583,6 +595,7 @@ function bindSeat(ctx, ws, room, player, send) {
   // it must not auto-reconnect and start a tab war over the seat.
   if (player.ws && player.ws !== ws && player.ws.readyState === 1) { try { player.ws.close(4001, 'seat taken'); } catch (e) { } }
   if (player.afkTaken && player.bot) reclaimAfkBot(room, player, ws);
+  clearLinkHold(room, player);
   player.ws = ws;
   player.connected = true;
   touchActive(player);
@@ -679,6 +692,9 @@ function publicRoom(room) {
     hostAway: room.status === 'lobby' && !!hostP && !hostP.connected,
     pausedSince: room.pauseSince || null,
     pauseClockMs: room.pauseClockMs != null ? room.pauseClockMs : null,
+    linkWait: room.linkWait || null,
+    taxQuote: room.taxQuote || null,
+    fees: { bail: scaleMoney(room, D.JAIL_FINE), missed: scaleMoney(room, MISSED_TURN_FEE) },
     endReason: room.endReason || null,
     settings: room.settings,
     salaryLadder: room.status === 'lobby' && room.settings && room.settings.gameMode === 'inflation' ? INF_SALARIES.slice() : null,
@@ -948,7 +964,7 @@ function sendToKirikiri(room, player, reason) {
   player.doublesCount = 0;
   player.kirikiriTrips += 1;
   pushFeed(room, 'kirikiri', player.name + ' don land for Kirikiri. ' + (reason || ''), { playerId: player.id, trips: player.kirikiriTrips });
-  setMessage(room, player.name + ' don land for Kirikiri. Bail na ' + D.fmtN(D.JAIL_FINE) + ', or roll double make you free.');
+  setMessage(room, player.name + ' don land for Kirikiri. Bail na ' + D.fmtN(scaleMoney(room, D.JAIL_FINE)) + ', or roll double make you free.');
 }
 
 // Charge a player; if they cannot cover it from cash, the game enters the
@@ -1247,10 +1263,12 @@ function resolveLanding(room, player, opts) {
       room.taxPlayer = player.id;
       room.taxAfter = opts.after || 'endPhase';
       setDeadline(room);
-      setMessage(room, player.name + ' landed on FIRS Income Tax. Pay ' + D.fmtN(sp.amount) + ' flat, or 10 percent of total worth (' + D.fmtN(Math.floor(netWorth(room, player) * 0.10)) + ').');
+      const quote = firsQuote(room, player);
+      room.taxQuote = quote;
+      setMessage(room, player.name + ' landed on FIRS Income Tax. Pay ' + D.fmtN(quote.flat) + ' flat' + (quote.showPercent ? ', or 10 percent of total worth (' + D.fmtN(quote.percent) + ').' : '. The 10 percent option pass the flat price, so flat na the only bill.'));
       return;
     }
-    charge(room, player, sp.amount, null, sp.name, opts.after || 'endPhase', { toPot: true, stat: 'fine' });
+    charge(room, player, scaleMoney(room, sp.amount), null, sp.name, opts.after || 'endPhase', { toPot: true, stat: 'fine' });
     return;
   }
   if (sp.type === 'card') { drawCard(room, player, sp.deck, opts); return; }
@@ -1331,7 +1349,7 @@ function applyCard(room, player, card, opts) {
       return;
     }
     case 'payBank': {
-      charge(room, player, fx.amount, null, 'Card payment', after, { toPot: true, stat: 'fine' });
+      charge(room, player, scaleMoney(room, fx.amount), null, 'Card payment', after, { toPot: true, stat: 'fine' });
       return;
     }
     case 'collectEach': {
@@ -1354,7 +1372,7 @@ function applyCard(room, player, card, opts) {
         const p = room.props[i];
         if (p && p.owner === player.id) { if (p.buildings >= 5) man++; else dup += p.buildings; }
       }
-      const amount = dup * fx.perDuplex + man * fx.perMansion;
+      const amount = scaleMoney(room, dup * fx.perDuplex + man * fx.perMansion);
       if (amount <= 0) { setMessage(room, player.name + ' get no buildings, so the omo onile bill na zero.'); cardDone(room, player, opts); return; }
       charge(room, player, amount, null, 'Repairs and settlement', after, { toPot: true, stat: 'fine' });
       return;
@@ -1530,7 +1548,8 @@ function updatePause(room) {
   // away pauses even when two bot seats are still "connected".
   const noHumanSeated = room.players.some((p) => p.bot)
     && !room.players.some((p) => !p.bot && p.connected && !p.bankrupt);
-  room.paused = room.status === 'playing' && (connectedSolvent(room).length < 2 || noHumanSeated);
+  const linkWaiting = room.players.some((p) => p.linkHold && !p.connected && !p.bot && !p.resigned);
+  room.paused = room.status === 'playing' && (connectedSolvent(room).length < 2 || noHumanSeated || linkWaiting);
   if (room.paused && !was) {
     // Lesson 14: the pause speaks. Record when it started and the frozen
     // turn clock value so the waiting card can show both honestly.
@@ -1545,6 +1564,8 @@ function updatePause(room) {
     if (room.pauseSince) {
       const shift = now() - room.pauseSince;
       if (room.turnDeadline) room.turnDeadline += shift;
+      if (room.gameEndsAt) room.gameEndsAt += shift;
+      if (room.auction && room.auction.endsAt) room.auction.endsAt += shift;
       if (room.inf) {
         if (room.inf.phaseEndsAt) room.inf.phaseEndsAt += shift;
         if (room.inf.deadlineAt) room.inf.deadlineAt += shift;
@@ -2188,7 +2209,7 @@ function resolveHustle(room, via) {
 // the cash in hand, so it can never open a debt or bankrupt anyone) and
 // pass the turn. A Kirikiri stay counts the missed turn as one jail turn.
 function missTurn(room, player) {
-  const fee = Math.max(0, Math.min(MISSED_TURN_FEE, player.cash));
+  const fee = Math.max(0, Math.min(scaleMoney(room, MISSED_TURN_FEE), player.cash));
   if (fee > 0) payNow(room, player, fee, null, 'Missed turn fee', { toPot: true, stat: 'fine' });
   player.missedTurns = (player.missedTurns || 0) + 1;
   if (player.inJail) player.jailTurns = (player.jailTurns || 0) + 1;
@@ -2704,6 +2725,11 @@ function tick() {
     }
   }
   for (const room of rooms.values()) {
+    if (room.status === 'playing') {
+      for (const p of room.players) {
+        if (p.linkHold && now() >= p.linkHold.until) finishLinkHold(room, p);
+      }
+    }
     if (room.status !== 'playing' || room.paused) continue;
     let changed = false;
     if (room.inf) { if (infTick(room)) changed = true; if (room.status !== 'playing') { broadcast(room); continue; } }
@@ -2752,6 +2778,12 @@ function tick() {
         if (!p.lastActive) p.lastActive = room.startedAt || now();
         const idle = now() - p.lastActive;
         if (idle >= AFK_TAKEOVER_MS) {
+          if (room.paid) {
+            missTurn(room, p);
+            p.lastActive = now();
+            changed = true;
+            continue;
+          }
           if (room.afkTakeovers < AFK_MAX_TAKEOVERS && convertHumanToAfkBot(room, p)) { changed = true; }
           else if (room.afkTakeovers >= AFK_MAX_TAKEOVERS && p.afkWarn < 3) {
             p.afkWarn = 3;
@@ -2778,10 +2810,9 @@ function declineBuy(room, player) {
   startAuction(room, { kind: 'deed', space: i, resume: room.afterLanding || 'endPhase' });
 }
 function taxChoose(room, player, choice) {
-  const worth = netWorth(room, player);
-  const flat = D.SPACES[D.INCOME_TAX_INDEX].amount;
-  const pct = Math.floor(worth * 0.10);
-  const amount = choice === 'flat' ? flat : choice === 'percent' ? pct : Math.min(flat, pct);
+  const quote = firsQuote(room, player);
+  const amount = choice === 'percent' && quote.showPercent ? quote.percent : quote.flat;
+  room.taxQuote = null;
   room.taxPlayer = null;
   charge(room, player, amount, null, 'FIRS Income Tax', room.taxAfter || 'endPhase', { toPot: true, stat: 'fine' });
 }
@@ -2800,9 +2831,9 @@ function jailRoll(room, player) {
   } else {
     player.jailTurns += 1;
     if (player.jailTurns >= 3) {
-      setMessage(room, player.name + ' no roll double three times. Bail na ' + D.fmtN(D.JAIL_FINE) + ' by force.');
+      setMessage(room, player.name + ' no roll double three times. Bail na ' + D.fmtN(scaleMoney(room, D.JAIL_FINE)) + ' by force.');
       room.pendingJailMove = d1 + d2;
-      charge(room, player, D.JAIL_FINE, null, 'Kirikiri bail', 'jailMove', { toPot: true, stat: 'fine' });
+      charge(room, player, scaleMoney(room, D.JAIL_FINE), null, 'Kirikiri bail', 'jailMove', { toPot: true, stat: 'fine' });
       if (!room.debt) player.inJail = false;
       else { /* freed when the bail settles: handled in settleDebtIfPossible via afterCharge jailMove */ player.inJail = false; }
     } else {
@@ -2856,8 +2887,77 @@ function touchActive(player) {
   player.lastActive = now();
   player.afkWarn = 0;
 }
+const LINK_DROP_MS = 150000;
+const LINK_CAP_MS = 360000;
+function scaleMoney(room, base) {
+  if (!isInf(room)) return base;
+  const idx = INF_INDEX[(infPhase(room) || 1) - 1] || 1;
+  return Math.max(0, Math.round(base * idx));
+}
+function firsQuote(room, player) {
+  const flat = scaleMoney(room, D.SPACES[D.INCOME_TAX_INDEX].amount);
+  const pct = Math.floor(netWorth(room, player) * 0.10);
+  return { flat, percent: pct, showPercent: pct > 0 && pct < flat };
+}
+function clearLinkHold(room, player) {
+  if (!player || !player.linkHold) {
+    if (room && room.linkWait && player && room.linkWait.playerId === player.id) room.linkWait = null;
+    return;
+  }
+  player.linkUsedMs = (player.linkUsedMs || 0) + Math.max(0, now() - (player.linkHold.armed || now()));
+  player.linkHold = null;
+  if (room.linkWait && room.linkWait.playerId === player.id) room.linkWait = null;
+}
+function creditStake(room, player, reason, idPrefix) {
+  const kobo = (room.paidFee || 0) * 100;
+  if (!room.paid || !deps.playCredit || !player || !player.accountId || kobo <= 0) return null;
+  return deps.playCredit.grant({
+    id: idPrefix + ':' + room.code + ':' + player.accountId,
+    accountId: player.accountId,
+    kobo,
+    reason,
+    roomCode: room.code,
+    by: 'house'
+  });
+}
+function finishLinkHold(room, player) {
+  player.linkHold = null;
+  if (room.linkWait && room.linkWait.playerId === player.id) room.linkWait = null;
+  const name = player.humanName || player.name;
+  if (room.paid) {
+    creditStake(room, player, 'disconnect window ended', 'drop');
+    player.resigned = true;
+    player.connected = false;
+    setMessage(room, name + ' no return. Their stake go back as play credit. No bot dey play their seat.');
+    pushFeed(room, 'info', name + ' no reconnect. Stake returned as play credit.', { playerId: player.id });
+    const still = room.players.filter((p) => !p.bot && !p.resigned && !p.bankrupt);
+    if (still.length < 2) {
+      for (const h of still) creditStake(room, h, 'paid table void after a disconnect', 'void');
+      room.prizeSettled = true;
+      const last = still[0] || player;
+      endGame(room, last, 'Network cut the table. Stakes go back as play credit. Nobody collect the pot.');
+    } else updatePause(room);
+    return;
+  }
+  if (!convertHumanToAfkBot(room, player)) setMessage(room, name + ' still away.');
+  updatePause(room);
+}
+function armLinkHold(room, player) {
+  if (!player || player.bot || player.resigned || room.status !== 'playing') return;
+  const used = player.linkUsedMs || 0;
+  const windowMs = Math.min(LINK_DROP_MS, Math.max(0, LINK_CAP_MS - used));
+  if (windowMs < 5000) { finishLinkHold(room, player); return; }
+  player.linkHold = { until: now() + windowMs, armed: now() };
+  player.linkDrops = (player.linkDrops || 0) + 1;
+  room.linkWait = { playerId: player.id, name: player.humanName || player.name, until: player.linkHold.until };
+  setMessage(room, 'Waiting for ' + room.linkWait.name + ' to reconnect.');
+  updatePause(room);
+}
 
 function convertHumanToAfkBot(room, player) {
+  // A paid seat is never played by a bot. A network drop pauses the table
+  // instead, and an idle paid seat only skips a turn.
+  if (room && room.paid) return false;
   if (!player || player.bot || player.bankrupt || player.resigned) return false;
   if (room.afkTakeovers >= AFK_MAX_TAKEOVERS) return false;
   const others = room.players.filter((p) => p.id !== player.id && !p.bankrupt);
@@ -3023,6 +3123,15 @@ function handleConnection(ws) {
         return;
       }
       if (msg.type === 'test_bot_hold') { const p = room.players.find((x) => x.id === Number(msg.playerId)); if (p && p.botBrain) p.botBrain.hold = !!msg.hold; broadcast(room); return; }
+      if (msg.type === 'test_set_paid') {
+        room.paid = true;
+        room.paidFee = Number(msg.fee || 200);
+        room.paidCity = 'Lagos';
+        const p = room.players.find((x) => x.id === Number(msg.playerId)) || ctx.player;
+        if (p) { p.accountId = msg.accountId || p.accountId; p.paidSeat = true; }
+        broadcast(room);
+        return;
+      }
       if (msg.type === 'test_idle_for') {
         const p = room.players.find((x) => x.id === Number(msg.playerId)) || ctx.player;
         if (p) p.lastActive = now() - Number(msg.ms || 0);
@@ -4045,8 +4154,8 @@ function handleConnection(ws) {
       const a = needTurn(msg);
       if (!a) return;
       if (room.phase !== 'jail' || !a.inJail) return fail('You no dey Kirikiri.');
-      if (a.cash < D.JAIL_FINE) return fail('Bail na ' + D.fmtN(D.JAIL_FINE) + '. Cash no reach, and Kirikiri don freeze your desk: roll for double make you free.');
-      payNow(room, a, D.JAIL_FINE, null, 'Kirikiri bail', { toPot: true, stat: 'fine' });
+      if (a.cash < scaleMoney(room, D.JAIL_FINE)) return fail('Bail na ' + D.fmtN(scaleMoney(room, D.JAIL_FINE)) + '. Cash no reach, and Kirikiri don freeze your desk: roll for double make you free.');
+      payNow(room, a, scaleMoney(room, D.JAIL_FINE), null, 'Kirikiri bail', { toPot: true, stat: 'fine' });
       a.inJail = false;
       a.jailTurns = 0;
       room.phase = 'roll';
@@ -4119,6 +4228,7 @@ function handleConnection(ws) {
       return;
     }
     setMessage(room, me.name + ' dey away. Seat dey held.');
+    if (room.status === 'playing') armLinkHold(room, me);
     // Lesson 1: in the lobby the host seat is held, not migrated: the room
     // is waiting for its host, and guests see the hostAway state.
     if (room.status !== 'lobby' && room.hostId === me.id) {

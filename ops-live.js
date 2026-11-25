@@ -392,6 +392,23 @@ function createLive(opts) {
       writeAudit(action, event.id || 'event', event.name);
       return { ok: true, event, scheduled };
     }
+    if (action === 'grant_credit') {
+      if (typeof opts.playCredit !== 'function' && !(opts.playCredit && opts.playCredit.grant)) {
+        return { ok: false, status: 503, error: 'locked', message: 'Play credit is not wired on this host.' };
+      }
+      const book = opts.playCredit;
+      const out = book.grant({
+        id: String(body.id || ''),
+        accountId: String(body.accountId || ''),
+        kobo: Number(body.kobo),
+        reason: String(body.reason || ''),
+        roomCode: String(body.roomCode || ''),
+        by: 'owner'
+      });
+      if (!out.ok) return { ok: false, status: 400, error: out.error, message: out.message };
+      writeAudit('grant_credit', out.id, 'balance ' + out.balanceKobo + (out.already ? ' already' : ''));
+      return { ok: true, already: !!out.already, balanceKobo: out.balanceKobo, id: out.id };
+    }
     if (action === 'broadcast') {
       const text = String(body.text || '').trim().slice(0, 180);
       if (!text) return { ok: false, status: 400, error: 'bad', message: 'Write the announcement first.' };
