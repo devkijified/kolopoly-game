@@ -6,13 +6,12 @@
   const TIPS_OFF = 'kolopolyLearnTips';
   const SEEN_KEY = 'kolopolyFirstTips';
   const TIPS = {
-    roll: { sel: '#abRoll', line: 'Tap Roll. Your piece moves.' },
-    buy: { sel: '#abBuy', line: 'Free street. Buy it or auction it.' },
-    rent: { sel: '#hudCashBtn', line: 'That payment was rent.' },
-    card: { sel: '#cardScrim', line: 'A card can help or hurt.' },
-    jail: { sel: '#abJailPay', line: 'Pay bail, or roll a double.' },
-    set: { sel: '#hudDeals', line: 'You own a colour. Build to raise rent.' },
-    low: { sel: '#hudDeals', line: 'Cash is low. Sell or swap.' }
+    roll: { sel: '#abRoll', line: 'Tap Roll. It is your turn.' },
+    buy: { sel: '#abBuy', line: 'Buy it, or send it to auction.' },
+    rent: { sel: '#hudCashBtn', line: 'Your money went to Ada.' },
+    salary: { sel: '#hudCashBtn', line: 'The bank paid your salary.' },
+    jail: { sel: '#abJailPay', line: 'Tap Pay bail or roll double.' },
+    wait: { sel: '.wait-hint', line: 'Wait. It is Ada\'s turn.' }
   };
 
   function data() { return window.KP_DATA || {}; }
@@ -135,15 +134,28 @@
     all[owner][id] = 1;
     try { localStorage.setItem(SEEN_KEY, JSON.stringify(all)); } catch (e) { /* private */ }
   }
-  function hideTip() {
+  function inGame() {
+    const view = document.getElementById('view-game');
+    return !!(view && view.classList.contains('active'));
+  }
+  function hideTip(remove) {
     const tip = document.getElementById('learnTip');
-    if (tip) tip.hidden = true;
+    if (!tip) return;
+    if (remove) tip.remove();
+    else tip.hidden = true;
+  }
+  function trainingLesson(room) {
+    const step = room && room.practice;
+    return !!(step && step.kind === 'intro' && step.step && step.step !== 'ready' && step.action !== 'stay' && step.action !== 'free');
   }
   function show(id, owner) {
     const spec = TIPS[id];
-    if (!spec || !tipsOn()) return false;
+    const room = roomNow();
+    if (!spec || !tipsOn() || !inGame() || !trainingLesson(room)) { hideTip(true); return false; }
     const el = document.querySelector(spec.sel);
-    if (!el) return false;
+    const box = el && el.getBoundingClientRect();
+    const inTable = el && el.closest('#view-game');
+    if (!el || !inTable || box.width < 8 || box.height < 8) { hideTip(true); return false; }
     let tip = document.getElementById('learnTip');
     if (!tip) {
       tip = document.createElement('div');
@@ -166,38 +178,19 @@
     return true;
   }
 
-  let prev = null;
+  const STEP_TIP = {
+    roll: 'roll', payroll: 'roll', cardroll: 'roll', jailroll: 'roll', walk1: 'roll', salary: 'roll',
+    buy: 'buy',
+    adacheer: 'rent', paidcheer: 'rent',
+    salarycheer: 'salary',
+    jail: 'jail',
+    adaroll: 'wait'
+  };
   function onRoom(room, meId) {
-    if (!room || !meId) { prev = room; return; }
-    const teaching = room.practice && room.practice.kind === 'intro' && room.practice.action !== 'stay' && room.practice.step !== 'ready';
-    if (teaching || !tipsOn()) { prev = room; hideTip(); return; }
-    const owner = who(room, meId);
-    const me = (room.players || []).find((p) => p.id === meId);
-    let id = null;
-    if (room.phase === 'roll' && room.turnPlayerId === meId && !seen('roll', owner)) id = 'roll';
-    else if (room.phase === 'buy' && room.turnPlayerId === meId && !seen('buy', owner)) id = 'buy';
-    else if (room.phase === 'jail' && me && me.inJail && !seen('jail', owner)) id = 'jail';
-    else if (room.lastCard && room.lastCard.playerId === meId && (!prev || !prev.lastCard || prev.lastCard.seq !== room.lastCard.seq) && !seen('card', owner)) id = 'card';
-    else if (me && data().JAIL_FINE && me.cash < data().JAIL_FINE && prev) {
-      const was = (prev.players || []).find((p) => p.id === meId);
-      if (was && was.cash >= data().JAIL_FINE && !seen('low', owner)) id = 'low';
-    }
-    if (!id && prev && room.props && data().GROUP_SPACES) {
-      const groups = data().GROUP_SPACES;
-      for (const g of Object.keys(groups)) {
-        const ids = groups[g];
-        const nowFull = ids.every((i) => room.props[i] && room.props[i].o === meId);
-        const wasFull = ids.every((i) => prev.props && prev.props[i] && prev.props[i].o === meId);
-        if (nowFull && !wasFull && !seen('set', owner)) { id = 'set'; break; }
-      }
-    }
-    if (!id && prev) {
-      const seq = prev.feed && prev.feed.length ? prev.feed[prev.feed.length - 1].seq : 0;
-      const hit = (room.feed || []).some((e) => e && e.seq > seq && e.kind === 'debit' && e.playerId === meId && e.spaceName);
-      if (hit && !seen('rent', owner)) id = 'rent';
-    }
-    if (id) show(id, owner);
-    prev = room;
+    if (!inGame() || !trainingLesson(room)) { hideTip(true); return; }
+    const id = STEP_TIP[room.practice.step];
+    if (!id) { hideTip(true); return; }
+    show(id, who(room, meId));
   }
 
   function boot() {

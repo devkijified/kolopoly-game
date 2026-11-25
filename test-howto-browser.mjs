@@ -71,40 +71,34 @@ try {
   if (!overflow) fail('guide overflows at 360px');
   await page.click('#howClose');
 
-  await page.evaluate(() => {
-    document.body.insertAdjacentHTML('beforeend', '<button id="abRoll" style="position:fixed;left:16px;bottom:24px;width:160px;height:48px;z-index:1">Roll</button>');
-    window.__clicks = 0;
-    document.getElementById('abRoll').addEventListener('click', () => { window.__clicks += 1; });
+  const leaked = await page.evaluate(() => {
+    document.body.insertAdjacentHTML('beforeend', '<button id="abRoll">Roll</button>');
     const room = { phase: 'roll', turnPlayerId: 1, status: 'playing', players: [{ id: 1, cash: 1500000, accountId: 'acct-1' }], props: [], feed: [] };
+    const shown = window.KPLearn.show('roll', 'acct-1');
     window.KPLearn.onRoom(room, 1);
+    return { shown: shown, node: !!document.getElementById('learnTip'), inGame: document.body.classList.contains('in-game') };
   });
-  await page.screenshot({ path: '/opt/cursor/artifacts/tip-roll-iphone.png' });
-  await page.click('#abRoll');
-  const clicks = await page.evaluate(() => window.__clicks);
-  if (clicks !== 1) fail('tip blocked the roll click: ' + clicks);
-  await page.evaluate(() => {
-    window.KPLearn.hide();
-    const room = { phase: 'roll', turnPlayerId: 1, status: 'playing', players: [{ id: 1, cash: 1500000, accountId: 'acct-1' }], props: [], feed: [] };
-    window.KPLearn.onRoom(room, 1);
+  if (leaked.shown || leaked.node || leaked.inGame) fail('tip leaked onto the landing page ' + JSON.stringify(leaked));
+  const outside = await page.evaluate(() => {
+    const view = document.getElementById('view-game');
+    view.classList.add('active');
+    document.body.classList.add('in-game');
+    const btn = document.createElement('button');
+    btn.id = 'abRollTest';
+    btn.style.cssText = 'width:140px;height:48px';
+    view.appendChild(btn);
+    const plain = { status: 'playing', phase: 'roll', turnPlayerId: 1, players: [{ id: 1, cash: 1500000, accountId: 'acct-1' }], props: [], feed: [] };
+    window.__kolopolyState = () => plain;
+    const shown = window.KPLearn.show('roll', 'acct-1');
+    window.KPLearn.onRoom(plain, 1);
+    const node = document.getElementById('learnTip');
+    view.classList.remove('active');
+    document.body.classList.remove('in-game');
+    btn.remove();
+    return { shown: !!shown, node: !!(node && !node.hidden) };
   });
-  const hidden = await page.evaluate(() => document.getElementById('learnTip').hidden);
-  if (!hidden) fail('roll tip showed a second time');
-
-  await page.evaluate(() => {
-    document.body.insertAdjacentHTML('beforeend', '<button id="abBuy" style="position:fixed;left:16px;bottom:80px">Buy</button><button id="hudCashBtn" style="position:fixed;right:16px;top:80px">Cash</button>');
-    const buy = { phase: 'buy', turnPlayerId: 1, status: 'playing', players: [{ id: 1, cash: 1500000, accountId: 'acct-1' }], props: [], feed: [] };
-    window.KPLearn.onRoom(buy, 1);
-  });
-  await page.screenshot({ path: '/opt/cursor/artifacts/tip-buy-iphone.png' });
-  await page.evaluate(() => {
-    window.KPLearn.hide();
-    const prev = { phase: 'roll', turnPlayerId: 1, status: 'playing', players: [{ id: 1, cash: 200000, accountId: 'acct-1' }], props: [], feed: [{ seq: 1, kind: 'info' }] };
-    window.KPLearn.onRoom(prev, 1);
-    const now = { phase: 'end', turnPlayerId: 1, status: 'playing', players: [{ id: 1, cash: 186000, accountId: 'acct-1' }], props: [], feed: [{ seq: 1, kind: 'info' }, { seq: 2, kind: 'debit', playerId: 1, spaceName: 'Ajegunle' }] };
-    window.KPLearn.onRoom(now, 1);
-  });
-  await page.screenshot({ path: '/opt/cursor/artifacts/tip-rent-iphone.png' });
-  console.log('iphone guide and tips ok');
+  if (outside.shown || outside.node) fail('tip showed in a non-training game ' + JSON.stringify(outside));
+  console.log('iphone guide ok, no landing or match tip', leaked, outside);
 } catch (e) {
   console.error(e);
   failed += 1;

@@ -157,6 +157,8 @@ const seenPositions = {};
 // stranger whose next intent fails with "Join a room first."
 let myToken = null;
 let hasSeat = false;
+let pendingLessonKind = null;
+let lessonIntent = null;
 let sessionLive = false;
 let rejoinPending = false;
 let connectedOnce = false;
@@ -165,7 +167,8 @@ function saveSeat() {
   try {
     if (myCode) {
       const fp = (state && myId != null) ? state.players.find((p) => p.id === myId) : null;
-      const seat = { code: myCode, playerId: myId, token: myToken, spectator, name: fp ? fp.name : rememberedName() };
+      const lessonKind = (state && state.practice && (state.practice.kind === 'free' ? 'free' : 'intro')) || pendingLessonKind;
+      const seat = { code: myCode, playerId: myId, token: myToken, spectator, name: fp ? fp.name : rememberedName(), practice: lessonKind || undefined };
       sessionStorage.setItem('kolopolySeat', JSON.stringify(seat));
       // A localStorage twin (with a timestamp) lets a closed tab reclaim the
       // same seat later; the server token still has to match.
@@ -1093,6 +1096,7 @@ function connect() {
     const seatStale = seat && seat.name && rememberedName() && seat.name !== rememberedName();
     if (seat && seat.code && !inviteWins && !seatStale) {
       myCode = seat.code; myId = seat.playerId; myToken = seat.token; spectator = !!seat.spectator; hasSeat = true;
+      if (seat.practice === 'intro' || seat.practice === 'free') pendingLessonKind = seat.practice;
       rejoinPending = true;
       ws.send(JSON.stringify({ type: 'rejoin', code: seat.code, playerId: seat.playerId, token: seat.token, spectator: seat.spectator }));
     }
@@ -1118,18 +1122,36 @@ function connect() {
       sessionLive = true;
       rejoinPending = false;
       entrySent = true;
+      if (lessonIntent && lessonIntent.replace && msg.rejoined) {
+        const kind = lessonIntent.kind;
+        lessonIntent = null;
+        send('leave', {});
+        entrySent = false;
+        sessionLive = false;
+        hasSeat = false;
+        freshPractice(kind);
+        return;
+      }
+      lessonIntent = null;
       saveSeat();
       flushQueue();
       return;
     }
     if (msg.type === 'rejoin_failed') {
+      const kind = (lessonIntent && lessonIntent.kind) || pendingLessonKind;
+      lessonIntent = null;
+      pendingLessonKind = null;
+      rejoinPending = false;
+      clearSeat();
+      for (let i = sendQueue.length - 1; i >= 0; i--) if (ENTRY_TYPES.has(sendQueue[i].type)) sendQueue.splice(i, 1);
+      hideConnBanner();
+      // A lesson room is disposable. A missing one starts a new lesson
+      // with no "room don close" banner and no reload.
+      if (kind) { freshPractice(kind); return; }
       // The room is gone. A restart does this: in-memory tables die, the
       // new process answers rejoin_failed, and an instant reload used to
       // jump the page before the fresh-table banner could speak. The
       // banner counts down, names a dead room, and only then reloads.
-      rejoinPending = false;
-      clearSeat();
-      hideConnBanner();
       try { sessionStorage.setItem('kolopolyRoomGone', '1'); } catch (e) { }
       const throughBanner = () => {
         if (window.KPUpdate && typeof window.KPUpdate.arm === 'function') window.KPUpdate.arm({ note: 'room' });
@@ -1189,7 +1211,7 @@ function connect() {
     // Soft drop: never scream "disconnected" while the seat is still held.
     // The version check runs on the drop itself, so a restart that already
     // has the new build up can raise the banner before the reconnect.
-    if (hasSeat) showConnBanner('Link dey reconnect. Your seat and money dey held.');
+    if (hasSeat && !pendingLessonKind && !(state && state.practice)) showConnBanner('Link dey reconnect. Your seat and money dey held.');
     if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
     setTimeout(connect, 1800);
   };
@@ -2155,6 +2177,7 @@ if (inviteCode) {
 function showView(id) {
   for (const v of ['view-signin', 'view-landing', 'view-lobby', 'view-game']) $(v).classList.toggle('active', v === id);
   document.body.classList.toggle('in-game', id === 'view-game');
+  if (id !== 'view-game' && window.KPLearn) window.KPLearn.hide(true);
   paintAccountChip();
   if (id === 'view-game' && window.KPShell) window.KPShell.refresh('enter');
 }
@@ -2175,7 +2198,28 @@ function sendAs(type, obj) {
 }
 function byId(id) { return state ? state.players.find((p) => p.id === id) : null; }
 
+function freshPractice(kind) {
+  const k = kind === 'free' ? 'free' : 'intro';
+  pendingLessonKind = k;
+  lessonIntent = null;
+  rejoinPending = false;
+  entrySent = false;
+  sessionLive = false;
+  try { sessionStorage.removeItem('kolopolyRoomGone'); } catch (e) { /* private */ }
+  hideConnBanner();
+  const named = ($('nameIn') && $('nameIn').value.trim()) || rememberedName() || 'Learner';
+  try { localStorage.setItem('kolopolyName', named); } catch (e) { /* private */ }
+  showView('view-game');
+  send('create_room', {
+    name: named, token: selectedToken, mode: 'online', practice: k === 'free' ? 'free' : true, clientId: CLIENT_ID,
+    settings: { gameMode: 'classic', timed: false, turnTimerSec: 0 }
+  });
+}
 function onState(room) {
+  if (room && room.practice && (room.practice.kind === 'intro' || room.practice.kind === 'free')) {
+    pendingLessonKind = room.practice.kind;
+    saveSeat();
+  }
   const prev = state;
   state = room;
   hideConnBanner();
@@ -2910,6 +2954,14 @@ function lessonSpot(el, big) {
   finger.classList.toggle('big', !!big);
   finger.style.left = (r.right - 8 + shift.x) + 'px';
   finger.style.top = (r.bottom - 6 + shift.y) + 'px';
+  const pop = document.getElementById('coachPop');
+  if (pop && !pop.contains(el) && r.top > window.innerHeight * 0.45) {
+    pop.style.left = '10px';
+    pop.style.right = '10px';
+    pop.style.width = 'auto';
+    pop.style.bottom = 'auto';
+    pop.style.top = '22px';
+  }
 }
 function lessonArm(step) {
   const token = ++lessonToken;
@@ -3122,24 +3174,23 @@ document.addEventListener('click', (ev) => {
 }, false);
 
 window.KPStartPractice = function (kind) {
+  const k = kind === 'free' ? 'free' : 'intro';
   const named = ($('nameIn') && $('nameIn').value.trim()) || rememberedName() || 'Learner';
   try { localStorage.setItem('kolopolyName', named); } catch (e) { /* private mode */ }
   markTraining({ seen: true });
   const sheet = document.getElementById('trainSheet');
   if (sheet) sheet.hidden = true;
+  const offer = document.getElementById('trainOffer');
+  if (offer) offer.hidden = true;
   showView('view-game');
-  if (state && state.code) {
-    const old = state;
-    send('leave', {});
-    if (old.practice && state && state.players) {
-      const me = state.players.find((p) => p.id === myId);
-      if (me) me.ws = null;
-    }
+  if (rejoinPending) {
+    lessonIntent = { kind: k, replace: true };
+    pendingLessonKind = k;
+    return;
   }
-  send('create_room', {
-    name: named, token: selectedToken, mode: 'online', practice: kind === 'free' ? 'free' : true, clientId: CLIENT_ID,
-    settings: { gameMode: 'classic', timed: false, turnTimerSec: 45 }
-  });
+  if (sessionLive && state && state.code) send('leave', {});
+  entrySent = false;
+  freshPractice(k);
 };
 function profileMoney(kobo) { return fmtN(Math.round((Number(kobo) || 0) / 100)); }
 function paintProfile(data) {

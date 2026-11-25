@@ -684,12 +684,12 @@ function curPlayer(room) { return room.players.find((p) => p.id === room.turnPla
 const PRACTICE_STEPS = [
   { id: 'hello', action: 'tap', mark: 1, title: 'The aim', line: 'Last one with money wins.', target: '' },
   { id: 'cash', action: 'tap', mark: 2, title: 'Your money', line: 'Tap the number. That is cash.', target: '#hudCashBtn' },
-  { id: 'roll', action: 'roll', mark: 3, dice: [1, 3], title: 'Roll', line: 'Tap Roll. Watch your piece.', target: '#abRoll' },
+  { id: 'roll', action: 'roll', mark: 3, dice: [1, 3], title: 'Your turn', line: 'Tap Roll. It is your turn.', target: '#abRoll' },
   { id: 'walked', action: 'tap', mark: 3, title: 'You landed', line: 'Ajegunle is free. Tap it.', target: '.bspace[data-space="4"]' },
-  { id: 'buy', action: 'buy', mark: 4, title: 'Buy it', line: 'Tap Buy. Money goes to the bank.', target: '#abBuy' },
+  { id: 'buy', action: 'buy', mark: 4, title: 'Buy it', line: 'Buy it, or send it to auction.', target: '#abBuy' },
   { id: 'bought', action: 'tap', mark: 4, title: 'Yours', line: 'Cash dropped. The deed is yours.', target: '#hudCashBtn', fx: 'buy' },
   { id: 'endturn', action: 'end', mark: 5, title: 'Ada’s turn', line: 'Tap End. Ada walks next.', target: '#abEnd' },
-  { id: 'adaroll', action: 'ada', mark: 5, diceBot: [1, 3], title: 'Watch Ada', line: 'Ada is walking onto Ajegunle.', target: '.bspace[data-space="4"]' },
+  { id: 'adaroll', action: 'ada', mark: 5, diceBot: [1, 3], title: 'Waiting', line: 'Wait. It is Ada\'s turn.', target: '.bspace[data-space="4"]' },
   { id: 'adacheer', action: 'tap', mark: 5, title: 'She paid you', line: 'Ada paid you rent.', target: '#hudCashBtn', fx: 'rent-in' },
   { id: 'payroll', action: 'roll', mark: 6, dice: [1, 3], title: 'Her place', line: 'Tap Roll. You land on Ada.', target: '#abRoll' },
   { id: 'paidcheer', action: 'tap', mark: 6, title: 'You paid rent', line: 'Your money went to Ada.', target: '#hudCashBtn', fx: 'rent-out' },
@@ -3370,6 +3370,10 @@ function handleConnection(ws) {
         if (room.practice) room.practice.delayBuy = false;
         if (room.practice && room.practice.step === 'buy' && room.phase !== 'buy') offerLessonBuy(room);
         broadcast(room);
+        return;
+      }
+      if (msg.type === 'test_drop_room') {
+        dropRoom(room.code);
         return;
       }
       broadcast(room);
