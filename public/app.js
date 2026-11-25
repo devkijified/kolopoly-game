@@ -942,6 +942,20 @@ function queueAlert(kind, amount, text, balanceAfter, voiceLine) {
   if (alertQueue.length > 3) alertQueue.splice(0, alertQueue.length - 3);
   pumpAlerts();
 }
+function floatLessonCash(isCredit, amount) {
+  if (!document.body.classList.contains('train-gate') && !document.body.classList.contains('train-done')) return;
+  const cash = document.getElementById('hudCashBtn');
+  if (!cash || amount == null) return;
+  const r = cash.getBoundingClientRect();
+  const f = document.createElement('div');
+  f.className = 'cash-float ' + (isCredit ? 'up' : 'down');
+  f.textContent = (isCredit ? '+' : '−') + fmtN(amount);
+  const width = 108;
+  f.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, r.left)) + 'px';
+  f.style.top = Math.max(8, r.bottom + 4) + 'px';
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 1300);
+}
 const SUCC_SVG = '<svg viewBox="0 0 52 52" aria-hidden="true"><circle class="succ-c" cx="26" cy="26" r="23" fill="none"/><path class="succ-k" fill="none" d="M14.5 27.5l7.5 7.5L37.5 19"/></svg>';
 function pumpAlerts() {
   if (alertBusy || !alertQueue.length) return;
@@ -959,6 +973,7 @@ function pumpAlerts() {
     '<div class="why">' + esc(a.text) + '</div>' +
     (a.balanceAfter != null ? '<div class="bal">Balance: ' + fmtN(a.balanceAfter) + '</div>' : '');
   $('alerts').appendChild(el);
+  floatLessonCash(isCredit, a.amount);
   // KP14: the amount counts up while the coins sound. The cascade runs
   // exactly the count-up's length, so the last coin lands as the number
   // settles; the spoken line (state 1 only) waits for the cascade tail
@@ -2889,7 +2904,7 @@ function placeGate(gate, el) {
     gate.style.top = '0px';
     gate.style.width = '100%';
     gate.style.height = '100%';
-    gate.style.background = 'rgba(8, 6, 4, 0.62)';
+    gate.style.background = 'transparent';
     gate.style.boxShadow = 'none';
     return;
   }
@@ -2901,7 +2916,7 @@ function placeGate(gate, el) {
   gate.style.width = (r.width + pad * 2) + 'px';
   gate.style.height = (r.height + pad * 2) + 'px';
   gate.style.background = 'transparent';
-  gate.style.boxShadow = '0 0 0 9999px rgba(8, 6, 4, 0.62)';
+  gate.style.boxShadow = '0 0 0 9999px rgba(36, 22, 8, 0.26)';
 }
 let lessonMisses = 0;
 let lessonWait = 0;
@@ -3214,6 +3229,7 @@ function clearLessonChrome() {
   if (finger) finger.hidden = true;
   if (bar) bar.hidden = true;
   document.body.classList.remove('train-gate', 'train-done');
+  document.documentElement.style.setProperty('--coach-h', '0px');
   document.querySelectorAll('.coach-live').forEach((node) => node.classList.remove('coach-live'));
   if (window.KPLearn) window.KPLearn.hide(true);
 }
@@ -3253,8 +3269,9 @@ function renderCoach(room) {
     pop = document.createElement('div');
     pop.id = 'coachPop';
     pop.innerHTML = '<div class="coach-bubble">' +
-      '<div class="coach-row"><img class="coach-daddy" alt="" width="44" height="56">' +
-      '<div class="coach-copy"><p class="coach-progress"></p><p class="coach-kicker">Training Ground</p><p class="coach-title"></p></div></div>' +
+      '<div class="coach-row"><img class="coach-daddy" alt="" width="28" height="36">' +
+      '<div class="coach-copy"><p class="coach-progress"></p><p class="coach-kicker">Training Ground</p><p class="coach-title"></p></div>' +
+      '<div class="coach-nav"></div></div>' +
       '<p class="coach-line"></p><p class="coach-nudge" id="coachNudge"></p><div class="coach-actions"></div></div>';
     document.body.appendChild(pop);
     pop.addEventListener('click', (ev) => {
@@ -3299,6 +3316,8 @@ function renderCoach(room) {
   if (fill) fill.style.width = Math.round(frac * 100) + '%';
   pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' || step.step === 'adacheer' || step.step === 'built' ? 'daddy-clap' : 'daddy-stand') + '.webp';
   pop.querySelector('.coach-title').textContent = step.title || '';
+  const prog = pop.querySelector('.coach-progress');
+  if (prog) prog.textContent = step.of && step.kind !== 'free' ? ((step.n || 1) + '/' + step.of) : '';
   const lineEl = pop.querySelector('.coach-line');
   const bubbleOwns = !!(step.target && step.kind !== 'free' && step.step !== 'ready' && (!window.KPLearn || window.KPLearn.tipsOn()));
   lineEl.hidden = bubbleOwns;
@@ -3312,24 +3331,37 @@ function renderCoach(room) {
     if (nudge) nudge.textContent = '';
   }
   const actions = pop.querySelector('.coach-actions');
+  const nav = pop.querySelector('.coach-nav');
+  const iconNav = '<button type="button" class="btn small ghost" data-act="back" aria-label="Back" title="Back">‹</button>' +
+    '<button type="button" class="btn small ghost" data-act="replay" aria-label="Replay" title="Replay">↻</button>' +
+    '<button type="button" class="btn small ghost" data-act="skip" aria-label="Skip" title="Skip">»</button>';
   document.body.classList.toggle('train-done', step.step === 'ready');
   if (step.step === 'ready') {
+    if (nav) nav.innerHTML = '';
     actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn block" data-act="real">Play your first real game</button><button type="button" class="btn block ghost" data-act="again">Replay lesson</button>';
     lessonSpot(null, false);
   } else if (step.kind === 'free') {
-    actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Leave</button>';
+    if (nav) nav.innerHTML = '<button type="button" class="btn small ghost" data-act="skip" aria-label="Leave" title="Leave">»</button>';
+    actions.innerHTML = '';
     parkCoach(null);
   } else {
     const hear = step.action === 'tap' && !step.target;
-    actions.innerHTML = (hear ? '<button type="button" class="btn block" data-act="next">Next</button>' : '') +
-      '<div class="coach-nav">' +
-      '<button type="button" class="btn small ghost" data-act="back">Back</button>' +
-      '<button type="button" class="btn small ghost" data-act="replay">Replay</button>' +
-      '<button type="button" class="btn small ghost" data-act="skip">Skip</button></div>';
+    if (nav) nav.innerHTML = iconNav;
+    actions.innerHTML = hear ? '<button type="button" class="btn block" data-act="next">Next</button>' : '';
     lessonArm(step);
     parkCoach(lessonTarget(step));
   }
   paintLessonFx();
+  syncCoachGap();
+}
+function syncCoachGap() {
+  const pop = document.getElementById('coachPop');
+  const docked = !pop || pop.hidden || pop.classList.contains('coach-dock') || pop.style.top === 'auto';
+  const next = docked ? '0px' : ((pop.offsetHeight || 0) + 6) + 'px';
+  const root = document.documentElement;
+  if (root.style.getPropertyValue('--coach-h') === next) return;
+  root.style.setProperty('--coach-h', next);
+  window.dispatchEvent(new Event('resize'));
 }
 
 document.addEventListener('pointerup', () => {

@@ -1908,10 +1908,33 @@ class GameScene {
     this.setPot(state.pot || 0, state);
     // legal build highlights
     const legal = B.legalSet;
+    if (!this._lightBase && this.hemi && this.key) this._lightBase = { hemi: this.hemi.intensity, key: this.key.intensity };
+    const teaching = !!(state.practice && state.practice.kind === 'intro' && state.status === 'playing');
+    if (this._lightBase) {
+      this.hemi.intensity = this._lightBase.hemi * (teaching ? 1.55 : 1);
+      this.key.intensity = this._lightBase.key * (teaching ? 1.22 : 1);
+    }
+    const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
+    const me = teaching && meId != null ? state.players.find((p) => p.id === meId) : null;
+    const here = me ? me.position : -1;
     for (const t of this.tiles) {
       const on = !!legal && legal.has(t.i);
+      const stand = t.i === here;
       t.slabMat.emissive = t.slabMat.emissive || new THREE.Color(0);
-      t.slabMat.emissive.setHex(on ? 0x8a6a10 : 0x000000);
+      t.topMat.emissive = t.topMat.emissive || new THREE.Color(0);
+      t.topMat.emissive.setHex(0x000000);
+      t.topMat.emissiveIntensity = 0;
+      if (on) {
+        t.slabMat.emissive.setHex(0x8a6a10);
+        t.slabMat.emissiveIntensity = 0.45;
+      } else if (stand) {
+        t.slabMat.emissive.setHex(0xffc857);
+        t.slabMat.emissiveIntensity = 0.95;
+      } else {
+        t.slabMat.emissive.setHex(0x000000);
+        t.slabMat.emissiveIntensity = 0;
+      }
+      t.grp.position.y = stand ? 0.07 : 0;
     }
     // dice
     const dkey = state.dice ? state.dice.join(',') : '';
@@ -1920,9 +1943,9 @@ class GameScene {
       if (state.dice && state.status === 'playing') {
         this.dice.forEach((d, k) => {
           d.visible = true;
-          const fastDice = state.practice && state.practice.kind === 'intro';
+          const teachingDice = state.practice && state.practice.kind === 'intro';
           this.diceAnim = this.diceAnim || { t: 0, dur: 0.9, from: [], to: [], pFrom: [], pTo: [] };
-          this.diceAnim.dur = fastDice ? 0.22 : 0.9;
+          this.diceAnim.dur = teachingDice ? 0.72 : 0.9;
           this.diceAnim.from[k] = d.quaternion.clone();
           this.diceAnim.to[k] = dieTargetQuat(state.dice[k], (Math.random() * 4) | 0);
           this.diceAnim.pFrom[k] = new THREE.Vector3(0.4 - k * 0.7, 2.6, 0.8);
@@ -2015,7 +2038,8 @@ class GameScene {
           const path = [];
           let cur = from;
           while (cur !== p.position) { cur = (cur + 1) % NSP; path.push(cur); }
-          o.anim = { path, t: 0, step: 0.235, cur: from };
+          const teaching = state.practice && state.practice.kind === 'intro';
+          o.anim = { path, t: 0, step: teaching ? 0.42 : 0.235, cur: from };
         }
       } else if (!o.anim) {
         o.grp.position.copy(this.worldFor(p.position, slot));
@@ -2025,12 +2049,14 @@ class GameScene {
     // turn ring follows the turn player's token, in the player's own
     // colour (Lesson 8): the active piece is findable at a glance.
     const turn = state.players.find((p) => p.id === state.turnPlayerId);
+    this._turnId = turn ? turn.id : null;
+    this._teachRing = !!(state.practice && state.practice.kind === 'intro' && state.status === 'playing');
     if (turn && state.status === 'playing') {
       const o = this.tokens.get(turn.id);
       if (o) {
         this.turnRing.visible = true;
-        this.turnRing.position.set(o.grp.position.x, 0.245, o.grp.position.z);
-        this.turnRing.material.color.set(turn.color);
+        this.turnRing.position.set(o.grp.position.x, 0.26, o.grp.position.z);
+        this.turnRing.material.color.set(this._teachRing ? 0xffc857 : turn.color);
       }
     } else this.turnRing.visible = false;
   }
@@ -2304,9 +2330,14 @@ class GameScene {
       this.pulse.scale.set(sc, sc, 1);
       this.pulse.material.opacity = 0.55 * (1 - this.pulseT);
     }
-    this.turnRing.material.opacity = 0.6 + Math.sin(tNow * 3.2) * 0.25;
+    this.turnRing.material.opacity = 0.72 + Math.sin(tNow * 3.2) * 0.22;
     const ringPulse = 1 + Math.sin(tNow * 3.2) * 0.07;
-    this.turnRing.scale.set(ringPulse, ringPulse, 1);
+    const teachRing = this._teachRing ? 1.45 : 1;
+    this.turnRing.scale.set(ringPulse * teachRing, ringPulse * teachRing, 1);
+    if (this.turnRing.visible && this._turnId != null) {
+      const walker = this.tokens.get(this._turnId);
+      if (walker) this.turnRing.position.set(walker.grp.position.x, 0.26, walker.grp.position.z);
+    }
     // buildings grow in
     const nowMs = performance.now();
     for (const t2 of this.tiles) {
@@ -2400,7 +2431,18 @@ class GameScene {
       const c = this.phaseLookCur;
       c.key.lerp(this.phaseTarget.key, dt * 2); c.bg.lerp(this.phaseTarget.bg, dt * 2);
       c.int += (this.phaseTarget.int - c.int) * Math.min(1, dt * 2);
-      this.key.color.copy(c.key); this.key.intensity = c.int;
+      this.key.color.copy(c.key);
+      const teachLight = this._teachRing ? 1.35 : 1;
+      this.key.intensity = c.int * teachLight;
+      if (this.hemi && this._lightBase) this.hemi.intensity = this._lightBase.hemi * (this._teachRing ? 1.85 : 1);
+      if (this.centreFloor && this.centreFloor.material) {
+        const mat = this.centreFloor.material;
+        if (!mat.emissive) mat.emissive = new THREE.Color(0);
+        if (this._teachRing) {
+          mat.emissive.setHex(0xf3c56a);
+          mat.emissiveIntensity = 0.46;
+        } else if (mat.emissiveIntensity) mat.emissiveIntensity = 0;
+      }
       s.background.copy(c.bg); s.fog.color.copy(c.bg);
     }
     if (this.accentT > 0) { this.accentT = Math.max(0, this.accentT - dt * 1.4); this.accent.intensity = this.accentT * 14; }
