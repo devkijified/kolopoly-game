@@ -303,7 +303,8 @@ const server = http.createServer((req, res) => {
         activity: body.activity,
         rules: body.rules,
         stakeNaira: body.stakeNaira,
-        deadline: body.deadline
+        deadline: body.deadline,
+        maxPlayers: body.maxPlayers
       });
       if (!made.ok) { json(res, 400, made); return; }
       json(res, 200, { ok: true, challenge: publish(made.challenge, player.id) });
@@ -321,6 +322,24 @@ const server = http.createServer((req, res) => {
       if (!joined.ok) { json(res, joined.error === 'unknown' ? 404 : 400, joined); return; }
       json(res, 200, { ok: true, challenge: publish(joined.challenge, player.id) });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
+    return;
+  }
+  const startRoute = pathname.match(/^\/api\/challenges\/([A-Za-z0-9]+)\/start$/);
+  if (startRoute && req.method === 'POST') {
+    const player = currentPlayer(req);
+    if (!player) { json(res, 401, { ok: false, error: 'auth', message: 'Sign in first.' }); return; }
+    const result = escrow.start({ code: startRoute[1], playerId: player.id });
+    if (!result.ok) { json(res, result.error === 'unknown' ? 404 : 400, { ok: false, error: result.error, message: result.message }); return; }
+    json(res, 200, { ok: true, challenge: afterMoney(normCode(startRoute[1]), player.id) });
+    return;
+  }
+  const cancelRoute = pathname.match(/^\/api\/challenges\/([A-Za-z0-9]+)\/cancel$/);
+  if (cancelRoute && req.method === 'POST') {
+    const player = currentPlayer(req);
+    if (!player) { json(res, 401, { ok: false, error: 'auth', message: 'Sign in first.' }); return; }
+    const result = escrow.cancel({ code: cancelRoute[1], playerId: player.id });
+    if (!result.ok) { json(res, result.error === 'unknown' ? 404 : 400, { ok: false, error: result.error, message: result.message }); return; }
+    json(res, 200, { ok: true, challenge: afterMoney(normCode(cancelRoute[1]), player.id) });
     return;
   }
   if (pathname === '/api/challenges/mine' && req.method === 'GET') {
@@ -347,7 +366,7 @@ const server = http.createServer((req, res) => {
       if (!allow('pay:' + player.id, 12, 60 * 60 * 1000)) { json(res, 429, { ok: false, error: 'rate', message: 'Too many payment attempts. Wait a bit.' }); return; }
       const ch = escrow.get(payRoute[1]);
       if (!ch) { json(res, 404, { ok: false, error: 'unknown', message: 'No challenge with that code.' }); return; }
-      const seat = (ch.creator && ch.creator.id === player.id && ch.creator) || (ch.opponent && ch.opponent.id === player.id && ch.opponent);
+      const seat = (ch.players || []).find((p) => p.id === player.id);
       if (!seat) { json(res, 403, { ok: false, error: 'player', message: 'You are not in this challenge.' }); return; }
       if (seat.paid) { json(res, 200, { ok: true, alreadyPaid: true, challenge: publish(ch, player.id) }); return; }
       if (ch.status !== 'open' && ch.status !== 'joined') { json(res, 400, { ok: false, error: 'state', message: 'This challenge is not taking payments.' }); return; }
@@ -397,7 +416,7 @@ const server = http.createServer((req, res) => {
       if (!player) { json(res, 401, { ok: false, error: 'auth', message: 'Sign in first.' }); return; }
       let body;
       try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
-      const result = escrow.report({ code: reportRoute[1], playerId: player.id, winnerRole: body.winnerRole });
+      const result = escrow.report({ code: reportRoute[1], playerId: player.id, winnerId: body.winnerId, winnerRole: body.winnerRole });
       if (!result.ok && !result.challenge) { json(res, result.error === 'unknown' ? 404 : 400, result); return; }
       if (!result.ok) { json(res, 400, { ok: false, error: result.error, message: result.message }); return; }
       json(res, 200, { ok: true, challenge: afterMoney(normCode(reportRoute[1]), player.id) });
@@ -533,6 +552,7 @@ const server = http.createServer((req, res) => {
       const result = escrow.resolve({
         code: body.code,
         action: body.action,
+        winnerId: body.winnerId,
         winnerRole: body.winnerRole,
         note: body.note,
         actor: 'admin'

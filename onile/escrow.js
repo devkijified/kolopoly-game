@@ -20,10 +20,20 @@ function clampPercent(n) {
   if (!Number.isFinite(x)) return DEFAULT_HOUSE_PERCENT;
   return Math.min(50, Math.max(0, Math.round(x)));
 }
+function paidCount(ch) {
+  return ((ch && ch.players) || []).filter((p) => p && p.paid).length;
+}
+// Pot is stake times the seats that count. Before the start that is the
+// full table. After the start it is only the players who paid. The
+// winner's share is floored; any leftover kobo stays with the house.
 function moneyOf(ch) {
-  const pot = ch.stakeKobo * 2;
-  const house = Math.floor(pot * ch.housePercent / 100);
-  return { pot, house, prize: pot - house };
+  const started = ch && ['held', 'reported', 'agreed', 'disputed', 'resolved', 'refunded', 'cancelled'].includes(ch.status);
+  const seats = started ? paidCount(ch) : (Number(ch && ch.maxPlayers) || 2);
+  const pot = (Number(ch && ch.stakeKobo) || 0) * seats;
+  const pct = ch && ch.housePercent != null ? ch.housePercent : DEFAULT_HOUSE_PERCENT;
+  const prize = Math.floor(pot * (100 - pct) / 100);
+  const house = pot - prize;
+  return { pot, house, prize, seats };
 }
 function cleanText(s, min, max) {
   const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
@@ -60,12 +70,18 @@ function createEscrow(opts) {
     if (memory) return;
     try {
       const parsed = JSON.parse(nodeFs().readFileSync(file, 'utf8'));
-      if (parsed && Array.isArray(parsed.challenges) && Array.isArray(parsed.players)) {
+        if (parsed && Array.isArray(parsed.challenges) && Array.isArray(parsed.players)) {
         state = {
           players: parsed.players,
           challenges: parsed.challenges,
           ledger: Array.isArray(parsed.ledger) ? parsed.ledger : []
         };
+        let migrated = false;
+        for (const ch of state.challenges) {
+          if (!Array.isArray(ch.players)) migrated = true;
+          normalize(ch);
+        }
+        if (migrated) save();
       }
     } catch (e) {
       if (e.code !== 'ENOENT') console.log('Onile escrow started empty.');
@@ -96,7 +112,9 @@ function createEscrow(opts) {
   }
   function byCode(code) {
     const c = normCode(code);
-    return state.challenges.find((ch) => ch.code === c) || null;
+    const ch = state.challenges.find((row) => row.code === c) || null;
+    if (ch) normalize(ch);
+    return ch;
   }
   function playerById(id) {
     return state.players.find((p) => p.id === id) || null;
@@ -129,23 +147,60 @@ function createEscrow(opts) {
       report: null
     };
   }
+  function sync(ch) {
+    ch.players = Array.isArray(ch.players) ? ch.players : [];
+    ch.creator = ch.players[0] || null;
+    ch.opponent = ch.players[1] || null;
+    if (!ch.creatorId && ch.creator) ch.creatorId = ch.creator.id;
+    if (!ch.maxPlayers) ch.maxPlayers = 2;
+  }
+  // Old rows stored creator and opponent. Copy those seats, including a
+  // paid flag and payment reference, into players. Do not rebuild them.
+  function normalize(ch) {
+    if (!ch || typeof ch !== 'object') return ch;
+    if (!Array.isArray(ch.players)) {
+      const list = [];
+      if (ch.creator) list.push(ch.creator);
+      if (ch.opponent && (!ch.creator || ch.opponent.id !== ch.creator.id)) list.push(ch.opponent);
+      ch.players = list;
+    }
+    const max = Number(ch.maxPlayers);
+    ch.maxPlayers = max >= 2 && max <= 8 ? max : Math.min(8, Math.max(2, ch.players.length || 2));
+    for (const p of ch.players) {
+      if (!p) continue;
+      if (p.report === 'creator' && ch.players[0]) p.report = ch.players[0].id;
+      else if (p.report === 'opponent' && ch.players[1]) p.report = ch.players[1].id;
+    }
+    if (!ch.winnerId && ch.winnerRole === 'creator' && ch.players[0]) ch.winnerId = ch.players[0].id;
+    if (!ch.winnerId && ch.winnerRole === 'opponent' && ch.players[1]) ch.winnerId = ch.players[1].id;
+    sync(ch);
+    return ch;
+  }
   function people(ch) {
-    return [ch.creator, ch.opponent].filter(Boolean);
+    return (ch.players || []).filter(Boolean);
   }
   function findSeat(ch, playerId) {
-    if (ch.creator && ch.creator.id === playerId) return ch.creator;
-    if (ch.opponent && ch.opponent.id === playerId) return ch.opponent;
-    return null;
+    return people(ch).find((p) => p.id === playerId) || null;
   }
   function roleOf(ch, playerId) {
-    if (ch.creator && ch.creator.id === playerId) return 'creator';
-    if (ch.opponent && ch.opponent.id === playerId) return 'opponent';
+    if (ch.creatorId === playerId || (ch.players[0] && ch.players[0].id === playerId)) return 'creator';
+    if (findSeat(ch, playerId)) return 'player';
     return null;
   }
-  function personByRole(ch, role) {
-    if (role === 'creator') return ch.creator;
-    if (role === 'opponent') return ch.opponent;
+  function personById(ch, id) {
+    return people(ch).find((p) => p.id === id) || null;
+  }
+  function winnerFrom(ch, input) {
+    if (input && input.winnerId && personById(ch, input.winnerId)) return personById(ch, input.winnerId);
+    if (input && input.winnerRole === 'creator') return ch.players[0] || null;
+    if (input && input.winnerRole === 'opponent') return ch.players[1] || null;
     return null;
+  }
+  function rememberWinner(ch, winner) {
+    ch.winnerId = winner.id;
+    if (ch.players[0] && winner.id === ch.players[0].id) ch.winnerRole = 'creator';
+    else if (ch.players[1] && winner.id === ch.players[1].id) ch.winnerRole = 'opponent';
+    else ch.winnerRole = null;
   }
   function knownRef(ch, reference) {
     if (!reference) return false;
@@ -176,8 +231,7 @@ function createEscrow(opts) {
       entry: refundEntry(ch, p, ch.stakeKobo, why)
     }));
   }
-  function winnerLine(ch, role) {
-    const winner = personByRole(ch, role);
+  function winnerLine(ch, winner) {
     const m = moneyOf(ch);
     const gameKey = 'onile:' + ch.id;
     return {
@@ -200,7 +254,7 @@ function createEscrow(opts) {
     };
   }
   // One settlement per challenge. The second call is a no-op.
-  function plan(ch, kind, lines, winnerRole) {
+  function plan(ch, kind, lines, winner) {
     if (ch.settlement) return { duplicate: true, settlement: ch.settlement };
     if (!lines.length) return { ok: false, error: 'empty' };
     ch.settlement = { kind, lines, at: now(), dispatched: false };
@@ -209,7 +263,7 @@ function createEscrow(opts) {
       ledgerPush(ch, 'house', null, m.house, null, 'house cut');
       ledgerPush(ch, 'prize', lines[0].accountId, lines[0].amountKobo, lines[0].entry.gameKey, 'winner');
       ch.status = 'agreed';
-      ch.winnerRole = winnerRole;
+      if (winner) rememberWinner(ch, winner);
     } else if (kind === 'split') {
       for (const line of lines) ledgerPush(ch, 'split', line.accountId, line.amountKobo, line.entry.reference, 'split');
       ch.status = 'resolved';
@@ -265,6 +319,25 @@ function createEscrow(opts) {
     }
     return false;
   }
+  function begin(ch, via) {
+    const paid = ch.players.filter((p) => p.paid);
+    if (paid.length < 2) return { ok: false, error: 'short', message: 'At least two paid players before the start.' };
+    const dropped = ch.players.length - paid.length;
+    ch.players = paid;
+    ch.status = 'held';
+    ch.heldAt = now();
+    const longEnough = ch.deadline && ch.deadline >= ch.heldAt + 60 * 60 * 1000;
+    ch.reportBy = longEnough ? ch.deadline : ch.heldAt + reportWindowMs;
+    audit(ch, 'held', via || null, dropped ? 'started, unpaid seats dropped' : 'funds held');
+    sync(ch);
+    return { ok: true };
+  }
+  function maybeAuto(ch) {
+    if (ch.status !== 'open' && ch.status !== 'joined') return false;
+    if (ch.players.length < ch.maxPlayers || ch.players.length < 2) return false;
+    if (ch.players.some((p) => !p.paid)) return false;
+    return begin(ch, 'full').ok;
+  }
   function commit() { save(); }
 
   function upsertPlayer(input) {
@@ -317,6 +390,11 @@ function createEscrow(opts) {
       if (!byCode(next)) { code = next; break; }
     }
     if (!code) return { ok: false, error: 'code', message: 'Could not open a challenge. Try again.' };
+    const seats = Number(input.maxPlayers);
+    const maxPlayers = input.maxPlayers == null || input.maxPlayers === '' ? 2 : seats;
+    if (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > 8) {
+      return { ok: false, error: 'seats', message: 'A challenge holds 2 to 8 players.' };
+    }
     const ch = {
       id: nid('ch_'),
       code,
@@ -325,9 +403,10 @@ function createEscrow(opts) {
       rules: rules || '',
       stakeKobo: naira * 100,
       housePercent,
+      maxPlayers,
       status: 'open',
-      creator: seat(player),
-      opponent: null,
+      creatorId: player.id,
+      players: [seat(player)],
       createdAt: now(),
       joinBy: deadline || (now() + joinWindowMs),
       deadline,
@@ -342,6 +421,7 @@ function createEscrow(opts) {
       audit: []
     };
     audit(ch, 'created', player.id, title);
+    sync(ch);
     state.challenges.push(ch);
     commit();
     return { ok: true, challenge: ch };
@@ -353,12 +433,17 @@ function createEscrow(opts) {
     tick(ch);
     const player = playerById(input.playerId);
     if (!player) { commit(); return { ok: false, error: 'player', message: 'Tell us who you are first.' }; }
-    if (ch.creator.id === player.id) { commit(); return { ok: false, error: 'self', message: 'You opened this one. Share the code with the other player.' }; }
-    if (ch.opponent && ch.opponent.id === player.id) { commit(); return { ok: true, duplicate: true, challenge: ch }; }
-    if (ch.status !== 'open' || ch.opponent) { commit(); return { ok: false, error: 'closed', message: 'This challenge is not open to join.' }; }
-    ch.opponent = seat(player);
+    if (ch.creatorId === player.id || (ch.players[0] && ch.players[0].id === player.id)) { commit(); return { ok: false, error: 'self', message: 'You opened this one. Share the code with the other players.' }; }
+    if (findSeat(ch, player.id)) { commit(); return { ok: true, duplicate: true, challenge: ch }; }
+    if ((ch.status !== 'open' && ch.status !== 'joined') || ch.players.length >= ch.maxPlayers) {
+      commit();
+      return { ok: false, error: 'closed', message: 'This challenge is not open to join.' };
+    }
+    ch.players.push(seat(player));
     ch.status = 'joined';
     audit(ch, 'joined', player.id, player.name);
+    sync(ch);
+    maybeAuto(ch);
     commit();
     return { ok: true, challenge: ch };
   }
@@ -397,15 +482,44 @@ function createEscrow(opts) {
     player.paidAt = now();
     ledgerPush(ch, 'stake-in', player.id, ch.stakeKobo, reference, 'paid in');
     audit(ch, 'paid', player.id, reference);
-    if (ch.creator.paid && ch.opponent && ch.opponent.paid) {
-      ch.status = 'held';
-      ch.heldAt = now();
-      const longEnough = ch.deadline && ch.deadline >= ch.heldAt + 60 * 60 * 1000;
-      ch.reportBy = longEnough ? ch.deadline : ch.heldAt + reportWindowMs;
-      audit(ch, 'held', null, 'both paid, funds held');
-    }
+    maybeAuto(ch);
     commit();
     return { ok: true, paid: true, challenge: ch };
+  }
+
+  function start(input) {
+    const ch = byCode(input && input.code);
+    if (!ch) return { ok: false, error: 'unknown', message: 'No challenge with that code.' };
+    tick(ch);
+    if (ch.status === 'held' || ch.status === 'reported' || ch.status === 'agreed') {
+      commit();
+      return { ok: true, duplicate: true, challenge: ch };
+    }
+    if (ch.creatorId !== input.playerId) { commit(); return { ok: false, error: 'creator', message: 'Only the player who opened it can start.' }; }
+    if (ch.status !== 'open' && ch.status !== 'joined') { commit(); return { ok: false, error: 'state', message: 'This challenge has already moved on.' }; }
+    const begun = begin(ch, input.playerId);
+    commit();
+    return Object.assign({ challenge: ch }, begun);
+  }
+
+  function cancel(input) {
+    const ch = byCode(input && input.code);
+    if (!ch) return { ok: false, error: 'unknown', message: 'No challenge with that code.' };
+    tick(ch);
+    if (ch.status === 'refunded' || ch.status === 'cancelled') { commit(); return { ok: true, duplicate: true, challenge: ch }; }
+    if (ch.creatorId !== input.playerId) { commit(); return { ok: false, error: 'creator', message: 'Only the player who opened it can cancel.' }; }
+    if (ch.status !== 'open' && ch.status !== 'joined') { commit(); return { ok: false, error: 'state', message: 'It has already started. Cancel is closed.' }; }
+    const lines = refundLines(ch, 'cancelled');
+    if (lines.length) {
+      const planned = plan(ch, 'refund', lines);
+      audit(ch, 'cancelled', input.playerId, 'cancelled before the start');
+      commit();
+      return { ok: true, queue: !!planned.queue, challenge: ch };
+    }
+    ch.status = 'cancelled';
+    audit(ch, 'cancelled', input.playerId, 'cancelled before anyone paid');
+    commit();
+    return { ok: true, challenge: ch };
   }
 
   function report(input) {
@@ -419,29 +533,31 @@ function createEscrow(opts) {
       commit();
       return { ok: false, error: 'state', message: 'You can name a winner only while Onile is holding the pot.' };
     }
-    const winnerRole = input.winnerRole === 'creator' || input.winnerRole === 'opponent' ? input.winnerRole : null;
-    if (!winnerRole || (winnerRole === 'opponent' && !ch.opponent)) {
+    const winner = winnerFrom(ch, input);
+    if (!winner) {
       commit();
-      return { ok: false, error: 'winner', message: 'Name one of the two players.' };
+      return { ok: false, error: 'winner', message: 'Name one of the players.' };
     }
-    player.report = winnerRole;
-    audit(ch, 'reported', player.id, winnerRole);
-    const other = player === ch.creator ? ch.opponent : ch.creator;
-    if (!other || !other.report) {
+    player.report = winner.id;
+    audit(ch, 'reported', player.id, winner.id);
+    const paid = people(ch).filter((p) => p.paid);
+    const reports = paid.map((p) => p.report).filter(Boolean);
+    const unique = new Set(reports);
+    if (unique.size > 1) {
+      ch.status = 'disputed';
+      ch.disputeReason = 'disagree';
+      audit(ch, 'disputed', null, 'the reports do not match');
+      commit();
+      return { ok: true, challenge: ch };
+    }
+    if (reports.length < paid.length) {
       ch.status = 'reported';
       commit();
       return { ok: true, challenge: ch };
     }
-    if (other.report === winnerRole) {
-      const planned = plan(ch, 'winner', [winnerLine(ch, winnerRole)], winnerRole);
-      commit();
-      return { ok: true, queue: !!planned.queue, duplicate: !!planned.duplicate, challenge: ch };
-    }
-    ch.status = 'disputed';
-    ch.disputeReason = 'disagree';
-    audit(ch, 'disputed', null, 'the two reports do not match');
+    const planned = plan(ch, 'winner', [winnerLine(ch, winner)], winner);
     commit();
-    return { ok: true, challenge: ch };
+    return { ok: true, queue: !!planned.queue, duplicate: !!planned.duplicate, challenge: ch };
   }
 
   function resolve(input) {
@@ -453,13 +569,13 @@ function createEscrow(opts) {
     const action = String((input && input.action) || '');
     const note = cleanText((input && input.note) || '', 0, 200) || '';
     if (action === 'winner') {
-      const winnerRole = input.winnerRole === 'creator' || input.winnerRole === 'opponent' ? input.winnerRole : null;
-      if (!winnerRole || !personByRole(ch, winnerRole)) {
+      const winner = winnerFrom(ch, input);
+      if (!winner) {
         commit();
         return { ok: false, error: 'winner', message: 'Pick which player is paid.' };
       }
-      ch.resolution = { action, winnerRole, note, at: now(), actor: input.actor || 'admin' };
-      const planned = plan(ch, 'winner', [winnerLine(ch, winnerRole)], winnerRole);
+      ch.resolution = { action, winnerId: winner.id, winnerRole: ch.players[0] && winner.id === ch.players[0].id ? 'creator' : (ch.players[1] && winner.id === ch.players[1].id ? 'opponent' : null), note, at: now(), actor: input.actor || 'admin' };
+      const planned = plan(ch, 'winner', [winnerLine(ch, winner)], winner);
       audit(ch, 'resolved', 'admin', 'winner');
       commit();
       return { ok: true, queue: !!planned.queue, challenge: ch };
@@ -538,49 +654,59 @@ function createEscrow(opts) {
 
   function statement(ch, person) {
     if (!person || !person.report) return null;
-    const winner = personByRole(ch, person.report);
-    return { name: person.name, winner: winner ? winner.name : null, role: person.report };
+    const winner = personById(ch, person.report);
+    return { name: person.name, winner: winner ? winner.name : null, winnerId: person.report };
   }
   function publicView(ch, viewerId) {
     const m = moneyOf(ch);
     const you = roleOf(ch, viewerId);
-    const bothReported = !!(ch.creator.report && ch.opponent && ch.opponent.report);
-    const showBoth = bothReported || ch.status === 'disputed' || ch.status === 'agreed' || ch.status === 'resolved';
+    const paid = people(ch).filter((p) => p.paid);
+    const allReported = paid.length > 0 && paid.every((p) => p.report);
+    const showAll = allReported || ch.status === 'disputed' || ch.status === 'agreed' || ch.status === 'resolved';
     let statements = [];
-    if (showBoth) statements = [statement(ch, ch.creator), statement(ch, ch.opponent)].filter(Boolean);
-    else if (you === 'creator') statements = [statement(ch, ch.creator)].filter(Boolean);
-    else if (you === 'opponent') statements = [statement(ch, ch.opponent)].filter(Boolean);
-    const seatView = (p) => (p ? { name: p.name, paid: !!p.paid } : null);
+    if (showAll) statements = people(ch).map((p) => statement(ch, p)).filter(Boolean);
+    else if (you) statements = [statement(ch, findSeat(ch, viewerId))].filter(Boolean);
+    const seatView = (p) => (p ? { id: p.id, name: p.name, paid: !!p.paid } : null);
+    const heldKobo = ch.stakeKobo * paidCount(ch);
     return {
       code: ch.code,
       title: ch.title,
       activity: ch.activity,
       rules: ch.rules,
       status: ch.status,
+      maxPlayers: ch.maxPlayers,
       stakeKobo: ch.stakeKobo,
       housePercent: ch.housePercent,
       potKobo: m.pot,
       houseKobo: m.house,
       prizeKobo: m.prize,
+      heldKobo,
+      paidCount: paidCount(ch),
+      seats: ch.players.length,
       joinBy: ch.joinBy,
       reportBy: ch.reportBy,
       createdAt: ch.createdAt,
       you,
       creator: seatView(ch.creator),
       opponent: seatView(ch.opponent),
-      yourReport: you ? (you === 'creator' ? ch.creator.report : ch.opponent.report) : null,
+      players: people(ch).map((p) => Object.assign(seatView(p), { isYou: p.id === viewerId })),
+      yourReport: you ? (findSeat(ch, viewerId) || {}).report || null : null,
       winnerRole: ch.winnerRole,
-      winnerName: ch.winnerRole ? (personByRole(ch, ch.winnerRole) || {}).name || null : null,
+      winnerId: ch.winnerId || null,
+      winnerName: ch.winnerId ? (personById(ch, ch.winnerId) || {}).name || null : null,
       disputeReason: ch.disputeReason,
-      resolution: ch.resolution ? { action: ch.resolution.action, winnerRole: ch.resolution.winnerRole || null, note: ch.resolution.note || '' } : null,
-      statements
+      resolution: ch.resolution ? { action: ch.resolution.action, winnerId: ch.resolution.winnerId || ch.winnerId || null, winnerRole: ch.resolution.winnerRole || null, note: ch.resolution.note || '' } : null,
+      statements,
+      canStart: you === 'creator' && (ch.status === 'open' || ch.status === 'joined') && paidCount(ch) >= 2,
+      canCancel: you === 'creator' && (ch.status === 'open' || ch.status === 'joined')
     };
   }
   function adminView(ch) {
     const base = publicView(ch, null);
+    base.players = people(ch).map((p) => ({ id: p.id, name: p.name, email: p.email, paid: !!p.paid, report: p.report || null }));
     base.creator = ch.creator ? { name: ch.creator.name, email: ch.creator.email, paid: !!ch.creator.paid, report: ch.creator.report } : null;
     base.opponent = ch.opponent ? { name: ch.opponent.name, email: ch.opponent.email, paid: !!ch.opponent.paid, report: ch.opponent.report } : null;
-    base.statements = [statement(ch, ch.creator), statement(ch, ch.opponent)].filter(Boolean);
+    base.statements = people(ch).map((p) => statement(ch, p)).filter(Boolean);
     base.audit = ch.audit.slice();
     base.ledger = state.ledger.filter((l) => l.challengeId === ch.id);
     base.settlement = ch.settlement ? {
@@ -593,7 +719,7 @@ function createEscrow(opts) {
   function mine(playerId) {
     const rows = [];
     for (const ch of state.challenges) {
-      if (ch.creator.id !== playerId && (!ch.opponent || ch.opponent.id !== playerId)) continue;
+      if (!findSeat(ch, playerId)) continue;
       tick(ch);
       rows.push(publicView(ch, playerId));
     }
@@ -613,7 +739,7 @@ function createEscrow(opts) {
   }
 
   return {
-    upsertPlayer, create, join, recordPayment, report, resolve, get, tickAll, drain,
+    upsertPlayer, create, join, recordPayment, start, cancel, report, resolve, get, tickAll, drain,
     list, ledger, player, playerByEmail, publicView, adminView, mine, disputes, moneyOf
   };
 }
