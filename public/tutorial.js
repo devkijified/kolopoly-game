@@ -70,8 +70,14 @@
     fetch('/api/tables', { cache: 'no-store' }).then((r) => r.json()).then((data) => paintTables(data && data.tables)).catch(() => {});
   }
   document.addEventListener('DOMContentLoaded', () => {
-    const learn = document.getElementById('learnDaddy');
-    if (learn) learn.addEventListener('click', () => openTutorial(read().done ? 0 : (read().step || 0)));
+    ['trainBtn', 'welcomeTrainBtn', 'lobbyTrainBtn'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => { if (window.KPOpenTraining) window.KPOpenTraining(); });
+    });
+    ['profileBtn', 'welcomeProfileBtn', 'lobbyProfileBtn'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => { if (window.KPOpenProfile) window.KPOpenProfile(); });
+    });
     const next = document.getElementById('tutNext');
     const skip = document.getElementById('tutSkip');
     if (next) next.addEventListener('click', () => {
@@ -82,19 +88,6 @@
       showStep(state.step);
     });
     if (skip) skip.addEventListener('click', () => closeTutorial(false));
-    const state = read();
-    if (!state.seen) {
-      const host = document.querySelector('.play-actions');
-      if (host && !document.getElementById('tutOffer')) {
-        const card = document.createElement('div');
-        card.id = 'tutOffer';
-        card.className = 'tut-offer';
-        card.innerHTML = '<p><b>First time?</b> Big Daddy fit teach you before you play.</p><div class="btnrow"><button type="button" class="btn small" id="tutYes">Learn</button><button type="button" class="btn small ghost" id="tutNo">Skip</button></div>';
-        host.appendChild(card);
-        document.getElementById('tutYes').addEventListener('click', () => openTutorial(0));
-        document.getElementById('tutNo').addEventListener('click', () => { write(Object.assign(read(), { seen: true })); card.hidden = true; });
-      }
-    }
     loadTables();
     setInterval(loadTables, 15000);
   });

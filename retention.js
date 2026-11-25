@@ -1184,6 +1184,39 @@ function createRetention(opts) {
       losses: row.losses || 0
     };
   }
+  function noteResult(info) {
+    info = info || {};
+    if (!info.id) return;
+    const p = ensure(info.id);
+    p.stats = p.stats && typeof p.stats === 'object' ? p.stats : { played: 0, wins: 0, losses: 0, biggest: 0 };
+    p.stats.played += 1;
+    const haul = info.won ? Math.max(Number(info.prize) || 0, Number(info.netWorth) || 0) : 0;
+    if (info.won) {
+      p.stats.wins += 1;
+      if (haul > (p.stats.biggest || 0)) p.stats.biggest = haul;
+    } else p.stats.losses += 1;
+    p.recent = Array.isArray(p.recent) ? p.recent : [];
+    p.recent.unshift({
+      at: Date.now(), roomCode: info.roomCode || '', won: !!info.won,
+      netWorth: Number(info.netWorth) || 0, prize: Number(info.prize) || 0,
+      opponents: (info.opponents || []).slice(0, 5)
+    });
+    p.recent = p.recent.slice(0, 12);
+    save();
+  }
+  function profileOf(accountId) {
+    const id = acctShelfId(accountId);
+    const p = id && db.players[id] ? normalize(db.players[id]) : null;
+    const stats = (p && p.stats) || { played: 0, wins: 0, losses: 0, biggest: 0 };
+    const played = stats.played || 0;
+    return {
+      played, wins: stats.wins || 0, losses: stats.losses || 0,
+      rate: played ? Math.round(100 * (stats.wins || 0) / played) : 0,
+      biggest: stats.biggest || 0,
+      rivalries: p ? rivalList(p) : [],
+      recent: (p && p.recent) || []
+    };
+  }
   function noteMatch(info) {
     info = info || {};
     bumpRival(info.winner, info.loser, info.loserName, 'wins', 1);
@@ -1813,6 +1846,8 @@ function createRetention(opts) {
     noteDay,
     noteRivalry,
     noteMatch,
+    noteResult,
+    profileOf,
     opsSummary,
     testLog,
     exportDb,

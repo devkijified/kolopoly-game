@@ -704,6 +704,25 @@ const server = http.createServer((req, res) => {
     })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false }); });
     return;
   }
+  if (cleanUrl === '/api/profile' && req.method === 'GET') {
+    const acct = auth.verifyToken(bearerOf(req));
+    if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
+    const credit = playCredit.view(acct.accountId);
+    const wallet = payouts.mine(acct.accountId);
+    const fees = payments.list().filter((r) => r.accountId === acct.accountId && (r.status === 'paid' || (r.seat && r.amountKobo))).map((r) => ({
+      roomCode: r.roomCode, amount: (r.amountKobo || 0) / 100, status: r.status, at: r.createdAt
+    }));
+    sendJson(res, 200, {
+      ok: true, email: acct.email,
+      creditKobo: credit.balanceKobo || 0,
+      credit: credit.entries || [],
+      payouts: wallet.payouts || [],
+      bank: wallet.bank || null,
+      fees,
+      stats: retention.profileOf(acct.accountId)
+    });
+    return;
+  }
   if (cleanUrl === '/api/payouts/mine' && req.method === 'GET') {
     const acct = auth.verifyToken(bearerOf(req));
     if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }

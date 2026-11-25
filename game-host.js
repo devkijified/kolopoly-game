@@ -676,9 +676,89 @@ function newRoom(code, isPublic, mode, settings) {
 function connectedSolvent(room) {
   return room.players.filter((p) => p.connected && !p.bankrupt);
 }
+function countedHuman(p) { return !!(p && !(p.bot && !p.afkTaken)); }
+function seatName(p) { return (p && (p.humanName || p.name)) || ''; }
 function solventPlayers(room) { return room.players.filter((p) => !p.bankrupt); }
 function curPlayer(room) { return room.players.find((p) => p.id === room.turnPlayerId) || null; }
 
+const PRACTICE_STEPS = [
+  { id: 'hello', wait: 'tap', title: 'The aim', line: 'I be Big Daddy. The aim is simple: gather money, own places, and make the other person go broke.', target: '' },
+  { id: 'cash', wait: 'tap', title: 'Your money', line: 'That big number na your money. When you pass START, the bank pays you. When a bill comes, the bank collects.', target: '#hudCashBtn' },
+  { id: 'tile', wait: 'tap', title: 'Places and papers', line: 'Each square na a place. Buy am, and you get a deed. The deed is the paper that says the place is yours.', target: '' },
+  { id: 'roll', wait: 'land', title: 'Your turn', line: 'Tap Roll. The dice go carry you to a place called Ajegunle.', target: '#abRoll' },
+  { id: 'whybuy', wait: 'tap', title: 'Why you buy', line: 'Ajegunle dey empty. Buy am, and the next person wey land there go pay you.', target: '#abBuy' },
+  { id: 'buy', wait: 'own', title: 'Buy am yourself', line: 'Tap Buy. Your money go to the bank, and the deed come to you.', target: '#abBuy' },
+  { id: 'cheerbuy', wait: 'tap', title: 'You get the paper!', line: 'Yes! Ajegunle na yours. That paper na your deed. Open Deeds and look at am.', target: '#sbDeeds' },
+  { id: 'deed', wait: 'deed', title: 'Open your deed', line: 'Tap Deeds. See the place, the price, and what people go pay you.', target: '#sbDeeds' },
+  { id: 'renttalk', wait: 'tap', title: 'Rent dey pain', line: 'Land on somebody else place, and you pay them. That payment na rent. E fit empty a pocket.', target: '' },
+  { id: 'rent', wait: 'rent', title: 'Go and pay', line: 'Roll. Ada own Computer Village. You go pay her.', target: '#abRoll' },
+  { id: 'rentcheer', wait: 'tap', title: 'You feel am', line: 'Ada collect rent. If the place was yours, she go pay you. That na how you get rich.', target: '' },
+  { id: 'cardtalk', wait: 'tap', title: 'Cards', line: 'Some squares hand you a card. Good news pays you. Bad news collects. Everybody go see am.', target: '' },
+  { id: 'card', wait: 'card', title: 'Draw one', line: 'Roll. A card dey wait.', target: '#abRoll' },
+  { id: 'cardcheer', wait: 'tap', title: 'The card don talk', line: 'You see am, you hear am. Do wetin the card say, then we continue.', target: '' },
+  { id: 'timertalk', wait: 'tap', title: 'Turns and the clock', line: 'Play pass from person to person. The small ring beside Roll na your time. When it finish, the turn pass you.', target: '.timer-ring' },
+  { id: 'timergo', wait: 'timer', title: 'Beat the clock', line: 'Roll before that ring finish.', target: '#abRoll' },
+  { id: 'dealstalk', wait: 'tap', title: 'When money low', line: 'If cash dey small, open Deals. You fit pledge a deed for money, or swap a place with somebody.', target: '#hudDeals' },
+  { id: 'deals', wait: 'deals', title: 'Open Deals', line: 'Tap Deals now, so you know the door.', target: '#hudDeals' },
+  { id: 'billtalk', wait: 'tap', title: 'Bills', line: 'FIRS na tax. A bill can be one flat amount. If the other way cost more, you pay the flat one.', target: '' },
+  { id: 'firs', wait: 'tax', title: 'Meet the bill', line: 'Roll. The tax square dey in front.', target: '#abRoll' },
+  { id: 'tax', wait: 'paid', title: 'Pay am yourself', line: 'Tap the flat bill. The ten percent way no go charge you more than that.', target: '#abTaxFlat' },
+  { id: 'wintalk', wait: 'tap', title: 'How you win', line: 'You win when you are the last one still with money, or the richest when time ends. Anybody wey broke is out.', target: '' },
+  { id: 'ready', wait: 'stay', title: 'You ready', line: 'Training Ground don teach you. No real money move. Play a real game, or stay and practice free.', target: '' }
+];
+function practicePublic(room) {
+  if (!room.practice) return null;
+  if (room.practice.kind === 'free') {
+    return { kind: 'free', step: 'free', wait: 'stay', title: 'Free practice', line: 'You, Ada, and Tunde. No stake. Big Daddy go whisper. Leave when you don try enough.', target: '' };
+  }
+  const copy = PRACTICE_STEPS.find((s) => s.id === room.practice.step) || PRACTICE_STEPS[PRACTICE_STEPS.length - 1];
+  return { kind: 'intro', step: copy.id, wait: copy.wait, title: copy.title, line: copy.line, target: copy.target };
+}
+function armPracticeRoll(room) {
+  const rolls = { roll: [1, 3], rent: [1, 3], card: [2, 6], timergo: [5, 6], firs: [1, 5] };
+  const roll = rolls[room.practice.step];
+  room.practiceRolls = room.practiceRolls || { human: [] };
+  if (roll) room.practiceRolls.human = [roll.slice()];
+  else room.practiceRolls.human = [];
+  if (room.practice.step === 'card') room.forcedCards.wahala = 'w09';
+}
+function advancePractice(room) {
+  if (!room.practice || room.practice.kind === 'free' || room.status !== 'playing') return;
+  const human = room.players.find((p) => !p.bot);
+  if (!human) return;
+  for (let n = 0; n < 4; n++) {
+    const step = room.practice.step;
+    const spec = PRACTICE_STEPS.find((s) => s.id === step);
+    if (!spec || spec.wait === 'stay') return;
+    let ok = false;
+    if (spec.wait === 'tap') ok = room.practice.sawTap === step;
+    else if (spec.wait === 'land') ok = human.position === 4 && room.phase === 'buy';
+    else if (spec.wait === 'own') ok = !!(room.props[4] && room.props[4].owner === human.id);
+    else if (spec.wait === 'deed') ok = !!room.practice.sawDeed;
+    else if (spec.wait === 'rent') ok = human.position === 8 && room.phase !== 'roll';
+    else if (spec.wait === 'card') ok = !!(room.lastCard && room.lastCard.id === 'w09');
+    else if (spec.wait === 'timer') ok = human.position === 27;
+    else if (spec.wait === 'deals') ok = !!room.practice.sawDeals;
+    else if (spec.wait === 'tax') ok = room.phase === 'tax';
+    else if (spec.wait === 'paid') ok = !!room.practice.taxDone;
+    if (!ok) return;
+    const i = PRACTICE_STEPS.findIndex((s) => s.id === step);
+    const next = PRACTICE_STEPS[i + 1];
+    if (!next) return;
+    room.practice.step = next.id;
+    room.practice.sawTap = '';
+    armPracticeRoll(room);
+  }
+}
+function drivePracticeBot(room) {
+  if (!room.practice || room.practice.kind === 'free' || room.status !== 'playing' || room.paused) return false;
+  const p = curPlayer(room);
+  if (!p || !p.bot) return false;
+  if (room.phase === 'roll' || room.phase === 'jail') { doRoll(room, p); return true; }
+  if (room.phase === 'buy') { room.buySpace = null; room.buyPrice = null; room.phase = 'end'; }
+  if (room.phase === 'end') { endTurn(room); return true; }
+  return false;
+}
 function publicRoom(room) {
   const propsArr = [];
   for (let i = 0; i < D.BOARD_SIZE; i++) {
@@ -693,6 +773,7 @@ function publicRoom(room) {
     pausedSince: room.pauseSince || null,
     pauseClockMs: room.pauseClockMs != null ? room.pauseClockMs : null,
     linkWait: room.linkWait || null,
+    practice: practicePublic(room),
     taxQuote: room.taxQuote || null,
     fees: { bail: scaleMoney(room, D.JAIL_FINE), missed: scaleMoney(room, MISSED_TURN_FEE) },
     endReason: room.endReason || null,
@@ -828,6 +909,7 @@ function leanWire(pub) {
   return pub;
 }
 function broadcast(room) {
+  if (room && room.practice) advancePractice(room);
   const pub = deps.leanWire ? leanWire(publicRoom(room)) : publicRoom(room);
   const payload = JSON.stringify({ type: 'state', room: pub });
   const sent = new Set();
@@ -848,7 +930,24 @@ function broadcast(room) {
 // ---------------------------------------------------------------------------
 // Dice and movement
 // ---------------------------------------------------------------------------
+function practiceBotDice(player) {
+  for (let a = 1; a <= 6; a++) {
+    for (let b = a + 1; b <= 6; b++) {
+      const dest = (player.position + a + b) % D.BOARD_SIZE;
+      const kind = D.SPACES[dest].type;
+      if (kind === 'card' || kind === 'gotojail' || kind === 'tax') continue;
+      return [a, b];
+    }
+  }
+  return [1, 2];
+}
 function rollDice(room) {
+  if (room.practice) {
+    const p = curPlayer(room);
+    if (p && p.bot) return practiceBotDice(p);
+    const queued = room.practiceRolls && room.practiceRolls.human;
+    if (queued && queued.length) return queued.shift();
+  }
   if (room.diceQueue.length) return room.diceQueue.shift();
   return [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
 }
@@ -1145,6 +1244,11 @@ function resolveLanding(room, player, opts) {
       const firstLapBlock = room.settings.firstLapNoBuy && player.lap === 0;
       if (firstLapBlock) {
         setMessage(room, player.name + ' landed on ' + sp.name + ', but first lap no buying (house rule).');
+        afterCharge(room, opts.after || 'endPhase', player);
+        return;
+      }
+      if (room.practice && player.bot) {
+        setMessage(room, player.name + ' pass ' + sp.name + '. Practice table, no auction.');
         afterCharge(room, opts.after || 'endPhase', player);
         return;
       }
@@ -1664,7 +1768,10 @@ function endGame(room, winner, why) {
   if (room.hustle) room.hustle = null;
   room.owambe = null; room.sapaOffer = null;
   room.endTable = room.players.map((p) => ({
-    playerId: p.id, name: p.name, token: p.token, color: p.color, bot: !!p.bot,
+    playerId: p.id,
+    name: (p.afkTaken && p.humanName) ? p.humanName : p.name,
+    humanName: p.humanName || null,
+    token: p.token, color: p.color, bot: !!p.bot, afkTaken: !!p.afkTaken,
     accountId: p.accountId || null,
     netWorth: netWorth(room, p), cash: p.cash, bankrupt: p.bankrupt, resigned: !!p.resigned,
     phaseSurvived: room.inf ? (p.eliminatedPhase || room.inf.phase) : null,
@@ -1675,16 +1782,14 @@ function endGame(room, winner, why) {
     if (room.hornRanking) return room.hornRanking.indexOf(a.playerId) - room.hornRanking.indexOf(b.playerId);
     return b.netWorth - a.netWorth;
   });
-  if (retention && retention.noteMatch) {
-    const win = room.endTable[0];
-    const winShelf = shelfOfId(room, win.playerId);
-    for (const row of room.endTable.slice(1)) {
-      if (row.bot || win.bot) continue;
-      const winPlayer = room.players.find((pl) => pl.id === win.playerId);
+  if (retention && retention.noteMatch && countedHuman(winner)) {
+    const winName = seatName(winner);
+    for (const other of room.players) {
+      if (other.id === winner.id || !countedHuman(other)) continue;
       retention.noteMatch({
-        winner: winShelf, loser: shelfOfId(room, row.playerId),
-        winnerName: win.name, loserName: row.name,
-        winnerToken: winPlayer && winPlayer.token || ''
+        winner: shelfOfId(room, winner.id), loser: shelfOfId(room, other.id),
+        winnerName: winName, loserName: seatName(other),
+        winnerToken: winner.token || ''
       });
     }
   }
@@ -1715,11 +1820,27 @@ function endGame(room, winner, why) {
     // covers every road into endGame: last landlord standing, the
     // Final Reckoning horn, the host ending the room, the clock.
     settlePrize(room, winner);
+    try {
+      if (retention && retention.noteResult) {
+        const humans = room.players.filter(countedHuman);
+        const prize = room.prize && room.prize.winner ? room.prize.winner : 0;
+        for (const p of humans) {
+          retention.noteResult({
+            id: shelfOfId(room, p.id),
+            won: p.id === winner.id,
+            roomCode: room.code,
+            netWorth: netWorth(room, p),
+            prize: p.id === winner.id ? prize : 0,
+            opponents: humans.filter((o) => o.id !== p.id).map((o) => seatName(o))
+          });
+        }
+      }
+    } catch (e) { /* the profile never blocks the close */ }
     // Shelf v2: every seated human played a match today. The Day 7
     // kolo chest checks this mark; the records store cannot answer
     // per player and day, so the shelf keeps the mark itself.
     try {
-      const playedIds = [...new Set(room.players.filter((p) => p && !p.bot).map((p) => shelfIdOf(p)).filter(Boolean))];
+      const playedIds = [...new Set(room.players.filter(countedHuman).map((p) => shelfIdOf(p)).filter(Boolean))];
       if (playedIds.length && retention.markPlayed) retention.markPlayed(playedIds);
     } catch (e) { /* the played mark never blocks the close */ }
     // Save the finished game to the records store, exactly once per game.
@@ -2732,6 +2853,7 @@ function tick() {
     }
     if (room.status !== 'playing' || room.paused) continue;
     let changed = false;
+    if (drivePracticeBot(room)) changed = true;
     if (room.inf) { if (infTick(room)) changed = true; if (room.status !== 'playing') { broadcast(room); continue; } }
     if (owambeTick(room)) changed = true;
     if (sapaTick(room)) changed = true;
@@ -2814,6 +2936,7 @@ function taxChoose(room, player, choice) {
   const amount = choice === 'percent' && quote.showPercent ? quote.percent : quote.flat;
   room.taxQuote = null;
   room.taxPlayer = null;
+  if (room.practice) room.practice.taxDone = true;
   charge(room, player, amount, null, 'FIRS Income Tax', room.taxAfter || 'endPhase', { toPot: true, stat: 'fine' });
 }
 function jailRoll(room, player) {
@@ -2957,7 +3080,7 @@ function armLinkHold(room, player) {
 function convertHumanToAfkBot(room, player) {
   // A paid seat is never played by a bot. A network drop pauses the table
   // instead, and an idle paid seat only skips a turn.
-  if (room && room.paid) return false;
+  if (room && (room.paid || room.practice)) return false;
   if (!player || player.bot || player.bankrupt || player.resigned) return false;
   if (room.afkTakeovers >= AFK_MAX_TAKEOVERS) return false;
   const others = room.players.filter((p) => p.id !== player.id && !p.bankrupt);
@@ -3132,6 +3255,24 @@ function handleConnection(ws) {
         broadcast(room);
         return;
       }
+      if (msg.type === 'test_afk_human') {
+        const p = room.players.find((x) => x.id === Number(msg.playerId)) || ctx.player;
+        if (p) {
+          p.humanName = msg.humanName || p.humanName || p.name;
+          p.name = msg.displayName || (p.humanName + ' BOT');
+          p.afkTaken = true;
+          p.bot = true;
+          if (p.botBrain) p.botBrain.hold = true;
+        }
+        broadcast(room);
+        return;
+      }
+      if (msg.type === 'test_end_game') {
+        const w = room.players.find((x) => x.id === Number(msg.winnerId)) || curPlayer(room);
+        if (w) endGame(room, w, 'test');
+        broadcast(room);
+        return;
+      }
       if (msg.type === 'test_set_paid') {
         room.paid = true;
         room.paidFee = Number(msg.fee || 200);
@@ -3212,7 +3353,14 @@ function handleConnection(ws) {
       // without one wherever accounts are required; under the full
       // sign-in gate, a free or pass and play create refuses too.
       const acct = authAccount(msg);
-      if (city) {
+      if (msg.practice && ctx.player && ctx.player.ws === ws) {
+        ctx.player.ws = null;
+        ctx.player.connected = false;
+        ctx.player.resigned = true;
+      }
+      if (msg.practice) {
+        // A lesson is free. No account, no stake, no payout.
+      } else if (city) {
         if (accountRequired && !acct) return fail(SIGNIN_MESSAGE);
       } else if (signInRequired && !acct) {
         return fail(GATE_MESSAGE);
@@ -3234,7 +3382,34 @@ function handleConnection(ws) {
       room.hostId = player.id;
       rooms.set(room.code, room);
       ctx.room = room; ctx.player = player; ctx.spectator = false;
-      setMessage(room, name + ' created the room. Share the code and wait for friends.');
+      if (msg.practice) {
+        const free = msg.practice === 'free';
+        room.practice = { kind: free ? 'free' : 'intro', step: free ? 'free' : 'hello', sawDeed: false, sawDeals: false, taxDone: false, sawTap: '' };
+        room.practiceRolls = { human: [] };
+        room.settings.gameMode = 'classic';
+        room.settings.timed = false;
+        room.settings.turnTimerSec = 45;
+        room.paid = false;
+        const ada = spawnBot(room);
+        if (ada) {
+          ada.name = 'Ada';
+          ada.position = 7;
+          if (!free && ada.botBrain) ada.botBrain.hold = true;
+          if (!free && room.props[8]) room.props[8].owner = ada.id;
+        }
+        if (free) {
+          const tunde = spawnBot(room);
+          if (tunde) tunde.name = 'Tunde';
+        }
+        startGame(room);
+        room.turnOrder = [player.id].concat(room.players.filter((p) => p.id !== player.id).map((p) => p.id));
+        room.turnPlayerId = player.id;
+        room.phase = 'roll';
+        setDeadline(room);
+        setMessage(room, free ? 'Free practice. No stake, nothing to collect.' : 'Training Ground. No stake, nothing to collect.');
+      } else {
+        setMessage(room, name + ' created the room. Share the code and wait for friends.');
+      }
       noteIdentity(player);
       send({ type: 'joined', playerId: player.id, code: room.code, token: player.reconnectToken });
       broadcast(room);
@@ -4108,6 +4283,18 @@ function handleConnection(ws) {
     }
 
     // ---- Turn intents ---------------------------------------------------------
+    if (msg.type === 'practice_ack' || msg.type === 'practice_skip') {
+      if (!room.practice) return fail('This table no be a lesson.');
+      if (msg.type === 'practice_skip') {
+        room.practice.kind = 'intro';
+        room.practice.step = 'ready';
+        setMessage(room, 'Lesson skipped. No money move.');
+      } else if (msg.what === 'next') room.practice.sawTap = room.practice.step;
+      else if (msg.what === 'deed' && room.practice.step === 'deed') room.practice.sawDeed = true;
+      else if (msg.what === 'deals' && room.practice.step === 'deals') room.practice.sawDeals = true;
+      broadcast(room);
+      return;
+    }
     if (msg.type === 'roll') {
       const a = needTurn(msg);
       if (!a) return;
