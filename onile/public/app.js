@@ -56,25 +56,34 @@ function signInCard(next) {
   return '<section class="card"><strong>Sign in first.</strong><p class="fine">A display name and your email. Same account as Kolopoly. No password.</p><div class="actions"><a class="btn" href="/signin?next=' + encodeURIComponent(next) + '" data-nav>Sign in</a></div></section>';
 }
 function moneyCard(c) {
+  var held = c.heldKobo != null ? c.heldKobo : 0;
+  var base = held > 0 ? held : c.potKobo;
+  var pct = Number(c.housePercent) || 0;
+  var prize = Math.floor(base * (100 - pct) / 100);
+  var house = base - prize;
   return '<section class="money" aria-label="Pot">' +
-    '<div><span class="muted">Each person</span><b>' + naira(c.stakeKobo) + '</b></div>' +
-    '<div><span class="muted">Pot held</span><b>' + naira(c.potKobo) + '</b></div>' +
-    '<div><span class="muted">Winner receives</span><b>' + naira(c.prizeKobo) + '</b></div>' +
-    '<div><span class="muted">House keeps ' + esc(c.housePercent) + '%</span><b>' + naira(c.houseKobo) + '</b></div>' +
+    '<div><span class="muted">Stake each</span><b>' + naira(c.stakeKobo) + '</b></div>' +
+    '<div><span class="muted">Pot held</span><b>' + naira(held > 0 ? held : c.potKobo) + '</b></div>' +
+    '<div><span class="muted">Winner receives</span><b>' + naira(prize) + '</b></div>' +
+    '<div><span class="muted">House keeps ' + esc(c.housePercent) + '%</span><b>' + naira(house) + '</b></div>' +
     '</section>';
 }
 function people(c) {
-  function row(label, person) {
-    if (!person) return '<div class="person"><div><span class="muted">' + label + '</span><strong>Waiting</strong></div><span class="chip wait">Not yet</span></div>';
+  var rows = (c.players || []).map(function (person, i) {
     var chip = person.paid ? '<span class="chip ok">Paid</span>' : '<span class="chip wait">Not paid</span>';
+    var label = i === 0 ? 'Opened it' : 'Player';
     return '<div class="person"><div><span class="muted">' + label + '</span><strong>' + esc(person.name) + '</strong></div>' + chip + '</div>';
+  });
+  var openSeats = Math.max(0, (c.maxPlayers || 2) - rows.length);
+  for (var n = 0; n < openSeats; n++) {
+    rows.push('<div class="person"><div><span class="muted">Open seat</span><strong>Waiting</strong></div><span class="chip wait">Not yet</span></div>');
   }
-  return '<div class="stack">' + row('Opened by', c.creator) + row('Joined', c.opponent) + '</div>';
+  return '<div class="stack">' + rows.join('') + '</div>';
 }
 function statusBanner(c) {
   var map = {
-    open: ['Waiting', 'Share the code. Onile locks the pot once you have both paid.'],
-    joined: ['Both in', 'Pay your part. Nobody can take the pot until you both name the same winner.'],
+    open: ['Waiting', 'Share the code. Onile holds each stake. The creator can start once two players have paid.'],
+    joined: ['Lobby', 'Same stake for every seat. Unpaid seats are dropped when it starts.'],
     held: ['Funds held', 'Go and play. Come back and name the winner. We do not release the pot early.'],
     reported: ['Funds held', 'Your report is in. The pot stays here until the other player reports.'],
     agreed: ['Agreed', (c.winnerName || 'The winner') + ' is paid ' + naira(c.prizeKobo) + '. The house keeps ' + naira(c.houseKobo) + '.'],
@@ -114,7 +123,8 @@ function viewCreate() {
     '<form class="card" data-act="create" style="margin-top:14px">' +
       '<label for="title">Title</label><input id="title" name="title" required maxlength="80" placeholder="Friday at Tobi\'s">' +
       '<label for="activity">Game or activity</label><input id="activity" name="activity" required maxlength="60" placeholder="FIFA, chess, a race">' +
-      '<label for="amount">Amount each (₦)</label><input id="amount" name="stakeNaira" inputmode="numeric" required placeholder="5000">' +
+      '<label for="seats">Players</label><select id="seats" name="maxPlayers"><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select>' +
+      '<label for="amount">Stake each (₦)</label><input id="amount" name="stakeNaira" inputmode="numeric" required placeholder="5000">' +
       '<label for="rules">Rules, optional</label><textarea id="rules" name="rules" maxlength="500" placeholder="Best of three. Extra time counts."></textarea>' +
       '<label for="deadline">Deadline, optional</label><input id="deadline" name="deadline" type="datetime-local">' +
       '<div class="actions"><button type="submit">Create and get a code</button></div>' +
@@ -137,7 +147,7 @@ function viewJoin() {
 
 function payoutBlock(c) {
   if (c.status !== 'agreed' || c.you == null) return '';
-  var youWon = (c.you === 'creator' && c.winnerRole === 'creator') || (c.you === 'opponent' && c.winnerRole === 'opponent');
+  var youWon = !!(state.me && c.winnerId && state.me.id === c.winnerId);
   if (!youWon) return '<p class="fine">The winner is paid to the bank account they saved. The house sends it once.</p>';
   var p = c.payout;
   var line = 'The house sends ' + naira(c.prizeKobo) + ' to your bank. It is sent once.';
@@ -167,18 +177,24 @@ function payoutBlock(c) {
 function reportBlock(c) {
   if (!c.you || (c.status !== 'held' && c.status !== 'reported')) return '';
   if (c.yourReport) {
-    var said = c.yourReport === 'creator' ? c.creator.name : (c.opponent && c.opponent.name);
-    return '<section class="card"><strong>You said ' + esc(said) + ' won.</strong><p class="fine">Waiting for the other player. The pot does not move until the reports match.</p></section>';
+    var said = (c.players || []).filter(function (p) { return p.id === c.yourReport; })[0];
+    return '<section class="card"><strong>You said ' + esc(said ? said.name : 'someone') + ' won.</strong><p class="fine">Waiting for every paid player. The pot does not move until the reports match.</p></section>';
   }
-  return '<form data-act="report"><p class="kicker">Name the winner</p>' +
-    '<div class="actions"><button type="submit" name="winnerRole" value="creator" class="green">' + esc(c.creator.name) + ' won</button>' +
-    (c.opponent ? '<button type="submit" name="winnerRole" value="opponent">' + esc(c.opponent.name) + ' won</button>' : '') +
-    '</div></form>';
+  var buttons = (c.players || []).filter(function (p) { return p.paid; }).map(function (p, i) {
+    return '<button type="submit" name="winnerId" value="' + esc(p.id) + '"' + (i === 0 ? ' class="green"' : '') + '>' + esc(p.name) + ' won</button>';
+  }).join('');
+  return '<form data-act="report"><p class="kicker">Name the winner</p><div class="actions">' + buttons + '</div></form>';
 }
 
+function lobbyActions(c) {
+  if (c.status !== 'open' && c.status !== 'joined') return '';
+  if (c.you !== 'creator') return '';
+  var start = c.canStart ? '<form data-act="start"><div class="actions"><button type="submit" class="green">Start</button></div><p class="fine">Unpaid seats are dropped. The pot stays held until everyone names the same winner.</p></form>' : '<p class="fine">Start opens once two players have paid.</p>';
+  return start + '<form data-act="cancel"><div class="actions"><button type="submit" class="secondary">Cancel challenge</button></div></form>';
+}
 function payBlock(c) {
   if (!c.you) return '';
-  var mine = c.you === 'creator' ? c.creator : c.opponent;
+  var mine = (c.players || []).filter(function (p) { return p.isYou; })[0];
   if (!mine || mine.paid) return '';
   if (c.status !== 'open' && c.status !== 'joined') return '';
   return '<form data-act="pay"><div class="actions"><button type="submit">Pay ' + naira(c.stakeKobo) + ' with Paystack</button></div>' +
@@ -207,7 +223,7 @@ function viewChallenge(code, c) {
   return shell(
     '<p class="kicker">' + esc(c.activity) + '</p><h1 class="display">' + esc(c.title) + '</h1>' +
     '<p class="fine">' + esc(due) + '</p>' +
-    '<div class="stack">' + statusBanner(c) + moneyCard(c) + people(c) + joinBlock(c) + payBlock(c) + reportBlock(c) + payoutBlock(c) + share + rules + statements(c) + '</div>'
+    '<div class="stack">' + statusBanner(c) + moneyCard(c) + people(c) + joinBlock(c) + payBlock(c) + lobbyActions(c) + reportBlock(c) + payoutBlock(c) + share + rules + statements(c) + '</div>'
   );
 }
 
@@ -258,10 +274,10 @@ function viewAdmin(data) {
       '<p class="fine">' + esc(c.activity) + ' · pot ' + naira(c.potKobo) + ' · ' + esc(c.disputeReason || 'dispute') + '</p>' +
       '<p class="fine">' + (said || 'No reports.') + '</p>' +
       '<form data-act="resolve" data-code="' + esc(c.code) + '"><div class="split">' +
-      '<button type="submit" name="action" value="winner" data-role="creator" class="green">Pay ' + esc(c.creator.name) + '</button>' +
-      (c.opponent ? '<button type="submit" name="action" value="winner" data-role="opponent">Pay ' + esc(c.opponent.name) + '</button>' : '') +
-      '<button type="submit" name="action" value="split" class="secondary">Split it back</button>' +
-      '<button type="submit" name="action" value="refund" class="red">Refund both</button>' +
+      (c.players || []).map(function (p) {
+        return '<button type="submit" name="action" value="winner" data-id="' + esc(p.id) + '" class="green">Pay ' + esc(p.name) + '</button>';
+      }).join('') +
+      '<button type="submit" name="action" value="refund" class="red">Refund everyone</button>' +
       '</div></form></article>';
   }).join('');
   var payouts = (data.payouts || []).map(function (p) {
@@ -385,7 +401,8 @@ document.addEventListener('submit', function (e) {
   var data = formData(form);
   var submitter = e.submitter;
   if (submitter && submitter.name) data[submitter.name] = submitter.value;
-  if (submitter && submitter.getAttribute('data-role')) data.winnerRole = submitter.getAttribute('data-role');
+  if (submitter && submitter.name === 'winnerId') data.winnerId = submitter.value;
+  if (submitter && submitter.getAttribute('data-id')) data.winnerId = submitter.getAttribute('data-id');
   var button = form.querySelector('button');
   if (button) button.disabled = true;
 
@@ -415,6 +432,20 @@ document.addEventListener('submit', function (e) {
     });
     return;
   }
+  if (act === 'start') {
+    api('/api/challenges/' + route().code + '/start', { method: 'POST', body: {} }).then(function (res) {
+      flash(res.ok ? 'Started. The pot is held.' : (res.message || 'Could not start.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'cancel') {
+    api('/api/challenges/' + route().code + '/cancel', { method: 'POST', body: {} }).then(function (res) {
+      flash(res.ok ? 'Cancelled. Anyone who paid is refunded.' : (res.message || 'Could not cancel.'));
+      load();
+    });
+    return;
+  }
   if (act === 'pay') {
     api('/api/challenges/' + route().code + '/pay', { method: 'POST', body: {} }).then(function (res) {
       if (res.authorizationUrl) { location.href = res.authorizationUrl; return; }
@@ -424,7 +455,7 @@ document.addEventListener('submit', function (e) {
     return;
   }
   if (act === 'report') {
-    api('/api/challenges/' + route().code + '/report', { method: 'POST', body: { winnerRole: data.winnerRole } }).then(function (res) {
+    api('/api/challenges/' + route().code + '/report', { method: 'POST', body: { winnerId: data.winnerId } }).then(function (res) {
       flash(res.ok ? 'Report saved.' : (res.message || 'Could not save that.'));
       load();
     });
@@ -467,7 +498,7 @@ document.addEventListener('submit', function (e) {
     return;
   }
   if (act === 'resolve') {
-    api('/api/admin/resolve', { method: 'POST', body: { code: form.dataset.code, action: data.action, winnerRole: data.winnerRole } }).then(function (res) {
+    api('/api/admin/resolve', { method: 'POST', body: { code: form.dataset.code, action: data.action, winnerId: data.winnerId } }).then(function (res) {
       flash(res.ok ? 'Resolved. The payout row exists once.' : (res.message || 'Could not resolve.'));
       load();
     });

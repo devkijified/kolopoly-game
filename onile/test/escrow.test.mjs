@@ -73,7 +73,7 @@ test('create, join, both paid, agree, one payout', () => {
   assert.equal(first.challenge.settlement, null);
   const again = h.escrow.report({ code, playerId: ada.id, winnerRole: 'opponent' });
   assert.equal(again.duplicate, true);
-  assert.equal(h.escrow.get(code).creator.report, 'creator');
+  assert.equal(h.escrow.get(code).creator.report, ada.id);
 
   const second = h.escrow.report({ code, playerId: bola.id, winnerRole: 'creator' });
   assert.equal(second.challenge.status, 'agreed');

@@ -25,6 +25,11 @@ Do not copy those secrets into git, into this file, or into the journal.
 `ONILE_DATA_DIR` must not be Kolopoly's data directory. The two apps would
 otherwise share `payments.json` and `payouts.json`.
 
+The first boot after this release rewrites `escrow.json` in that directory.
+An older challenge stored as `creator` and `opponent` becomes a `players`
+list. Paid seats, payment references and reports are copied, not dropped.
+The write is a temp file renamed into place.
+
 ## 1. Service
 
 Run it as a new systemd unit. Point one `EnvironmentFile` at the existing
