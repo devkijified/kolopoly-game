@@ -3649,8 +3649,11 @@ function deedRowsFor(playerId, room, picker) {
     const sp = window.KP_DATA.SPACES[i];
     const pr = room.props[i];
     const band = sp.type === 'street' ? window.KP_DATA.GROUPS[sp.group].color : '#3d3d3d';
-    return '<div class="deed-check">' + (picker ? '<input type="checkbox" data-deed="' + i + '">' : '') +
-      '<span class="dot" style="background:' + band + '"></span><span style="flex:1"><b>' + esc(sp.name) + '</b>' +
+    const file = window.KP_DATA.stickerFor && window.KP_DATA.stickerFor(sp);
+    const stamp = (document.querySelector('meta[name="kolopoly-build"]') || {}).content || '';
+    const art = file ? '<img class="deed-mini-art" alt="" src="' + file + (stamp ? '?v=' + stamp : '') + '">' : '<span class="dot" style="background:' + band + '"></span>';
+    return '<div class="deed-check deed-mini' + (pr.m ? ' is-mortgaged' : '') + '">' + (picker ? '<input type="checkbox" data-deed="' + i + '">' : '') +
+      art + '<span class="deed-mini-copy" style="flex:1"><b>' + esc(sp.name) + '</b>' +
       '<span class="meta"> ' + (pr.b >= 5 ? '· Mansion' : pr.b > 0 ? '· ' + pr.b + ' duplex' : '') + (pr.m ? ' · mortgaged' : '') + (pr.pl ? ' · pledged' : '') + '</span></span>' +
       (!picker ? '<button class="btn small ghost" data-open-deed="' + i + '">Open</button>' : '') + '</div>';
   }).join('') || '<p class="caption">No deeds yet.</p>';
@@ -3692,7 +3695,7 @@ function swapDeedGrid(playerId, room) {
     return '<button type="button" class="swap-deed' + light + mort + '" data-deed="' + i + '" aria-pressed="false" aria-label="' + esc(sp.name) + (face.price ? ', ' + face.price : '') + '" style="--band:' + face.band + '">' +
       '<span class="swap-band"><span class="swap-name">' + esc(face.name) + '</span></span>' +
       '<span class="swap-tick" aria-hidden="true"></span>' +
-      '<span class="tile-art" style="color:' + face.band + '">' + window.tileArt(face.art) + '</span>' +
+      '<span class="tile-art" style="color:' + face.band + '">' + (face.sticker ? '<img class="tile-photo" alt="" src="' + face.sticker + '?v=' + ((document.querySelector('meta[name="kolopoly-build"]') || {}).content || '') + '">' : window.tileArt(face.art)) + '</span>' +
       '<span class="pr">' + (face.price || '') + (flag ? '<span class="swap-flag">' + esc(flag) + '</span>' : '') + '</span></button>';
   }).join('') + '</div>';
 }

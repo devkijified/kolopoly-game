@@ -103,6 +103,12 @@ function bandIsLight(hex) {
 }
 // One scene per space identity. Group fallbacks first, hand picks on top.
 const ART_BY_GROUP = { brown: 'stalls', lightblue: 'house', pink: 'buka', orange: 'towers', red: 'gate', yellow: 'towers', green: 'mansion', olive: 'danfo', darkblue: 'mansion' };
+function tilePicture(sp, artKey) {
+  const file = D.stickerFor && D.stickerFor(sp);
+  if (!file) return window.tileArt(artKey);
+  const stamp = (document.querySelector('meta[name="kolopoly-build"]') || {}).content || '';
+  return '<img class="tile-photo" alt="" decoding="async" src="' + file + (stamp ? '?v=' + stamp : '') + '">';
+}
 function artFor(i, sp) {
   if (sp.art) return sp.art;
   if (sp.type === 'street') return ART_BY_GROUP[sp.group] || 'house';
@@ -184,7 +190,7 @@ const KPBoard = {
       el.style.setProperty('--band', bandColor);
       el.innerHTML =
         '<div class="band"></div>' +
-        '<div class="tile-art" style="color:' + bandColor + '">' + window.tileArt(artFor(i, sp)) + '</div>' +
+        '<div class="tile-art" style="color:' + bandColor + '">' + tilePicture(sp, artFor(i, sp)) + '</div>' +
         '<div class="nm">' + (sp.short || sp.name) + '</div>' +
         '<div class="pips"></div>' +
         (i === D.PARKING_INDEX ? '<div class="potamt"></div>' : '') +
@@ -496,7 +502,8 @@ const KPBoard = {
       band: bandColorFor(i, sp),
       art: artFor(i, sp),
       name: sp.short || sp.name,
-      price: sp.price ? D.fmtN(sp.price) : ''
+      price: sp.price ? D.fmtN(sp.price) : '',
+      sticker: D.stickerFor ? D.stickerFor(sp) : ''
     };
   },
 
@@ -508,8 +515,9 @@ const KPBoard = {
     const band = bandColorFor(i, sp);
     const head =
       '<div class="grab"></div><div class="deed-doc">' +
+      (D.stickerFor && D.stickerFor(sp) ? '<div class="deed-art"><img alt="" decoding="async" src="' + D.stickerFor(sp) + '?v=' + ((document.querySelector('meta[name="kolopoly-build"]') || {}).content || '') + '"></div>' : '') +
       '<div class="deed-head' + (bandIsLight(band) ? ' light' : '') + '" style="background:' + band + '">' +
-      '<div class="deed-seal">' + SEAL_SVG + '</div>' +
+      '<div class="deed-seal">' + (D.stickerFor && D.stickerFor(sp) ? '' : SEAL_SVG) + '</div>' +
       '<div class="deed-head-tx"><div class="deed-kicker">KOLOPOLY LAND REGISTRY · TITLE DEED</div>' +
       '<h3 class="title">' + esc(sp.name) + '</h3>';
     if (!sp.price) {
@@ -530,7 +538,7 @@ const KPBoard = {
     const pr = state.props[i];
     const owner = pr && pr.o != null ? byId[pr.o] : null;
     let html = head +
-      '<p class="deed-sub">' + (sp.type === 'street' ? D.GROUPS[sp.group].name + ' set' : sp.type === 'station' ? 'Station' : 'Utility') +
+      '<p class="deed-sub">' + (sp.type === 'street' ? D.GROUPS[sp.group].name + ' set' : sp.type === 'station' ? 'Station' : sp.type === 'bridge' ? 'Bridge' : 'Utility') +
       (owner ? ' · Owner: <b>' + esc(owner.name) + '</b>' : ' · Unowned, bank dey hold am') +
       (pr && pr.m ? ' · <b>MORTGAGED</b>' : '') + (pr && pr.pl ? ' · <b>PLEDGED as loan security</b>' : '') +
       (pr && pr.b ? ' · ' + (pr.b >= 5 ? 'Mansion built' : pr.b + ' duplex(es) built') : '') + '</p></div>' +
@@ -543,7 +551,9 @@ const KPBoard = {
     html += '<div class="kv"><span>Mortgage value</span><b>' + D.fmtN(D.mortgageOf(sp.price)) + '</b></div>';
     html += '<div class="kv"><span>Lift mortgage for</span><b>' + D.fmtN(D.unmortgageCost(sp.price)) + '</b></div>';
     if (sp.type === 'street') {
-      const rows = [['Site only', sp.rent[0]], ['Full set (site x2)', sp.rent[1]], ['1 duplex', sp.rent[2]], ['2 duplexes', sp.rent[3]], ['3 duplexes', sp.rent[4]], ['4 duplexes', sp.rent[5]], ['MANSION', sp.rent[6]]];
+      const house = '<span class="rent-ico">' + DUPLEX_SVG + '</span>';
+      const mansion = '<span class="rent-ico">' + MANSION_SVG + '</span>';
+      const rows = [['Site only', sp.rent[0]], ['Full set (site x2)', sp.rent[1]], [house + '1 duplex', sp.rent[2]], [house + '2 duplexes', sp.rent[3]], [house + '3 duplexes', sp.rent[4]], [house + '4 duplexes', sp.rent[5]], [mansion + 'MANSION', sp.rent[6]]];
       const cur = owner && owner.inJail ? -1 : !pr || pr.o == null ? -1 : pr.b >= 5 ? 6 : pr.b > 0 ? pr.b + 1 : (this.clientRent(state, i) === sp.rent[1] ? 1 : 0);
       html += '<table class="ladder"><tr><th>Rent ladder</th><th>Rent</th></tr>' +
         rows.map((r, idx) => '<tr class="' + (idx === cur ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
@@ -553,7 +563,7 @@ const KPBoard = {
       const n = pr && pr.o != null ? D.STATIONS.filter((s) => state.props[s] && state.props[s].o === pr.o).length : 0;
       html += '<table class="ladder"><tr><th>Stations owned</th><th>Rent</th></tr>' +
         rows.map((r, idx) => '<tr class="' + (idx === n - 1 && !(owner && owner.inJail) ? 'here' : '') + '"><td>' + r[0] + '</td><td>' + D.fmtN(r[1]) + '</td></tr>').join('') + '</table>';
-    } else {
+    } else if (sp.type === 'utility') {
       html += '<p class="lead" style="margin-top:10px;">Rent na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[0]) + '.' + (D.UTILITIES.length > 1 ? ' Own both utilities and na dice total x ' + D.fmtN(D.UTILITY_PER_PIP[1]) + '.' : ' NEPA na the only utility on this board.') + ' Utilities never carry the Inflation multiplier.</p>';
     }
     if (owner && owner.inJail) {
@@ -602,6 +612,7 @@ const KPBoard = {
     }
     html += '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
     html += '</div></div>';
+    if (pr && pr.m) html = html.replace('class="deed-doc"', 'class="deed-doc deed-mort"');
     return html;
   },
 

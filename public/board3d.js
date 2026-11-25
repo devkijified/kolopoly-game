@@ -562,13 +562,42 @@ function glossStrip(x, X, Y, w, h) {
   x.fillStyle = gl; x.fillRect(X, Y, w, h);
   x.fillStyle = 'rgba(255,255,255,0.55)'; x.fillRect(X + 4, Y + 3, w - 8, 2);
 }
+const stickerImg = {};
+let stickerEpoch = 0;
+function stickerImage(sp) {
+  const path = D.stickerFor && D.stickerFor(sp);
+  if (!path) return null;
+  if (!stickerImg[path]) {
+    const img = new Image();
+    img.onload = () => {
+      stickerEpoch += 1;
+      try {
+        if (typeof SCENES !== 'undefined' && SCENES.game && SCENES.game.tiles) {
+          for (const t of SCENES.game.tiles) t.sig = '';
+          if (SCENES.game.lastState) SCENES.game.sync(SCENES.game.lastState);
+        }
+      } catch (e) { /* the next state tick redraws */ }
+    };
+    const stamp = (document.querySelector('meta[name="kolopoly-build"]') || {}).content || '';
+    img.src = path + (stamp ? '?v=' + stamp : '');
+    stickerImg[path] = img;
+  }
+  const img = stickerImg[path];
+  return img.complete && img.naturalWidth ? img : null;
+}
+function drawMark(x, art, cx, cy, size, band, sp) {
+  const img = stickerImage(sp);
+  if (!img) { emblem(x, art, cx, cy, size, band); return; }
+  const s = size * 1.15;
+  x.drawImage(img, cx - s / 2, cy - s / 2, s, s);
+}
 function tileTexture(i, mortgaged, wPx) {
   const sp = D.SPACES[i];
   const corner = i % SIDE === 0;
   const Hpx = Math.round(336 * TS);
   const Wpx = corner ? Hpx : (wPx || 208);
   const W = Wpx / TS, H = 336;
-  const key = i + (mortgaged ? 'm' : '') + 'w' + Wpx;
+  const key = i + (mortgaged ? 'm' : '') + 'w' + Wpx + 'e' + stickerEpoch;
   if (tileTexCache[key]) return tileTexCache[key];
   const [c, x] = cnvS(Wpx, Hpx, TIER.texScale);
   x.scale(TS, TS);
@@ -577,11 +606,14 @@ function tileTexture(i, mortgaged, wPx) {
   // Premium pass: painted concrete, not paper. A cool warm-grey slab with
   // deterministic grain and a worn darker frame; the ink stays legible.
   const g = x.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#6e695f'); g.addColorStop(1, '#4a463e');
+  g.addColorStop(0, '#fffdf8'); g.addColorStop(1, '#f3e2bc');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
-  concreteGrain(x, W, H, i * 7919 + 13);
-  x.strokeStyle = 'rgba(20,16,12,0.55)'; x.lineWidth = 4; x.strokeRect(3, 3, W - 6, H - 6);
-  x.strokeStyle = 'rgba(255,255,255,0.35)'; x.lineWidth = 2; x.strokeRect(7, 7, W - 14, H - 14);
+  x.fillStyle = 'rgba(43,32,24,0.10)';
+  for (let yy = 5; yy < H; yy += 7) {
+    for (let xx = (yy % 14 < 7 ? 3 : 6); xx < W; xx += 7) x.fillRect(xx, yy, 1.6, 1.6);
+  }
+  x.strokeStyle = '#2b2018'; x.lineWidth = 7; x.strokeRect(4, 4, W - 8, H - 8);
+  x.strokeStyle = 'rgba(255,255,255,0.55)'; x.lineWidth = 2; x.strokeRect(10, 10, W - 20, H - 20);
   x.textAlign = 'center';
   const name = sp.short || sp.name;
   if (sp.type === 'card') {
@@ -591,7 +623,7 @@ function tileTexture(i, mortgaged, wPx) {
     x.fillStyle = '#fff'; fitFont(x, name.toUpperCase(), W - 20, 44, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.86);
   } else if (corner) {
-    emblem(x, art, W / 2, H * 0.40, 168, band);
+    drawMark(x, art, W / 2, H * 0.40, 168, band, sp);
     x.fillStyle = band; x.fillRect(6, H * 0.70, W - 12, H * 0.24);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
     fitFont(x, name.toUpperCase(), W - 26, 42, '900', '"Aeonik Pro", sans-serif');
@@ -615,7 +647,7 @@ function tileTexture(i, mortgaged, wPx) {
     x.font = '900 ' + nameSize + 'px "Aeonik Pro", sans-serif';
     if (lines.length === 1) x.fillText(lines[0].toUpperCase(), W / 2, H * 0.185);
     else lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.135 + k * H * 0.115));
-    emblem(x, art, W / 2, H * 0.58, 96, band);
+    drawMark(x, art, W / 2, H * 0.58, 96, band, sp);
     x.fillStyle = '#f3ead6';
     fitFont(x, D.fmtN(sp.price), W - 16, 44, '900', '"Aeonik Pro", sans-serif');
     x.fillText(D.fmtN(sp.price), W / 2, H * 0.94);
@@ -624,7 +656,7 @@ function tileTexture(i, mortgaged, wPx) {
     x.fillStyle = '#f3ead6';
     fitFont(x, name.toUpperCase(), W - 16, 40, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.25);
-    emblem(x, art, W / 2, H * 0.56, 104, band);
+    drawMark(x, art, W / 2, H * 0.56, 104, band, sp);
     x.fillStyle = '#f3ead6';
     if (sp.price) { fitFont(x, D.fmtN(sp.price), W - 16, 42, '900', '"Aeonik Pro", sans-serif'); x.fillText(D.fmtN(sp.price), W / 2, H * 0.94); }
     else if (sp.amount) { fitFont(x, 'Pay ' + D.fmtN(sp.amount), W - 16, 36, '800', '"Aeonik Pro", sans-serif'); x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.94); }
@@ -1189,7 +1221,7 @@ function deedCardTexture(i, ownerColor) {
   x.fillStyle = '#8a7a5f'; x.font = '700 15px "Figtree", sans-serif';
   x.fillText('KOLOPOLY LAND REGISTRY', 110, 116);
   x.fillText('TITLE DEED', 110, 138);
-  emblem(x, artFor(i, sp), 110, 196, 74, band);
+  drawMark(x, artFor(i, sp), 110, 196, 90, band, sp);
   x.fillStyle = INK; x.font = '700 24px "Aeonik Pro", sans-serif';
   x.fillText(sp.price ? D.fmtN(sp.price) : '', 110, 288);
   if (ownerColor) { x.strokeStyle = ownerColor; x.lineWidth = 12; x.strokeRect(6, 6, 208, 300); }
