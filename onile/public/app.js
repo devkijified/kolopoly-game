@@ -162,7 +162,7 @@ function payoutBlock(c) {
       failed: 'The send did not land. The house can try the same payout again. It will not create a second one.',
       review: 'The house is checking this before it is sent.'
     };
-    line = labels[p.status] || line;
+    line = p.houseHold ? 'Queued — house sends it soon' : (labels[p.status] || line);
   }
   var bank = c.bank ? '<p class="fine">Saved account: ' + esc(c.bank.bankName) + ' · ' + esc(c.bank.accountName) + ' · ••••' + esc(c.bank.last4) + '</p>' : '';
   var form = '';

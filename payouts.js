@@ -30,6 +30,18 @@ function nodeFs() { return require('fs'); }
 const OPEN = new Set(['awaiting-bank', 'ready', 'review', 'failed', 'otp']);
 const DONE = new Set(['paid', 'paid-manual', 'refunded', 'refunded-manual']);
 
+// House-side Paystack blocks: the winner's Collect must not keep calling
+// send(), and the public card must not say the payout failed. The desk
+// row stays failed and keeps the real lastError.
+const HOUSE_HOLD_RE = /third party payouts as a starter business|cannot initiate (third party )?payouts?|transfers? (are )?(not |dis)?enabled|insufficient (balance|funds)/i;
+const HOUSE_HOLD_MESSAGE = 'Queued — house sends it soon';
+function isHouseHoldError(err) {
+  return !!(err && HOUSE_HOLD_RE.test(String(err)));
+}
+function isHouseHold(p) {
+  return !!(p && p.status === 'failed' && isHouseHoldError(p.lastError));
+}
+
 function createPayouts(opts) {
   opts = opts || {};
   const memory = !!opts.memory;
@@ -159,8 +171,10 @@ function createPayouts(opts) {
 
   function publicRow(p) {
     return {
-      id: p.id, kind: p.kind, roomCode: p.roomCode, amount: p.amountKobo / 100, amountKobo: p.amountKobo,
-      status: p.status, testMode: p.testMode, createdAt: p.createdAt, updatedAt: p.updatedAt, why: p.why
+      id: p.id, kind: p.kind, roomCode: p.roomCode, gameKey: p.gameKey || null,
+      amount: p.amountKobo / 100, amountKobo: p.amountKobo,
+      status: p.status, testMode: p.testMode, createdAt: p.createdAt, updatedAt: p.updatedAt, why: p.why,
+      houseHold: isHouseHold(p)
     };
   }
   function mine(accountId) {
@@ -329,6 +343,9 @@ function createPayouts(opts) {
     }
     if (p.testMode || p.status === 'test') return { ok: false, status: 400, error: 'test', message: 'Test mode: no real money to send.' };
     if (p.status === 'review') return { ok: false, status: 409, error: 'review', message: 'The house is checking this game before paying.' };
+    if (isHouseHold(p)) {
+      return { ok: true, already: true, status: p.status, houseHold: true, payout: publicRow(p), message: HOUSE_HOLD_MESSAGE };
+    }
     if (!doc.banks[accountId] || p.status === 'awaiting-bank') {
       if (p.status !== 'awaiting-bank') { setStatus(p, 'awaiting-bank', { via: 'collect' }); save(); }
       return { ok: false, status: 409, error: 'bank', message: 'Add your bank, then collect again. The prize stays queued.' };
@@ -340,6 +357,9 @@ function createPayouts(opts) {
       const row = get(p.id);
       const paid = row && (row.status === 'paid' || row.status === 'paid-manual');
       const moving = row && (row.status === 'sending' || row.status === 'otp');
+      if (row && isHouseHold(row)) {
+        return { ok: true, already: false, status: row.status, houseHold: true, payout: publicRow(row), message: HOUSE_HOLD_MESSAGE };
+      }
       return {
         ok: !!(out && out.ok) || paid || moving,
         already: false,
@@ -360,4 +380,4 @@ function createPayouts(opts) {
   return { fromLedger, setBank, mine, collect, send, approve, markManual, onWebhook, sweep, view, list, openRows, hydrate, get, OPEN, DONE };
 }
 
-module.exports = { createPayouts };
+module.exports = { createPayouts, isHouseHoldError, HOUSE_HOLD_MESSAGE };

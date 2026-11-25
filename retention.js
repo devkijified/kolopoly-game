@@ -1187,10 +1187,16 @@ function createRetention(opts) {
   function noteResult(info) {
     info = info || {};
     if (!info.id) return;
+    // Bot-only tables (one counted human, no human opponents) stay off
+    // the profile record. Biggest win is prize naira, never board cash.
+    const humans = info.humans != null
+      ? Math.round(Number(info.humans) || 0)
+      : 1 + (Array.isArray(info.opponents) ? info.opponents.length : 0);
+    if (humans < 2) return;
     const p = ensure(info.id);
     p.stats = p.stats && typeof p.stats === 'object' ? p.stats : { played: 0, wins: 0, losses: 0, biggest: 0 };
     p.stats.played += 1;
-    const haul = info.won ? Math.max(Number(info.prize) || 0, Number(info.netWorth) || 0) : 0;
+    const haul = info.won ? Math.max(0, Math.round(Number(info.prize) || 0)) : 0;
     if (info.won) {
       p.stats.wins += 1;
       if (haul > (p.stats.biggest || 0)) p.stats.biggest = haul;

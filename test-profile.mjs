@@ -4,7 +4,11 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createRequire } from 'module';
 import WebSocket from 'ws';
+
+const require = createRequire(import.meta.url);
+const { createRetention } = require('./retention.js');
 
 let checks = 0;
 let failures = 0;
@@ -41,6 +45,17 @@ check('a turned-on subscription stays on even if the phone still has a mute bit 
 check('an explicit mute still reads as off', !whisperOn({
   browser: true, denied: false, subscribed: true, serverMuted: true, localMuted: true, permission: 'granted'
 }));
+
+const book = createRetention({ memory: true, test: true });
+const soloAcct = 'a_b4a538773fa892c22875';
+const kijiAcct = 'a_f134af1458fc3b1594a8';
+book.noteResult({ id: 'acct:' + soloAcct, won: false, roomCode: 'SQNS', netWorth: 1683000, prize: 0, opponents: [] });
+check('a bot-only table does not enter profile stats', !book.profileOf(soloAcct).played && !(book.profileOf(soloAcct).recent || []).length, JSON.stringify(book.profileOf(soloAcct)));
+book.noteResult({ id: 'acct:' + kijiAcct, won: true, roomCode: 'RFFU', netWorth: 5000000, prize: 360, opponents: ['Mobolaji'] });
+const paidWin = book.profileOf(kijiAcct);
+check('a paid win counts once and biggest win is the prize, not board cash', paidWin.played === 1 && paidWin.wins === 1 && paidWin.losses === 0 && paidWin.rate === 100 && paidWin.biggest === 360, JSON.stringify(paidWin));
+book.noteResult({ id: 'acct:' + kijiAcct, won: true, roomCode: 'FREE', netWorth: 1500000, prize: 0, opponents: ['Ada'], humans: 2 });
+check('a free win against a person does not raise biggest win', book.profileOf(kijiAcct).biggest === 360 && book.profileOf(kijiAcct).played === 2 && book.profileOf(kijiAcct).wins === 2, JSON.stringify(book.profileOf(kijiAcct)));
 
 function spawnServer(port, file) {
   const env = {
