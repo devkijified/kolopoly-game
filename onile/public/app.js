@@ -1,0 +1,444 @@
+'use strict';
+var state = { me: null, config: { housePercent: 10, payments: false }, flash: '' };
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function naira(kobo) {
+  var n = Math.abs(Number(kobo) || 0) / 100;
+  var digits = Number.isInteger(n) ? 0 : 2;
+  return '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: digits, maximumFractionDigits: 2 });
+}
+function when(ms) {
+  if (!ms) return '';
+  try {
+    return new Date(ms).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return ''; }
+}
+function pretty(code) {
+  var c = String(code || '');
+  return c.slice(0, 4) + ' ' + c.slice(4);
+}
+function api(path, opts) {
+  opts = opts || {};
+  return fetch(path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function (res) {
+    return res.json().catch(function () { return { ok: false }; }).then(function (data) {
+      data.status = res.status;
+      return data;
+    });
+  });
+}
+function go(href) {
+  history.pushState({}, '', href);
+  return load();
+}
+function flash(msg) { state.flash = msg || ''; }
+
+function shell(inner) {
+  var me = state.me ? '<div class="who">Signed in as ' + esc(state.me.name) + '</div>' : '';
+  var note = state.flash ? '<div class="flash" role="status">' + esc(state.flash) + '</div>' : '';
+  return '<div class="wrap">' +
+    '<header class="topbar"><a class="brand" href="/" data-nav><span class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9.5 10 3l7 6.5V17a1 1 0 0 1-1 1h-4.2v-5H8.2V18H4a1 1 0 0 1-1-1V9.5z" fill="#1b140f"/></svg></span>ONILE</a>' +
+    '<a class="navlink" href="/mine" data-nav>Mine</a></header>' +
+    note + me + inner + '</div>';
+}
+function moneyCard(c) {
+  return '<section class="money" aria-label="Pot">' +
+    '<div><span class="muted">Each person</span><b>' + naira(c.stakeKobo) + '</b></div>' +
+    '<div><span class="muted">Pot held</span><b>' + naira(c.potKobo) + '</b></div>' +
+    '<div><span class="muted">Winner receives</span><b>' + naira(c.prizeKobo) + '</b></div>' +
+    '<div><span class="muted">House keeps ' + esc(c.housePercent) + '%</span><b>' + naira(c.houseKobo) + '</b></div>' +
+    '</section>';
+}
+function people(c) {
+  function row(label, person) {
+    if (!person) return '<div class="person"><div><span class="muted">' + label + '</span><strong>Waiting</strong></div><span class="chip wait">Not yet</span></div>';
+    var chip = person.paid ? '<span class="chip ok">Paid</span>' : '<span class="chip wait">Not paid</span>';
+    return '<div class="person"><div><span class="muted">' + label + '</span><strong>' + esc(person.name) + '</strong></div>' + chip + '</div>';
+  }
+  return '<div class="stack">' + row('Opened by', c.creator) + row('Joined', c.opponent) + '</div>';
+}
+function statusBanner(c) {
+  var map = {
+    open: ['Waiting', 'Share the code. Onile locks the pot once you have both paid.'],
+    joined: ['Both in', 'Pay your part. Nobody can take the pot until you both name the same winner.'],
+    held: ['Funds held', 'Go and play. Come back and name the winner. We do not release the pot early.'],
+    reported: ['Funds held', 'Your report is in. The pot stays here until the other player reports.'],
+    agreed: ['Agreed', (c.winnerName || 'The winner') + ' is paid ' + naira(c.prizeKobo) + '. The house keeps ' + naira(c.houseKobo) + '.'],
+    disputed: ['With the house', c.disputeReason === 'timeout' ? 'The deadline passed without an agreement. The house will decide.' : 'You named different winners. The house will decide.'],
+    resolved: ['Split', 'Each payment goes back to the person who paid it.'],
+    refunded: ['Sent back', 'The pot was not completed, so the money goes back.'],
+    expired: ['Closed', 'Nobody paid before the deadline.']
+  };
+  var pair = map[c.status] || ['Onile', ''];
+  if (c.status === 'open' && c.you !== 'creator') pair = ['Open', 'Join in, then pay your part. Onile holds the pot until you both agree.'];
+  var tone = c.status === 'agreed' || c.status === 'resolved' || c.status === 'refunded' ? 'good' : (c.status === 'disputed' ? 'bad' : 'held');
+  return '<section class="banner ' + tone + '"><p class="kicker">Challenge</p><h2>' + esc(pair[0]) + '</h2><p>' + esc(pair[1]) + '</p></section>';
+}
+
+function viewHome() {
+  var cut = state.config.housePercent != null ? state.config.housePercent : 10;
+  return shell(
+    '<h1 class="display">We hold the money. Nobody runs.</h1>' +
+    '<p class="lede">Open a challenge with one other person. You each pay the same amount. Onile holds the pot until you agree who won.</p>' +
+    '<div class="stamp">Funds held</div>' +
+    '<div class="actions"><a class="btn" href="/new" data-nav>Open a challenge</a><a class="btn secondary" href="/join" data-nav>I have a code</a></div>' +
+    '<div class="stack">' +
+      '<article class="step"><div class="num">1</div><div><strong>Share a code</strong><span>Title, activity, amount, and the rules if you want them.</span></div></article>' +
+      '<article class="step"><div class="num">2</div><div><strong>Both of you pay</strong><span>Paystack takes the payment. Onile holds it. Neither of you can pull it back mid-game.</span></div></article>' +
+      '<article class="step"><div class="num">3</div><div><strong>Name the winner</strong><span>If you agree, the winner is paid, minus the house ' + esc(cut) + '%. If you do not, the house decides.</span></div></article>' +
+    '</div>' +
+    '<p class="fine">If the other person never joins or pays, your money is sent back. A sister of Kolopoly. The board game is a different service.</p>'
+  );
+}
+
+function viewCreate() {
+  var name = state.me ? '' : '<label for="name">Your name</label><input id="name" name="name" required maxlength="40" autocomplete="name">' +
+    '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="120" autocomplete="email">';
+  return shell(
+    '<p class="kicker">New challenge</p><h1 class="display">Open it.</h1>' +
+    '<form class="card" data-act="create" style="margin-top:14px">' + name +
+      '<label for="title">Title</label><input id="title" name="title" required maxlength="80" placeholder="Friday at Tobi\'s">' +
+      '<label for="activity">Game or activity</label><input id="activity" name="activity" required maxlength="60" placeholder="FIFA, chess, a race">' +
+      '<label for="amount">Amount each (₦)</label><input id="amount" name="stakeNaira" inputmode="numeric" required placeholder="5000">' +
+      '<label for="rules">Rules, optional</label><textarea id="rules" name="rules" maxlength="500" placeholder="Best of three. Extra time counts."></textarea>' +
+      '<label for="deadline">Deadline, optional</label><input id="deadline" name="deadline" type="datetime-local">' +
+      '<div class="actions"><button type="submit">Create and get a code</button></div>' +
+    '</form>'
+  );
+}
+
+function viewJoin() {
+  var who = state.me ? '' : '<label for="name">Your name</label><input id="name" name="name" required maxlength="40">' +
+    '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="120">';
+  return shell(
+    '<p class="kicker">Join</p><h1 class="display">Enter the code.</h1>' +
+    '<form class="card" data-act="join" style="margin-top:14px">' + who +
+      '<label for="code">Challenge code</label><input id="code" name="code" required maxlength="16" autocapitalize="characters" placeholder="ABCD 2345">' +
+      '<div class="actions"><button type="submit">Find the challenge</button></div>' +
+    '</form>'
+  );
+}
+
+function payoutBlock(c) {
+  if (c.status !== 'agreed' || c.you == null) return '';
+  var youWon = (c.you === 'creator' && c.winnerRole === 'creator') || (c.you === 'opponent' && c.winnerRole === 'opponent');
+  if (!youWon) return '<p class="fine">The winner is paid to the bank account they saved. The house sends it once.</p>';
+  var p = c.payout;
+  var line = 'The house sends ' + naira(c.prizeKobo) + ' to your bank. It is sent once.';
+  if (p) {
+    var labels = {
+      'awaiting-bank': 'Add the account that should receive it. The payout stays queued.',
+      ready: 'Queued. The house sends it from the desk.',
+      sending: 'On the way to your bank.',
+      paid: 'Paid to your bank.',
+      'paid-manual': 'Paid by hand.',
+      otp: 'Paystack still needs a confirmation on the house account.',
+      failed: 'The send did not land. The house can try the same payout again. It will not create a second one.',
+      review: 'The house is checking this before it is sent.'
+    };
+    line = labels[p.status] || line;
+  }
+  var bank = c.bank ? '<p class="fine">Saved account: ' + esc(c.bank.bankName) + ' · ' + esc(c.bank.accountName) + ' · ••••' + esc(c.bank.last4) + '</p>' : '';
+  var form = '';
+  if (!c.bank || (p && p.status === 'awaiting-bank')) {
+    form = '<form data-act="bank"><label for="bankCode">Bank</label><select id="bankCode" name="bankCode" required><option value="">Loading banks…</option></select>' +
+      '<label for="accountNumber">Account number</label><input id="accountNumber" name="accountNumber" inputmode="numeric" maxlength="10" required placeholder="10 digits">' +
+      '<div class="actions"><button type="submit" class="green">Save this account</button></div></form>';
+  }
+  return '<section class="card"><strong>Your payout</strong><p class="fine">' + esc(line) + '</p>' + bank + form + '</section>';
+}
+
+function reportBlock(c) {
+  if (!c.you || (c.status !== 'held' && c.status !== 'reported')) return '';
+  if (c.yourReport) {
+    var said = c.yourReport === 'creator' ? c.creator.name : (c.opponent && c.opponent.name);
+    return '<section class="card"><strong>You said ' + esc(said) + ' won.</strong><p class="fine">Waiting for the other player. The pot does not move until the reports match.</p></section>';
+  }
+  return '<form data-act="report"><p class="kicker">Name the winner</p>' +
+    '<div class="actions"><button type="submit" name="winnerRole" value="creator" class="green">' + esc(c.creator.name) + ' won</button>' +
+    (c.opponent ? '<button type="submit" name="winnerRole" value="opponent">' + esc(c.opponent.name) + ' won</button>' : '') +
+    '</div></form>';
+}
+
+function payBlock(c) {
+  if (!c.you) return '';
+  var mine = c.you === 'creator' ? c.creator : c.opponent;
+  if (!mine || mine.paid) return '';
+  if (c.status !== 'open' && c.status !== 'joined') return '';
+  return '<form data-act="pay"><div class="actions"><button type="submit">Pay ' + naira(c.stakeKobo) + ' with Paystack</button></div>' +
+    '<p class="fine">You leave this page for Paystack. Onile holds the money only after Paystack confirms the same amount.</p></form>';
+}
+
+function joinBlock(c) {
+  if (c.you || c.status !== 'open') return '';
+  var who = state.me ? '<p class="fine">Joining as ' + esc(state.me.name) + '.</p>' :
+    '<label for="name">Your name</label><input id="name" name="name" required maxlength="40"><label for="email">Email</label><input id="email" name="email" type="email" required>';
+  return '<form class="card" data-act="join-here">' + who + '<div class="actions"><button type="submit">Join this challenge</button></div></form>';
+}
+
+function statements(c) {
+  if (!c.statements || !c.statements.length) return '';
+  return '<section class="card"><strong>Reports</strong>' + c.statements.map(function (s) {
+    return '<p class="fine">' + esc(s.name) + ' said ' + esc(s.winner) + ' won.</p>';
+  }).join('') + '</section>';
+}
+
+function viewChallenge(code, c) {
+  if (!c) return shell('<h1 class="display">That code is not a challenge.</h1><div class="actions"><a class="btn" href="/join" data-nav>Try another code</a></div>');
+  var rules = c.rules ? '<p class="fine"><strong>Rules.</strong> ' + esc(c.rules) + '</p>' : '';
+  var due = c.reportBy ? 'Report by ' + when(c.reportBy) : 'Join and pay by ' + when(c.joinBy);
+  var share = '<section class="card"><p class="kicker">Code</p><div class="code">' + esc(pretty(c.code)) + '</div>' +
+    '<button type="button" data-act="copy" data-code="' + esc(c.code) + '">Copy link</button></section>';
+  return shell(
+    '<p class="kicker">' + esc(c.activity) + '</p><h1 class="display">' + esc(c.title) + '</h1>' +
+    '<p class="fine">' + esc(due) + '</p>' +
+    '<div class="stack">' + statusBanner(c) + moneyCard(c) + people(c) + joinBlock(c) + payBlock(c) + reportBlock(c) + payoutBlock(c) + share + rules + statements(c) + '</div>'
+  );
+}
+
+function viewMine(rows) {
+  var list = (rows || []).map(function (c) {
+    var labels = { open: 'Open', joined: 'Needs payment', held: 'Funds held', reported: 'Needs a report', agreed: 'Agreed', disputed: 'Dispute', resolved: 'Split', refunded: 'Sent back', expired: 'Closed' };
+    return '<a class="card challenge-link" href="/c/' + esc(c.code) + '" data-nav><b>' + esc(c.title) + '</b><span class="fine">' + esc(c.activity) + ' · ' + naira(c.stakeKobo) + ' each</span><div style="margin-top:8px"><span class="chip">' + esc(labels[c.status] || c.status) + '</span></div></a>';
+  }).join('');
+  var body = list || '<section class="card"><strong>Nothing here yet.</strong><p class="fine">Open a challenge and send the code.</p></section>';
+  var who = state.me ? '' : '<form class="card" data-act="signin"><label for="name">Your name</label><input id="name" name="name" required><label for="email">Email</label><input id="email" name="email" type="email" required><div class="actions"><button type="submit">Show my challenges</button></div></form>';
+  return shell('<p class="kicker">Yours</p><h1 class="display">My challenges</h1>' + who + '<div class="list">' + body + '</div>');
+}
+
+function viewAdmin(data) {
+  if (!data) {
+    return shell(
+      '<div class="desk-head"><strong>HOUSE DESK</strong><p>Disputes and payouts. Same key as the Kolopoly ops desk.</p></div>' +
+      '<form class="card" data-act="unlock"><label for="token">Desk key</label><input id="token" name="token" type="password" autocomplete="current-password" required>' +
+      '<div class="actions"><button type="submit">Open the desk</button></div></form>'
+    );
+  }
+  var disputes = (data.disputes || []).map(function (c) {
+    var said = (c.statements || []).map(function (s) { return esc(s.name) + ' said ' + esc(s.winner) + ' won'; }).join('. ');
+    return '<article class="card"><p class="kicker">' + esc(c.code) + '</p><h2>' + esc(c.title) + '</h2>' +
+      '<p class="fine">' + esc(c.activity) + ' · pot ' + naira(c.potKobo) + ' · ' + esc(c.disputeReason || 'dispute') + '</p>' +
+      '<p class="fine">' + (said || 'No reports.') + '</p>' +
+      '<form data-act="resolve" data-code="' + esc(c.code) + '"><div class="split">' +
+      '<button type="submit" name="action" value="winner" data-role="creator" class="green">Pay ' + esc(c.creator.name) + '</button>' +
+      (c.opponent ? '<button type="submit" name="action" value="winner" data-role="opponent">Pay ' + esc(c.opponent.name) + '</button>' : '') +
+      '<button type="submit" name="action" value="split" class="secondary">Split it back</button>' +
+      '<button type="submit" name="action" value="refund" class="red">Refund both</button>' +
+      '</div></form></article>';
+  }).join('');
+  var payouts = (data.payouts || []).map(function (p) {
+    var bank = p.bank ? esc(p.bank.bankName) + ' ••••' + esc(p.bank.last4) : 'No bank yet';
+    return '<article class="card"><strong>' + esc(p.kind) + ' · ' + naira(p.amountKobo) + '</strong>' +
+      '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || '') + ' · ' + esc(p.status) + '<br>' + bank + '</p>' +
+      '<div class="row" style="margin-top:8px"><button type="button" data-act="send" data-id="' + esc(p.id) + '">Send</button>' +
+      '<button type="button" class="secondary" data-act="manual" data-id="' + esc(p.id) + '">Mark paid by hand</button></div></article>';
+  }).join('');
+  return shell(
+    '<div class="desk-head"><strong>HOUSE DESK</strong><p>Payouts are ' + esc(data.payoutMode) + '. Sending a row twice does not pay twice.</p></div>' +
+    '<h1 class="display">Disputes</h1><div class="list">' + (disputes || '<section class="card">No disputes. The pot is quiet.</section>') + '</div>' +
+    '<h2 style="margin:18px 0 8px;font-family:Aeonik Pro,Figtree,sans-serif">Payouts</h2><div class="list">' + (payouts || '<section class="card">No payout rows.</section>') + '</div>' +
+    '<div class="actions"><button type="button" class="ghost" data-act="lock">Lock the desk</button></div>'
+  );
+}
+
+var page = { name: 'home', code: '', challenge: null, mine: [], admin: undefined };
+
+function route() {
+  var path = location.pathname.replace(/\/$/, '') || '/';
+  if (path === '/') return { name: 'home' };
+  if (path === '/new') return { name: 'new' };
+  if (path === '/join') return { name: 'join' };
+  if (path === '/mine') return { name: 'mine' };
+  if (path === '/admin') return { name: 'admin' };
+  var m = path.match(/^\/c\/([A-Za-z0-9]+)$/);
+  if (m) return { name: 'challenge', code: m[1].toUpperCase() };
+  return { name: 'home' };
+}
+
+function draw() {
+  var r = route();
+  var html = '';
+  if (r.name === 'home') html = viewHome();
+  else if (r.name === 'new') html = viewCreate();
+  else if (r.name === 'join') html = viewJoin();
+  else if (r.name === 'mine') html = viewMine(page.mine);
+  else if (r.name === 'admin') html = viewAdmin(page.admin);
+  else html = viewChallenge(r.code, page.challenge);
+  document.getElementById('app').innerHTML = html;
+  var select = document.getElementById('bankCode');
+  if (select) loadBanks(select);
+}
+
+function loadBanks(select) {
+  api('/api/banks').then(function (data) {
+    if (!data.ok) { select.innerHTML = '<option value="">Banks unavailable</option>'; return; }
+    select.innerHTML = '<option value="">Pick a bank</option>' + data.banks.map(function (b) {
+      return '<option value="' + esc(b.code) + '">' + esc(b.name) + '</option>';
+    }).join('');
+  });
+}
+
+function load() {
+  var r = route();
+  var jobs = [api('/api/me'), api('/api/config')];
+  return Promise.all(jobs).then(function (pair) {
+    state.me = pair[0].ok ? pair[0].player : null;
+    state.config = pair[1].ok ? pair[1] : state.config;
+    if (r.name === 'challenge') {
+      return api('/api/challenges/' + r.code).then(function (data) {
+        page.challenge = data.ok ? data.challenge : null;
+        if (!data.ok) flash(data.message || 'No challenge with that code.');
+      });
+    }
+    if (r.name === 'mine' && state.me) {
+      return api('/api/challenges/mine').then(function (data) { page.mine = data.challenges || []; });
+    }
+    if (r.name === 'admin') {
+      return api('/api/admin/queue').then(function (data) { page.admin = data.ok ? data : null; });
+    }
+  }).then(draw);
+}
+
+function formData(form) {
+  var data = {};
+  new FormData(form).forEach(function (value, key) { data[key] = String(value).trim(); });
+  return data;
+}
+
+document.addEventListener('click', function (e) {
+  var nav = e.target.closest('[data-nav]');
+  if (nav) { e.preventDefault(); flash(''); go(nav.getAttribute('href')); return; }
+  var copy = e.target.closest('[data-act="copy"]');
+  if (copy) {
+    var link = location.origin + '/c/' + copy.getAttribute('data-code');
+    var done = function () { flash('Link copied.'); draw(); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done).catch(function () { flash(link); draw(); });
+    else { flash(link); draw(); }
+    return;
+  }
+  var send = e.target.closest('[data-act="send"]');
+  if (send) {
+    api('/api/admin/payouts/send', { method: 'POST', body: { id: send.getAttribute('data-id') } }).then(function (data) {
+      flash(data.ok ? 'Send started. A second tap will not pay again.' : (data.message || 'Could not send.'));
+      load();
+    });
+    return;
+  }
+  var manual = e.target.closest('[data-act="manual"]');
+  if (manual) {
+    api('/api/admin/payouts/manual', { method: 'POST', body: { id: manual.getAttribute('data-id'), note: 'paid by hand' } }).then(function (data) {
+      flash(data.ok ? 'Marked paid by hand.' : (data.message || 'Could not mark it.'));
+      load();
+    });
+    return;
+  }
+  if (e.target.closest('[data-act="lock"]')) {
+    api('/api/admin/lock', { method: 'POST', body: {} }).then(function () { page.admin = null; flash('Desk locked.'); load(); });
+  }
+});
+
+document.addEventListener('submit', function (e) {
+  var form = e.target;
+  if (!form || !form.dataset || !form.dataset.act) return;
+  e.preventDefault();
+  var act = form.dataset.act;
+  var data = formData(form);
+  var submitter = e.submitter;
+  if (submitter && submitter.name) data[submitter.name] = submitter.value;
+  if (submitter && submitter.getAttribute('data-role')) data.winnerRole = submitter.getAttribute('data-role');
+  var button = form.querySelector('button');
+  if (button) button.disabled = true;
+
+  if (act === 'create') {
+    if (data.deadline) data.deadline = new Date(data.deadline).toISOString();
+    else delete data.deadline;
+    api('/api/challenges', { method: 'POST', body: data }).then(function (res) {
+      if (!res.ok) { flash(res.message || 'Could not open it.'); load(); return; }
+      state.me = state.me || { name: data.name, email: data.email };
+      flash('Challenge open. Share the code.');
+      go('/c/' + res.challenge.code);
+    });
+    return;
+  }
+  if (act === 'join') {
+    api('/api/challenges/join', { method: 'POST', body: data }).then(function (res) {
+      if (!res.ok) { flash(res.message || 'Could not join.'); if (button) button.disabled = false; draw(); return; }
+      go('/c/' + res.challenge.code);
+    });
+    return;
+  }
+  if (act === 'join-here') {
+    data.code = route().code;
+    api('/api/challenges/join', { method: 'POST', body: data }).then(function (res) {
+      flash(res.ok ? 'You are in. Pay your part to lock the pot.' : (res.message || 'Could not join.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'pay') {
+    api('/api/challenges/' + route().code + '/pay', { method: 'POST', body: {} }).then(function (res) {
+      if (res.authorizationUrl) { location.href = res.authorizationUrl; return; }
+      flash(res.alreadyPaid ? 'You have already paid.' : (res.message || 'Paystack did not open.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'report') {
+    api('/api/challenges/' + route().code + '/report', { method: 'POST', body: { winnerRole: data.winnerRole } }).then(function (res) {
+      flash(res.ok ? 'Report saved.' : (res.message || 'Could not save that.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'bank') {
+    api('/api/bank', { method: 'POST', body: data }).then(function (res) {
+      flash(res.ok ? 'Account saved. Only the bank, the name, and the last four digits stay here.' : (res.message || 'Could not save that account.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'signin') {
+    api('/api/session', { method: 'POST', body: data }).then(function (res) {
+      if (!res.ok) { flash(res.message || 'Could not sign in.'); if (button) button.disabled = false; return; }
+      state.me = res.player;
+      flash('');
+      load();
+    });
+    return;
+  }
+  if (act === 'unlock') {
+    api('/api/admin/unlock', { method: 'POST', body: { token: data.token } }).then(function (res) {
+      flash(res.ok ? '' : (res.message || 'That key did not open the desk.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'resolve') {
+    api('/api/admin/resolve', { method: 'POST', body: { code: form.dataset.code, action: data.action, winnerRole: data.winnerRole } }).then(function (res) {
+      flash(res.ok ? 'Resolved. The payout row exists once.' : (res.message || 'Could not resolve.'));
+      load();
+    });
+  }
+});
+
+window.addEventListener('popstate', function () { flash(''); load(); });
+
+var params = new URLSearchParams(location.search);
+var back = params.get('reference') || params.get('trxref');
+load().then(function () {
+  if (!back) return;
+  flash('Checking that payment with Paystack…');
+  draw();
+  api('/api/payments/status?reference=' + encodeURIComponent(back)).then(function (res) {
+    history.replaceState({}, '', location.pathname);
+    flash(res.challenge && res.challenge.you && res.status === 'paid' ? 'Payment confirmed. Onile is holding it.' : 'Still waiting for Paystack to confirm.');
+    load();
+  });
+});
