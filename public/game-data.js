@@ -276,6 +276,22 @@ function buildCostOf(sp) {
   return sp.duplex;
 }
 
-const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, faceLines, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
+const CARD_GOOD = { bankPays: 1, collectEach: 1, upNepa: 1, fineRefund: 1, goojf: 1, shield: 1, freeUnmortgage: 1 };
+const CARD_BAD = { payBank: 1, repairs: 1, nepaLight: 1, lekkiRain: 1, fakeAlert: 1, payEach: 1, jail: 1, sapa: 1 };
+function cardMood(fxType) {
+  if (CARD_GOOD[fxType]) return 'good';
+  if (CARD_BAD[fxType]) return 'bad';
+  return 'move';
+}
+function cardCaption(fxType) {
+  if (fxType === 'nepaLight') return 'NEPA don take light. Generator or darkness.';
+  if (fxType === 'upNepa') return 'Up NEPA! The street don shout.';
+  if (fxType === 'bankPays' || fxType === 'collectEach') return 'Collect am. Na your money.';
+  if (fxType === 'jail') return 'Kirikiri dey call. No long story.';
+  if (cardMood(fxType) === 'bad') return 'E don happen. Pay small and move.';
+  if (cardMood(fxType) === 'good') return 'Good news. Big Daddy dey smile.';
+  return 'Move as the card talk.';
+}
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, faceLines, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf, cardMood, cardCaption };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;

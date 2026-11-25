@@ -727,6 +727,8 @@ const sfx = {
   cardSnap() { noiseHit({ dur: 0.04, vol: 0.06, freq: 2100, q: 2 }); tone({ f: 340, dur: 0.05, type: 'triangle', vol: 0.05 }); },
   cardWahala() { paperSlide(0, 0.2); tone({ f: 196, dur: 0.18, type: 'sawtooth', vol: 0.055 }); tone({ f: 146, at: 0.1, dur: 0.22, type: 'triangle', vol: 0.07 }); },
   cardFamily() { paperSlide(0, 0.18); tone({ f: 523, dur: 0.12, type: 'triangle', vol: 0.07 }); tone({ f: 659, at: 0.1, dur: 0.18, type: 'triangle', vol: 0.07 }); },
+  coinCheer() { sfx.potClink(); sfx.cheer(); },
+  powerDown() { tone({ f: 420, f2: 70, dur: 0.5, type: 'sawtooth', vol: 0.055 }); tone({ f: 160, f2: 48, at: 0.08, dur: 0.55, type: 'triangle', vol: 0.07 }); },
   swish() { paperSlide(0, 0.26); },
   auctionTick() { tone({ f: 1480, dur: 0.05, vol: 0.07 }); },
   decline() { noiseHit({ dur: 0.14, vol: 0.08, freq: 980, freq2: 360, q: 0.8 }); tone({ f: 220, f2: 110, dur: 0.22, type: 'triangle', vol: 0.08 }); },
@@ -1368,12 +1370,14 @@ function createSettings() {
 }
 $('createBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
-  clearSeat(); // a fresh entry choice abandons any stored seat
-  entrySent = true;
-  send('create_room', {
-    name: myName(), token: selectedToken, clientId: CLIENT_ID, mode: selectedRoomMode,
-    authToken: authToken() || undefined,
-    settings: createSettings()
+  gateTraining(() => {
+    clearSeat();
+    entrySent = true;
+    send('create_room', {
+      name: myName(), token: selectedToken, clientId: CLIENT_ID, mode: selectedRoomMode,
+      authToken: authToken() || undefined,
+      settings: createSettings()
+    });
   });
 });
 // ---------------------------------------------------------------------------
@@ -1992,12 +1996,14 @@ function renderPaidTables() {
     });
   }));
 }
-$('playToEarnBtn').addEventListener('click', () => { if (!entrySent) openPaidTables(); });
+$('playToEarnBtn').addEventListener('click', () => { if (!entrySent) gateTraining(() => openPaidTables()); });
 $('quickBtn').addEventListener('click', () => {
   if (!needName() || entrySent) return;
-  clearSeat();
-  entrySent = true;
-  send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID, gameMode: selectedGameMode, authToken: authToken() || undefined });
+  gateTraining(() => {
+    clearSeat();
+    entrySent = true;
+    send('quick_join', { name: myName(), token: selectedToken, clientId: CLIENT_ID, gameMode: selectedGameMode, authToken: authToken() || undefined });
+  });
 });
 let joinSentFor = null;
 function tryJoin(code) {
@@ -2408,10 +2414,9 @@ function processFeed(room, prev) {
       }
     }
   }
-  if (room.lastCard && room.lastCard.seq !== lastCardSeq) {
+    if (room.lastCard && room.lastCard.seq !== lastCardSeq) {
     lastCardSeq = room.lastCard.seq;
-    const drawer = room.lastCard.playerId;
-    if (room.mode === 'pass' || drawer === myId) showCardModal(room.lastCard);
+    showCardModal(room.lastCard);
   }
   // KP14: dice sounds no longer fire on socket time. The tumble and the
   // settle are animation beats (diceStart / diceSettle) in the board
@@ -2773,6 +2778,180 @@ function paintPauseClock(room) {
   }
 }
 window.__kolopolyRenderPause = renderPause;
+function trainingRecord() {
+  try { return JSON.parse(localStorage.getItem('kolopolyTraining') || '{}'); } catch (e) { return {}; }
+}
+function markTraining(patch) {
+  try { localStorage.setItem('kolopolyTraining', JSON.stringify(Object.assign(trainingRecord(), patch))); } catch (e) { /* private mode */ }
+}
+function renderCoach(room) {
+  document.querySelectorAll('.coach-live').forEach((el) => el.classList.remove('coach-live'));
+  let pop = document.getElementById('coachPop');
+  if (!room || !room.practice) {
+    if (pop) pop.hidden = true;
+    return;
+  }
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'coachPop';
+    pop.innerHTML = '<img class="coach-daddy" alt="" width="72" height="90">' +
+      '<div class="coach-bubble"><p class="coach-kicker">Training Ground</p><p class="coach-title"></p><p class="coach-line"></p><div class="coach-actions"></div></div>';
+    document.body.appendChild(pop);
+    pop.addEventListener('click', (ev) => {
+      const b = ev.target.closest('button');
+      if (!b) return;
+      if (b.dataset.act === 'next') send('practice_ack', { what: 'next' });
+      if (b.dataset.act === 'skip') send('practice_skip', {});
+      if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); location.reload(); }
+      if (b.dataset.act === 'free') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
+    });
+  }
+  const step = room.practice;
+  if (step.step === 'ready' || step.kind === 'free') markTraining({ seen: true, done: true });
+  let target = step.target || '';
+  let line = step.line || '';
+  if ((target === '#abRoll') && room.phase === 'end') {
+    target = '#abEnd';
+    line = 'Tap End turn. Your next roll don already set.';
+  }
+  pop.hidden = false;
+  pop.classList.toggle('coach-cheer', /cheer|ready|You ready|You get|You feel|don talk/.test(step.title || ''));
+  pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' ? 'daddy-clap' : 'daddy-stand') + '.webp';
+  pop.querySelector('.coach-title').textContent = step.title || '';
+  pop.querySelector('.coach-line').textContent = line;
+  const actions = pop.querySelector('.coach-actions');
+  if (step.step === 'ready') {
+    actions.innerHTML = '<div class="train-badge">TRAINED</div>' +
+      '<button type="button" class="btn small" data-act="real">Play a real game</button>' +
+      '<button type="button" class="btn small ghost" data-act="free">Free practice</button>';
+  } else if (step.kind === 'free') {
+    actions.innerHTML = '<button type="button" class="btn small ghost" data-act="real">Back home</button>';
+  } else if (step.wait === 'tap') {
+    actions.innerHTML = '<button type="button" class="btn small" data-act="next">I hear you</button>' +
+      '<button type="button" class="btn small ghost" data-act="skip">Skip</button>';
+  } else {
+    actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Skip</button>';
+  }
+  const el = target ? document.querySelector(target) : null;
+  if (el) el.classList.add('coach-live');
+}
+document.addEventListener('click', (ev) => {
+  if (!state || !state.practice) return;
+  if (ev.target.closest && ev.target.closest('#sbDeeds') && state.practice.step === 'deed') send('practice_ack', { what: 'deed' });
+  if (ev.target.closest && ev.target.closest('#hudDeals') && state.practice.step === 'deals') send('practice_ack', { what: 'deals' });
+});
+window.KPStartPractice = function (kind) {
+  const named = ($('nameIn') && $('nameIn').value.trim()) || rememberedName() || 'Learner';
+  try { localStorage.setItem('kolopolyName', named); } catch (e) { /* private mode */ }
+  markTraining({ seen: true });
+  const sheet = document.getElementById('trainSheet');
+  if (sheet) sheet.hidden = true;
+  showView('view-game');
+  if (state && state.code) {
+    const old = state;
+    send('leave', {});
+    if (old.practice && state && state.players) {
+      const me = state.players.find((p) => p.id === myId);
+      if (me) me.ws = null;
+    }
+  }
+  send('create_room', {
+    name: named, token: selectedToken, mode: 'online', practice: kind === 'free' ? 'free' : true, clientId: CLIENT_ID,
+    settings: { gameMode: 'classic', timed: false, turnTimerSec: 45 }
+  });
+};
+function profileMoney(kobo) { return fmtN(Math.round((Number(kobo) || 0) / 100)); }
+function paintProfile(data) {
+  let sheet = document.getElementById('profileSheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'profileSheet';
+    document.body.appendChild(sheet);
+    sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.hidden = true; });
+  }
+  const stats = (data && data.stats) || { played: 0, wins: 0, losses: 0, rate: 0, biggest: 0, rivalries: [], recent: [] };
+  const payouts = (data && data.payouts) || [];
+  const fees = (data && data.fees) || [];
+  const credit = (data && data.credit) || [];
+  const rows = payouts.map((p) => {
+    const word = (PAYOUT_WORDS[p.status] || [p.status, 'muted'])[0];
+    const collect = p.kind === 'prize' && (p.status === 'ready' || p.status === 'failed')
+      ? '<button type="button" class="btn small" data-collect="' + esc(p.roomCode || '') + '" data-key="' + esc(p.gameKey || '') + '">Collect</button>' : '';
+    return '<div class="prof-row"><b>' + esc(p.kind || 'payout') + ' · ' + fmtN(p.amount || 0) + '</b><span>' + esc(word) + '</span>' + collect + '</div>';
+  }).join('') || '<p class="caption">No prizes yet.</p>';
+  const h2h = (stats.rivalries || []).map((r) => '<div class="prof-row"><b>' + esc(r.name || 'Opponent') + '</b><span>you ' + (r.wins || 0) + ' · them ' + (r.losses || 0) + '</span></div>').join('') || '<p class="caption">No head-to-head yet.</p>';
+  const recent = (stats.recent || []).map((g) => '<div class="prof-row"><b>' + (g.won ? 'Win' : 'Loss') + ' · ' + esc(g.roomCode || '') + '</b><span>' + (g.opponents || []).map(esc).join(', ') + '</span></div>').join('') || '<p class="caption">No finished games on this account yet.</p>';
+  const spent = credit.filter((e) => (e.kobo || 0) < 0).map((e) => '<div class="prof-row"><b>Entry · ' + profileMoney(-e.kobo) + '</b><span>' + esc(e.roomCode || '') + '</span></div>').join('');
+  const feeRows = fees.map((f) => '<div class="prof-row"><b>Entry · ' + fmtN(f.amount || 0) + '</b><span>' + esc(f.status || '') + ' · ' + esc(f.roomCode || '') + '</span></div>').join('');
+  sheet.hidden = false;
+  sheet.innerHTML = '<div class="train-card prof-card"><p class="coach-kicker">My profile</p><h3>' + esc((data && data.email) || 'Your record') + '</h3>' +
+    (data && data.signedOut ? '<p>Sign in to see your wallet. Stats stay with the email you play on.</p>' : '') +
+    '<h4>Wallet</h4><p class="prof-balance">Play credit ' + profileMoney(data && data.creditKobo) + '</p>' +
+    rows + spent + feeRows +
+    '<h4>Stats</h4><p class="prof-balance">' + stats.played + ' played · ' + stats.wins + ' wins · ' + stats.losses + ' losses · ' + stats.rate + '%</p>' +
+    '<p class="caption">Biggest win ' + fmtN(stats.biggest || 0) + '</p>' +
+    '<h4>Head to head</h4>' + h2h +
+    '<h4>Recent games</h4>' + recent +
+    '<button type="button" class="btn block ghost" id="profileClose">Close</button></div>';
+  sheet.querySelector('#profileClose').addEventListener('click', () => { sheet.hidden = true; });
+  sheet.querySelectorAll('[data-collect]').forEach((b) => b.addEventListener('click', () => {
+    collectPrize({ code: b.dataset.collect, prize: { gameKey: b.dataset.key } }, b);
+  }));
+}
+async function openProfile() {
+  if (!authToken()) {
+    paintProfile({ signedOut: true, email: 'Not signed in', creditKobo: 0, payouts: [], fees: [], stats: { played: 0, wins: 0, losses: 0, rate: 0, biggest: 0, rivalries: [], recent: [] } });
+    return;
+  }
+  try {
+    const res = await fetch('/api/profile', { headers: { Authorization: 'Bearer ' + authToken() } });
+    const data = await res.json();
+    paintProfile(data && data.ok ? data : { signedOut: true, email: 'Sign in again' });
+  } catch (e) {
+    paintProfile({ signedOut: true, email: 'The house did not answer' });
+  }
+}
+window.KPOpenProfile = openProfile;
+window.__kolopolyPaintProfile = paintProfile;
+window.KPOpenTraining = function () {
+  markTraining({ seen: true });
+  let sheet = document.getElementById('trainSheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'trainSheet';
+    document.body.appendChild(sheet);
+    sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.hidden = true; });
+  }
+  const done = !!trainingRecord().done;
+  sheet.hidden = false;
+  sheet.innerHTML = '<div class="train-card"><p class="coach-kicker">Training Ground</p><h3>Learn the table</h3>' +
+    '<p>Big Daddy go teach you on the real board. No stake, nothing to collect.</p>' +
+    '<button type="button" class="btn block" id="trainIntro">' + (done ? 'Replay the lesson' : 'Start the lesson') + '</button>' +
+    (done ? '<button type="button" class="btn block ghost" id="trainFree">Free practice with bots</button>' : '<p class="caption">Free practice opens after you finish the lesson.</p>') +
+    '<button type="button" class="btn block ghost" id="trainClose">Close</button></div>';
+  sheet.querySelector('#trainIntro').addEventListener('click', () => window.KPStartPractice('intro'));
+  const free = sheet.querySelector('#trainFree');
+  if (free) free.addEventListener('click', () => window.KPStartPractice('free'));
+  sheet.querySelector('#trainClose').addEventListener('click', () => { sheet.hidden = true; });
+};
+function gateTraining(run) {
+  const rec = trainingRecord();
+  if (rec.seen || rec.done) { run(); return; }
+  let offer = document.getElementById('trainOffer');
+  if (!offer) {
+    offer = document.createElement('div');
+    offer.id = 'trainOffer';
+    document.body.appendChild(offer);
+  }
+  offer.hidden = false;
+  offer.innerHTML = '<div class="train-card"><p class="coach-kicker">First time?</p><h3>Every game get a Training Ground</h3>' +
+    '<p>Big Daddy go show you the board before you play for real. You fit skip.</p>' +
+    '<button type="button" class="btn block" id="trainOfferYes">Enter Training Ground</button>' +
+    '<button type="button" class="btn block ghost" id="trainOfferNo">I go play</button></div>';
+  offer.querySelector('#trainOfferYes').addEventListener('click', () => { offer.hidden = true; markTraining({ seen: true }); window.KPStartPractice('intro'); });
+  offer.querySelector('#trainOfferNo').addEventListener('click', () => { offer.hidden = true; markTraining({ seen: true }); run(); });
+}
+window.__kolopolyShowCard = showCardModal;
 
 // KP13 WS4: per-seat banner copy. The server sends a key + actor +
 // params; each client picks the form for its own seat. Short enough to
@@ -2873,6 +3052,7 @@ function renderGame(room) {
   renderAuction(room);
   renderTactical(room);
   renderPause(room);
+  renderCoach(room);
   maybeShowModals(room);
   // Pass and play banner on turn change
   if (room.mode === 'pass' && prevTurnPlayer !== null && prevTurnPlayer !== room.turnPlayerId && room.status === 'playing') {
@@ -3570,29 +3750,44 @@ const CARD_FX_LABELS = {
   freeUnmortgage: 'Use am', sapa: 'Na so e be', moveTo: 'Move', moveBack: 'Move', moveNearest: 'Move', jail: 'Go Kirikiri',
   goojf: 'Keep the card', shield: 'Keep the shield'
 };
+let cardRevealTimer = null;
 function showCardModal(card) {
-  // KP14: with the 3D board live, the card lift and reveal beats own
-  // the sound (cardSwish at the lift, cardSnap at the flip). This 2D
-  // fallback keeps a swish and a snap of its own.
-  if (!(window.KP3D && window.KP3D.active)) {
-    logSfx('cardSwish', null, 'render2d'); sfx.cardSwish();
-    setTimeout(() => { logSfx('cardSnap', null, 'render2d'); sfx.cardSnap(); }, 130);
-  }
   const m = $('cardModal');
   const deckData = card.deck === 'wahala' ? window.KP_DATA.WAHALA : window.KP_DATA.FAMILY;
   const found = deckData.find((c) => c.id === card.id);
   const fxType = found && found.fx ? found.fx.type : '';
-  const label = CARD_FX_LABELS[fxType] || 'Na so e be';
-  m.className = 'modal-card card-face ' + (card.deck === 'wahala' ? 'face-wahala' : 'face-family');
-  m.innerHTML = '<p class="caption" style="letter-spacing:1px;">' + (card.deck === 'wahala' ? 'WAHALA CARD' : 'FAMILY MEETING CARD') + '</p>' +
-    '<p class="lead" style="margin-top:8px;">' + esc(card.text) + '</p>' +
-    '<div class="btnrow"><button class="btn" data-close="1">' + label + '</button></div>';
-  $('cardScrim').classList.add('show');
+  const mood = (window.KP_DATA.cardMood && window.KP_DATA.cardMood(fxType)) || 'move';
+  const caption = (window.KP_DATA.cardCaption && window.KP_DATA.cardCaption(fxType)) || 'Na so e be.';
+  const daddy = mood === 'bad' ? 'daddy-jail' : (mood === 'good' ? 'daddy-money' : 'daddy-stand');
+  const build = ((document.querySelector('meta[name="kolopoly-build"]') || {}).content || '');
+  const src = '/mascot/' + daddy + '.webp' + (build && build.indexOf('__KOLOPOLY') !== 0 ? '?v=' + build : '');
+  m.className = 'modal-card card-face card-reveal face-' + (card.deck === 'wahala' ? 'wahala' : 'family') + ' mood-' + mood;
+  m.innerHTML = '<img class="card-daddy" alt="" width="96" height="120" src="' + src + '">' +
+    '<p class="card-kicker">' + (mood === 'good' ? 'GOOD NEWS' : mood === 'bad' ? 'WAHALA' : 'MOVE') + '</p>' +
+    '<p class="card-daddy-line">' + esc(caption) + '</p>' +
+    '<p class="card-text">' + esc(card.text) + '</p>' +
+    '<p class="card-hint">Tap to close</p>';
+  const scrim = $('cardScrim');
+  scrim.classList.add('show');
   if (window.KP3D) window.KP3D.onCardDrawn(card);
-  m.querySelector('[data-close]').addEventListener('click', () => {
+  if (!muted) {
+    try {
+      if (fxType === 'nepaLight') { sfx.powerDown(); buzz([40, 24, 70]); }
+      else if (mood === 'good') { sfx.coinCheer(); buzz([12, 18, 12]); }
+      else if (mood === 'bad') { sfx.cardWahala(); buzz([28, 46]); }
+      else { sfx.cardFamily(); buzz(16); }
+    } catch (e) { /* sound stays a garnish */ }
+  }
+  const close = () => {
+    if (cardRevealTimer) clearTimeout(cardRevealTimer);
+    cardRevealTimer = null;
     closeScrim('cardScrim');
     if (window.KP3D) window.KP3D.onCardResolved(card);
-  });
+  };
+  const ms = Math.max(4500, Math.min(7000, 3200 + String(card.text || '').length * 28));
+  if (cardRevealTimer) clearTimeout(cardRevealTimer);
+  cardRevealTimer = setTimeout(close, ms);
+  scrim.onclick = (ev) => { if (ev.target === scrim || ev.target.closest('.card-reveal')) close(); };
 }
 function maybeShowModals(room) {
   // Mortgaged deed choice (from a trade or bankruptcy handover)
@@ -4367,6 +4562,7 @@ function renderEnd(room) {
     })() +
     (window.KPRetention && window.KPRetention.endInstallHtml ? window.KPRetention.endInstallHtml() : '') +
     '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
+    '<button class="btn" id="endProfile">My profile</button>' +
     '<button class="btn" id="endWallet">Wallet</button>' +
     '<button class="btn green" id="endAgain">Play again</button></div>' +
     '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
@@ -4375,6 +4571,8 @@ function renderEnd(room) {
   if (collect) collect.addEventListener('click', () => collectPrize(room, collect));
   const endWallet = $('endWallet');
   if (endWallet) endWallet.addEventListener('click', () => openWinnings(false));
+  const endProfile = $('endProfile');
+  if (endProfile) endProfile.addEventListener('click', () => openProfile());
   paintWalletNote();
   kickWallet();
   if (window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
