@@ -682,37 +682,31 @@ function solventPlayers(room) { return room.players.filter((p) => !p.bankrupt); 
 function curPlayer(room) { return room.players.find((p) => p.id === room.turnPlayerId) || null; }
 
 const PRACTICE_STEPS = [
-  { id: 'hello', action: 'tap', mark: 1, title: 'The aim', line: 'Get rich. Own places. Make the other person go broke. That is the whole game.', target: '' },
-  { id: 'cash', action: 'tap', mark: 2, title: 'Your money', line: 'Tap the big number. That is your money. The bank pays you, and the bank takes bills.', target: '#hudCashBtn' },
-  { id: 'roll', action: 'roll', mark: 3, dice: [1, 3], title: 'Roll and walk', line: 'Tap Roll. Watch your token walk.', target: '#abRoll' },
-  { id: 'walked', action: 'tap', mark: 3, title: 'You moved', line: 'Your token walked to Ajegunle. Nobody owns that place yet.', target: '.bspace[data-space="4"]' },
-  { id: 'deed', action: 'deed', mark: 4, title: 'Read the paper', line: 'Tap the deed. It shows the price and the rent.', target: '#lessonDeed' },
-  { id: 'deedread', action: 'tap', mark: 4, title: 'The paper', line: 'Price on top. Rent underneath. If you own it, visitors pay you that rent.', target: '' },
-  { id: 'buy', action: 'buy', mark: 4, title: 'Buy it', line: 'Tap Buy. Only that button. Your money goes to the bank.', target: '#abBuy' },
-  { id: 'bought', action: 'tap', mark: 4, title: 'It is yours', line: 'Your cash went down. The deed came to your hand. Ajegunle is yours.', target: '#hudCashBtn' },
-  { id: 'endturn', action: 'end', mark: 5, title: 'Pass the turn', line: 'Tap End. Now it is Ada’s turn.', target: '#abEnd' },
-  { id: 'adaroll', action: 'ada', mark: 5, diceBot: [1, 3], title: 'Watch Ada', line: 'She is walking onto your Ajegunle.', target: '' },
-  { id: 'adacheer', action: 'tap', mark: 5, title: 'She paid you', line: 'Ada paid you rent. See? That is why you buy.', target: '#hudCashBtn' },
-  { id: 'paytalk', action: 'tap', mark: 6, title: 'Your turn to pay', line: 'Ada owns Computer Village. Land there and you pay her.', target: '' },
-  { id: 'payroll', action: 'roll', mark: 6, dice: [1, 3], title: 'Roll onto hers', line: 'Tap Roll. You will land on her place.', target: '#abRoll' },
-  { id: 'paidcheer', action: 'tap', mark: 6, title: 'Rent hurts', line: 'Your money left your wallet and went to Ada. That is rent.', target: '#hudCashBtn' },
-  { id: 'badtalk', action: 'tap', mark: 7, title: 'Cards', line: 'Some squares hand you a card. The next one is bad news.', target: '' },
-  { id: 'badroll', action: 'roll', mark: 7, dice: [3, 6], card: ['wahala', 'w09'], title: 'Draw the bad card', line: 'Tap Roll. A Wahala card is waiting.', target: '#abRoll' },
-  { id: 'badcheer', action: 'tap', mark: 7, title: 'A bad card', line: 'NEPA took money. A bad card makes you pay.', target: '' },
-  { id: 'gooddraw', action: 'card', mark: 7, title: 'A good card', line: 'Not every card is bad. Tap Draw. This one pays you.', target: '#lessonCard' },
-  { id: 'goodcheer', action: 'tap', mark: 7, title: 'A good card pays', line: 'The bank paid you. Read the card, then move on.', target: '#hudCashBtn' },
-  { id: 'timer', action: 'tap', mark: 8, title: 'The turn clock', line: 'Tap the ring by Roll. That is your time. When it ends, the turn moves on.', target: '.timer-ring' },
-  { id: 'timerroll', action: 'roll', mark: 8, dice: [4, 6], title: 'Beat the clock', line: 'Tap Roll before the ring finishes.', target: '#abRoll' },
-  { id: 'starttalk', action: 'tap', mark: 9, title: 'Passing START', line: 'Walk past START and the bank pays you salary. Roll to see it.', target: '' },
-  { id: 'startroll', action: 'roll', mark: 9, dice: [2, 4], title: 'Collect salary', line: 'Tap Roll. You pass START, then you meet a bill.', target: '#abRoll' },
-  { id: 'startcheer', action: 'tap', mark: 9, title: 'The bank paid you', line: 'You passed START. Salary came from the bank into your money.', target: '#hudCashBtn' },
-  { id: 'bill', action: 'tax', mark: 10, title: 'The bill', line: 'This square is FIRS, the tax. Tap the flat bill. The other number is 10 percent of everything you own.', target: '#abTaxFlat' },
-  { id: 'billcheer', action: 'tap', mark: 10, title: 'You paid the bill', line: 'The bill left your wallet. That is how the bank collects.', target: '#hudCashBtn' },
-  { id: 'deals', action: 'deals', mark: 11, title: 'Raise money', line: 'If cash is low, tap Deals. You can pledge a place or swap one.', target: '#hudDeals' },
-  { id: 'dealcheer', action: 'tap', mark: 11, title: 'That door', line: 'Deals is where you raise money or trade a place. Remember it.', target: '' },
-  { id: 'wintalk', action: 'tap', mark: 12, title: 'How you win', line: 'If your money hits zero and you cannot pay, you are out. The last one standing, or the richest when time ends, wins.', target: '' },
-  { id: 'freeplay', action: 'free', mark: 12, title: 'Your turn now', line: 'Roll when you want. Big Daddy will whisper. Tap I’m trained when you feel ready.', target: '' },
-  { id: 'ready', action: 'stay', mark: 12, title: 'You are ready', line: 'Training Ground is done. No real money moved.', target: '' }
+  { id: 'hello', action: 'tap', mark: 1, title: 'The aim', line: 'Get rich. Own places. Make the other person go broke.', target: '' },
+  { id: 'cash', action: 'tap', mark: 2, title: 'Your money', line: 'Tap the big number. That is your cash.', target: '#hudCashBtn' },
+  { id: 'roll', action: 'roll', mark: 3, dice: [1, 3], title: 'Roll', line: 'Tap Roll. Watch your token walk.', target: '#abRoll' },
+  { id: 'walked', action: 'tap', mark: 3, title: 'You landed', line: 'Your token stopped on Ajegunle. Nobody owns it yet.', target: '.bspace[data-space="4"]' },
+  { id: 'buy', action: 'buy', mark: 4, title: 'Buy it', line: 'Tap Buy. Your money goes to the bank.', target: '#abBuy' },
+  { id: 'bought', action: 'tap', mark: 4, title: 'Yours', line: 'Cash dropped. The deed flew to your hand.', target: '#hudCashBtn', fx: 'buy' },
+  { id: 'endturn', action: 'end', mark: 5, title: 'Ada’s turn', line: 'Tap End. Ada will walk onto your place.', target: '#abEnd' },
+  { id: 'adaroll', action: 'ada', mark: 5, diceBot: [1, 3], title: 'Watch Ada', line: 'She is walking onto your Ajegunle.', target: '.bspace[data-space="4"]' },
+  { id: 'adacheer', action: 'tap', mark: 5, title: 'She paid you', line: 'Ada paid you rent. That is why you buy.', target: '#hudCashBtn', fx: 'rent-in' },
+  { id: 'payroll', action: 'roll', mark: 6, dice: [1, 3], title: 'Her place', line: 'Tap Roll. You will land on Ada’s place.', target: '#abRoll' },
+  { id: 'paidcheer', action: 'tap', mark: 6, title: 'You paid rent', line: 'Your money left and went to Ada.', target: '#hudCashBtn', fx: 'rent-out' },
+  { id: 'cardroll', action: 'roll', mark: 7, dice: [3, 6], card: ['wahala', 'w09'], title: 'A card', line: 'Tap Roll. A Wahala card is waiting.', target: '#abRoll' },
+  { id: 'cardcheer', action: 'tap', mark: 7, title: 'Read the card', line: 'This one takes money. Some cards pay you.', target: '', sheet: 'card' },
+  { id: 'jailroll', action: 'roll', mark: 8, dice: [1, 3], title: 'Off to jail', line: 'Tap Roll. This road leads to Kirikiri.', target: '#abRoll' },
+  { id: 'jail', action: 'jail', mark: 8, title: 'Jail', line: 'Pay bail, or roll a double. Tap Pay bail.', target: '#abJailPay' },
+  { id: 'walk1', action: 'roll', mark: 9, dice: [5, 6], title: 'Keep walking', line: 'Tap Roll. START is ahead.', target: '#abRoll' },
+  { id: 'salary', action: 'roll', mark: 9, dice: [4, 6], title: 'Pass START', line: 'Tap Roll. Passing START pays your salary.', target: '#abRoll' },
+  { id: 'salarycheer', action: 'tap', mark: 9, title: 'Salary', line: 'You passed START. The bank paid you.', target: '#hudCashBtn', fx: 'salary' },
+  { id: 'buildtalk', action: 'tap', mark: 10, title: 'Your set', line: 'The bank completed your set. Now you can build.', target: '.bspace[data-space="4"]', grantSet: true },
+  { id: 'build', action: 'build', mark: 10, title: 'Build', line: 'Tap Build duplex. A house goes up on Ajegunle.', target: '[data-act="build-duplex"]', sheet: 'deed' },
+  { id: 'built', action: 'tap', mark: 10, title: 'Built', line: 'A duplex is up. Rent on Ajegunle is higher.', target: '.bspace[data-space="4"]' },
+  { id: 'deals', action: 'deals', mark: 11, title: 'Deals', line: 'Tap Deals to swap a place or raise cash.', target: '#hudDeals' },
+  { id: 'dealseen', action: 'tap', mark: 11, title: 'Swaps', line: 'This door is trades and raising money.', target: '', sheet: 'deals' },
+  { id: 'win', action: 'tap', mark: 12, title: 'How you win', line: 'Last one with money wins. Or the richest at the end.', target: '' },
+  { id: 'ready', action: 'stay', mark: 12, title: 'Trained!', line: 'You are trained. No real money moved.', target: '' }
 ];
 function stepSpec(room) {
   return PRACTICE_STEPS.find((s) => s.id === room.practice.step) || PRACTICE_STEPS[PRACTICE_STEPS.length - 1];
@@ -729,7 +723,11 @@ function practicePublic(room) {
     return { kind: 'free', step: 'free', action: 'free', wait: 'stay', n: 12, of: 12, title: 'Free practice', line: 'You, Ada, and Tunde. No stake. Big Daddy will whisper. Leave when you have had enough.', target: '' };
   }
   const spec = stepSpec(room);
-  return { kind: 'intro', step: spec.id, action: spec.action, wait: spec.action === 'tap' ? 'tap' : spec.action, n: spec.mark, of: 12, title: spec.title, line: spec.line, target: spec.target };
+  return {
+    kind: 'intro', step: spec.id, action: spec.action, wait: spec.action === 'tap' ? 'tap' : spec.action,
+    n: spec.mark, of: 12, title: spec.title, line: spec.line, target: spec.target,
+    sheet: spec.sheet || '', fx: spec.fx || '', replay: room.practice.replay || 0
+  };
 }
 function prepareLessonRoll(room) {
   const human = room.players.find((p) => !p.bot && !p.bankrupt);
@@ -740,6 +738,24 @@ function prepareLessonRoll(room) {
   room.buyPrice = null;
   room.taxQuote = null;
 }
+function prepareLessonJail(room) {
+  const human = room.players.find((p) => !p.bot && !p.bankrupt);
+  if (!human) return;
+  human.inJail = true;
+  human.position = D.JAIL_INDEX;
+  room.turnPlayerId = human.id;
+  room.phase = 'jail';
+  room.buySpace = null;
+  room.buyPrice = null;
+}
+function offerLessonBuy(room) {
+  const human = room.players.find((p) => !p.bot && !p.bankrupt);
+  if (!human) return;
+  room.turnPlayerId = human.id;
+  room.phase = 'buy';
+  room.buySpace = 4;
+  room.buyPrice = D.SPACES[4].price;
+}
 function armPracticeRoll(room) {
   const spec = stepSpec(room);
   room.practiceRolls = room.practiceRolls || { human: [], bot: [] };
@@ -747,10 +763,9 @@ function armPracticeRoll(room) {
   room.practiceRolls.bot = spec.diceBot ? [spec.diceBot.slice()] : [];
   if (spec.card) room.forcedCards[spec.card[0]] = spec.card[1];
   if (spec.action === 'roll') prepareLessonRoll(room);
-  if (spec.id === 'timer' || spec.id === 'timerroll') {
-    room.settings.turnTimerSec = 40;
-    room.turnDeadline = now() + 40000;
-  } else if (spec.action !== 'free') {
+  else if (spec.action === 'jail') prepareLessonJail(room);
+  else if (spec.action === 'buy' && !room.practice.delayBuy && room.phase !== 'buy') offerLessonBuy(room);
+  if (spec.action !== 'free') {
     room.settings.turnTimerSec = 0;
     room.turnDeadline = null;
   }
@@ -764,17 +779,17 @@ function advancePractice(room) {
   const bot = room.players.find((p) => p.bot);
   let ok = false;
   if (spec.action === 'tap') ok = room.practice.sawTap === spec.id;
-  else if (spec.id === 'roll') ok = human.position === 4 && room.phase === 'buy';
-  else if (spec.id === 'deed') ok = !!room.practice.sawDeed;
+  else if (spec.id === 'roll') ok = human.position === 4;
   else if (spec.id === 'buy') ok = !!(room.props[4] && room.props[4].owner === human.id);
   else if (spec.id === 'endturn') ok = !!(curPlayer(room) && curPlayer(room).bot);
   else if (spec.id === 'adaroll') ok = !!(bot && bot.position === 4 && room.phase === 'end');
   else if (spec.id === 'payroll') ok = human.position === 8 && room.phase === 'end';
-  else if (spec.id === 'badroll') ok = !!(room.lastCard && room.lastCard.id === 'w09');
-  else if (spec.id === 'gooddraw') ok = !!(room.lastCard && room.lastCard.id === 'w06');
-  else if (spec.id === 'timerroll') ok = human.position === 27;
-  else if (spec.id === 'startroll') ok = human.position === 5 && room.phase === 'tax';
-  else if (spec.id === 'bill') ok = !!room.practice.taxDone;
+  else if (spec.id === 'cardroll') ok = !!(room.lastCard && room.lastCard.id === 'w09');
+  else if (spec.id === 'jailroll') ok = !!(human.inJail && human.position === D.JAIL_INDEX);
+  else if (spec.id === 'jail') ok = !human.inJail && room.phase === 'roll';
+  else if (spec.id === 'walk1') ok = human.position === 18;
+  else if (spec.id === 'salary') ok = human.position === 0;
+  else if (spec.id === 'build') ok = !!(room.props[4] && room.props[4].buildings >= 1);
   else if (spec.id === 'deals') ok = !!room.practice.sawDeals;
   if (!ok) return;
   const i = PRACTICE_STEPS.findIndex((s) => s.id === spec.id);
@@ -787,7 +802,10 @@ function advancePractice(room) {
     const cur = curPlayer(room);
     if (cur && cur.bot && room.phase === 'end') endTurn(room);
   }
-  if (next.id === 'freeplay') {
+  if (next.grantSet) {
+    for (const i of [2, 6]) if (room.props[i] && room.props[i].owner == null) room.props[i].owner = human.id;
+  }
+  if (next.action === 'free' || next.action === 'stay') {
     for (const p of room.players) if (p.botBrain) p.botBrain.hold = false;
   }
   armPracticeRoll(room);
@@ -1293,6 +1311,16 @@ function resolveLanding(room, player, opts) {
         setMessage(room, player.name + ' pass ' + sp.name + '. Practice table, no auction.');
         afterCharge(room, opts.after || 'endPhase', player);
         return;
+      }
+      if (room.practice && room.practice.kind !== 'free') {
+        const spec = stepSpec(room);
+        const lessonBuy = spec && ((spec.action === 'buy') || (spec.id === 'roll' && i === 4 && !room.practice.delayBuy));
+        if (!lessonBuy) {
+          if (room.practice.delayBuy && i === 4) room.practice.pendingBuy = 4;
+          setMessage(room, player.name + ' pass ' + sp.name + '.');
+          afterCharge(room, opts.after || 'endPhase', player);
+          return;
+        }
       }
       room.buySpace = i;
       // Deeds cost the printed price in every phase (INFLATION-7 section 1:
@@ -3333,6 +3361,17 @@ function handleConnection(ws) {
         broadcast(room);
         return;
       }
+      if (msg.type === 'test_delay_buy') {
+        if (room.practice) room.practice.delayBuy = true;
+        broadcast(room);
+        return;
+      }
+      if (msg.type === 'test_release_buy') {
+        if (room.practice) room.practice.delayBuy = false;
+        if (room.practice && room.practice.step === 'buy' && room.phase !== 'buy') offerLessonBuy(room);
+        broadcast(room);
+        return;
+      }
       broadcast(room);
       return;
     }
@@ -4241,6 +4280,7 @@ function handleConnection(ws) {
 
     // ---- Manage intents -------------------------------------------------------
     if (['build', 'sell_building', 'mortgage', 'unmortgage'].includes(msg.type)) {
+      if (msg.type === 'build' && practiceLocks(room, 'build')) return fail('Big Daddy still dey talk. Tap the highlighted one.');
       if (!manageAllowed(room, me)) return fail('Managing dey blocked right now: an auction dey run, a building dey wait for placement, the game dey paused, or another player debt dey settle. Otherwise you fit manage anytime.');
       const i = Number(msg.space);
       if (!Number.isInteger(i) || !D.SPACES[i] || !D.SPACES[i].price) return fail('That space get no deed.');
@@ -4337,9 +4377,31 @@ function handleConnection(ws) {
         room.practice.step = 'ready';
         setMessage(room, 'Lesson skipped. No money move.');
       } else if (msg.what === 'next') room.practice.sawTap = room.practice.step;
-      else if (msg.what === 'trained' && room.practice.step === 'freeplay') room.practice.step = 'ready';
-      else if (msg.what === 'deed' && room.practice.step === 'deed') room.practice.sawDeed = true;
       else if (msg.what === 'deals' && room.practice.step === 'deals') room.practice.sawDeals = true;
+      else if (msg.what === 'back') {
+        const i = PRACTICE_STEPS.findIndex((s) => s.id === room.practice.step);
+        const prev = i > 0 ? PRACTICE_STEPS[i - 1] : null;
+        if (prev && prev.action === 'tap') {
+          room.practice.step = prev.id;
+          room.practice.sawTap = '';
+        } else room.practice.replay = (room.practice.replay || 0) + 1;
+      } else if (msg.what === 'replay') room.practice.replay = (room.practice.replay || 0) + 1;
+      broadcast(room);
+      return;
+    }
+    if (msg.type === 'practice_recover') {
+      if (!room.practice || room.practice.kind === 'free') return fail('This table no be a lesson.');
+      if (room.practice.delayBuy) { broadcast(room); return; }
+      const spec = stepSpec(room);
+      if (spec.action === 'buy' && room.phase !== 'buy') offerLessonBuy(room);
+      else if (spec.action === 'jail' && room.phase !== 'jail') prepareLessonJail(room);
+      else if (spec.action === 'roll' && room.phase !== 'roll') prepareLessonRoll(room);
+      else if (spec.action === 'end' && room.phase !== 'end') {
+        const human = room.players.find((p) => !p.bot && !p.bankrupt);
+        if (human) room.turnPlayerId = human.id;
+        room.phase = 'end';
+        room.buySpace = null;
+      }
       broadcast(room);
       return;
     }
@@ -4411,6 +4473,7 @@ function handleConnection(ws) {
       const a = needTurn(msg);
       if (!a) return;
       if (room.phase !== 'jail' || !a.inJail) return fail('You no dey Kirikiri.');
+      if (practiceLocks(room, 'jail')) return fail('Big Daddy still dey talk. Tap the highlighted one.');
       if (a.cash < scaleMoney(room, D.JAIL_FINE)) return fail('Bail na ' + D.fmtN(scaleMoney(room, D.JAIL_FINE)) + '. Cash no reach, and Kirikiri don freeze your desk: roll for double make you free.');
       payNow(room, a, scaleMoney(room, D.JAIL_FINE), null, 'Kirikiri bail', { toPot: true, stat: 'fine' });
       a.inJail = false;
