@@ -17,12 +17,20 @@ function createMailer(opts) {
   const doFetch = opts.fetch || fetch;
   const log = opts.log || ((line) => console.log(line));
   const FAIL = 'The code no send. Nothing was sent. Try again.';
+  function letter(code, note) {
+    const product = (note && note.product) || 'Kolopoly';
+    return {
+      subject: 'Your ' + product + ' sign-in code',
+      text: 'Your ' + product + ' sign-in code is ' + code + '. It expires in 10 minutes. If you no ask for am, ignore this mail.'
+    };
+  }
   if (resendKey && String(resendKey).trim() && !opts.forceTest) {
     const key = String(resendKey).trim();
     return {
       name: 'resend',
       testMode: false,
-      async sendCode(email, code) {
+      async sendCode(email, code, note) {
+        const mail = letter(code, note);
         try {
           const res = await doFetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -30,8 +38,8 @@ function createMailer(opts) {
             body: JSON.stringify({
               from,
               to: [email],
-              subject: 'Your Kolopoly sign-in code',
-              text: 'Your Kolopoly sign-in code is ' + code + '. It expires in 10 minutes. If you no ask for am, ignore this mail.'
+              subject: mail.subject,
+              text: mail.text
             })
           });
           if (!res.ok) {
@@ -56,8 +64,9 @@ function createMailer(opts) {
     name: 'test',
     testMode: true,
     outbox,
-    async sendCode(email, code) {
-      outbox.push({ email, code, at: Date.now() });
+    async sendCode(email, code, note) {
+      const mail = letter(code, note);
+      outbox.push({ email, code, at: Date.now(), subject: mail.subject });
       log('Kolopoly mail (test transport) to ' + email + ': sign-in code ' + code);
       if (!pretend) {
         log('Sign-in mail is not set up (no RESEND_API_KEY). The player was told to try again.');
