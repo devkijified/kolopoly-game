@@ -229,6 +229,14 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 
 /* End screen: reward reveal. */
 .end-card, .end-panel { background: var(--g-panel) !important; border-radius: 14px !important; box-shadow: var(--g-drop), var(--g-bevel) !important; animation: kpRiseIn 0.5s var(--g-ease-pop) both; }
+.train-end-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.train-end-actions .btn { width: 100%; min-height: 48px; }
+.train-end .train-badge { margin-bottom: 8px; background: #ffc857; color: #1a140c; }
+.train-end .end-headline { font-size: 22px; }
+.train-end .end-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.train-end .end-worth { font-size: 16px; }
+.train-end .end-title { display: block; margin-top: 2px; line-height: 1.3; }
+#endOverlay { padding-top: calc(18px + env(safe-area-inset-top)); }
 .end-row { background: rgba(255, 255, 255, 0.04); border-radius: 8px; color: var(--g-text); animation: kpSlideIn 0.4s var(--g-ease-pop) both; }
 .end-row:nth-child(2) { animation-delay: 0.08s; } .end-row:nth-child(3) { animation-delay: 0.16s; } .end-row:nth-child(4) { animation-delay: 0.24s; }
 .end-row.winner {

@@ -155,6 +155,7 @@ try {
   await tap('win');
   await tap('ready');
   check('the lesson ends on Trained', me.state.practice.step === 'ready' && /Trained/.test(me.state.practice.title));
+  check('a finished lesson leaves no target behind', me.state.practice.action === 'stay' && !me.state.practice.target);
 
   const late = await socket(port);
   send(late, 'create_room', { name: 'Late', token: 'gele', mode: 'online', practice: true, clientId: 'train-device-3333', settings: { gameMode: 'classic' } });
@@ -179,9 +180,31 @@ try {
   send(free, 'create_room', { name: 'Adaeze', token: 'gele', mode: 'online', practice: 'free', clientId: 'train-device-2222', settings: { gameMode: 'classic' } });
   await waitFor(free, (s) => s.practice && s.practice.kind === 'free', 'free');
   check('free practice is unpaid and seats two friendly bots', !free.state.paid && free.state.players.filter((p) => p.bot).length === 2 && free.state.players.some((p) => p.name === 'Tunde'), JSON.stringify(free.state.players.map((p) => p.name)));
+  const resign = await socket(port);
+  send(resign, 'create_room', { name: 'Kiji', token: 'big-man', mode: 'online', practice: true, clientId: 'train-device-resign', settings: { gameMode: 'classic' } });
+  await waitFor(resign, (s) => s.practice && s.practice.step === 'hello' && s.status === 'playing', 'resign hello');
+  send(resign, 'resign', {});
+  await waitFor(resign, (s) => s.status === 'ended' && s.practice && s.practice.step === 'ready', 'resign ended');
+  check('resign stops the lesson', resign.state.practice.action === 'stay' && !resign.state.practice.target && resign.state.practice.ended === true);
+  check('resign makes Ada the winner', resign.state.endReason === 'resignation' && resign.state.winner && resign.state.winner.name === 'Ada');
+  check('resign does not carry the wrong-tap line', !/No be that one/.test(resign.state.practice.line || ''));
+  send(resign, 'practice_recover', {});
+  await sleep(200);
+  check('a recover after the game ended does not bring the lesson back', resign.state.status === 'ended' && resign.state.practice.step === 'ready' && !resign.state.practice.target);
+
+  const botWin = await socket(port);
+  send(botWin, 'create_room', { name: 'Kiji', token: 'big-man', mode: 'online', practice: true, clientId: 'train-device-bot', settings: { gameMode: 'classic' } });
+  await waitFor(botWin, (s) => s.practice && s.practice.step === 'hello', 'bot hello');
+  send(botWin, 'test_bot_win', {});
+  await waitFor(botWin, (s) => s.status === 'ended' && s.practice && s.practice.step === 'ready', 'bot ended');
+  check('a bot win stops the lesson', botWin.state.practice.action === 'stay' && !botWin.state.practice.target);
+  check('a bot win names the bot', botWin.state.winner && botWin.state.winner.name === 'Ada' && botWin.state.endTable.some((r) => r.name === 'Kiji' && r.bankrupt));
+
   me.ws.close();
   late.ws.close();
   free.ws.close();
+  resign.ws.close();
+  botWin.ws.close();
 } catch (e) {
   console.error(e);
   console.error(server.logs());
