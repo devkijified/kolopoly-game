@@ -9,6 +9,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { createPaystack, createPaymentStore } = require('../paystack');
 const { createPayouts } = require('../payouts');
+const { createAuth } = require('../auth');
+const { createMailer } = require('../mailer');
 const { createEscrow, clampPercent, normCode } = require('./escrow');
 
 const PUBLIC = path.join(__dirname, 'public');
@@ -21,14 +23,12 @@ const JOIN_MS = (Number(process.env.ONILE_JOIN_HOURS) || 24) * 60 * 60 * 1000;
 const REPORT_MS = (Number(process.env.ONILE_REPORT_HOURS) || 24) * 60 * 60 * 1000;
 const HOUSE = clampPercent(process.env.ONILE_HOUSE_PERCENT == null || process.env.ONILE_HOUSE_PERCENT === '' ? 10 : process.env.ONILE_HOUSE_PERCENT);
 
-const bootSecret = crypto.randomBytes(32);
-function sessionSecret() {
-  const env = String(process.env.KP_AUTH_SECRET || process.env.ONILE_SESSION_SECRET || '');
-  return env || bootSecret;
-}
-if (!String(process.env.KP_AUTH_SECRET || process.env.ONILE_SESSION_SECRET || '').trim()) {
-  console.log('Onile sessions use a boot secret. Set KP_AUTH_SECRET to keep sign-ins across restarts.');
-}
+const TEST = process.env.KP_TEST === '1';
+const auth = createAuth({});
+const mailer = createMailer({});
+if (auth.ephemeral) console.log('Onile sign-in uses a boot secret. Set KP_AUTH_SECRET so a Kolopoly account is the same person here.');
+if (mailer.testMode) console.log('Sign-in mail uses the test transport. Set RESEND_API_KEY to send real codes.');
+const pendingNames = new Map();
 
 const paystack = createPaystack({});
 const payments = createPaymentStore({ file: path.join(DATA_DIR, 'payments.json') });
@@ -98,31 +98,24 @@ function cookies(req) {
   }
   return out;
 }
-function sign(payload) {
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', sessionSecret()).update(body).digest('base64url');
-  return body + '.' + sig;
+function displayName(v) {
+  const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  if (t.length < 2 || t.length > 40 || /[\u0000-\u001f]/.test(t)) return null;
+  return t;
 }
-function unsign(token) {
-  if (!token || !token.includes('.')) return null;
-  const i = token.indexOf('.');
-  const body = token.slice(0, i);
-  const sig = token.slice(i + 1);
-  const expected = crypto.createHmac('sha256', sessionSecret()).update(body).digest('base64url');
-  const a = Buffer.from(expected);
-  const b = Buffer.from(sig);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try { return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')); } catch (e) { return null; }
+function bearerOf(req) {
+  const m = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization || ''));
+  return m ? m[1] : '';
 }
-function playerCookie(id) {
+function sessionCookie(token) {
   const secure = PUBLIC_URL.startsWith('https://') ? '; Secure' : '';
-  const value = sign({ id, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 });
-  return 'onile_player=' + value + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000' + secure;
+  return 'onile_session=' + token + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000' + secure;
 }
 function currentPlayer(req) {
-  const payload = unsign(cookies(req).onile_player);
-  if (!payload || !payload.id || !(payload.exp > Date.now())) return null;
-  return escrow.player(payload.id);
+  const acct = auth.verifyToken(bearerOf(req) || cookies(req).onile_session || '');
+  if (!acct) return null;
+  const known = escrow.player(acct.accountId);
+  return { id: acct.accountId, email: acct.email, name: known ? known.name : '' };
 }
 function adminToken() {
   const token = String(process.env.KP_ADMIN_TOKEN || '').trim();
@@ -251,33 +244,59 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/me' && req.method === 'GET') {
     const player = currentPlayer(req);
-    json(res, 200, player ? { ok: true, player } : { ok: false });
+    json(res, player ? 200 : 401, player ? { ok: true, player } : { ok: false, error: 'auth', message: 'Sign in with your email first.' });
     return;
   }
-  if (pathname === '/api/session' && req.method === 'POST') {
+  if (pathname === '/api/auth/request' && req.method === 'POST') {
     (async () => {
-      if (!allow('session:' + clientIp(req), 30, 60 * 60 * 1000)) { json(res, 429, { ok: false, error: 'rate', message: 'Too many tries. Wait a bit.' }); return; }
+      if (mailer.testMode && !TEST) {
+        json(res, 503, { ok: false, error: 'mail', message: 'Sign-in mail never set up yet. Nothing was sent. Try again.' });
+        return;
+      }
+      if (!allow('auth:' + clientIp(req), 30, 60 * 60 * 1000)) {
+        json(res, 429, { ok: false, error: 'rate', message: 'Too many sign-in codes from this network. Wait small, then try again.' });
+        return;
+      }
       let body;
       try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
-      const who = escrow.upsertPlayer(body || {});
+      const name = displayName(body && body.name);
+      if (!name) { json(res, 400, { ok: false, error: 'name', message: 'Enter a display name (2 to 40 characters).' }); return; }
+      const out = auth.requestCode(body && body.email);
+      if (!out.ok) { json(res, out.error === 'rate' ? 429 : 400, { ok: false, error: out.error, message: out.message }); return; }
+      pendingNames.set(out.email, { name, at: Date.now() });
+      const sent = await mailer.sendCode(out.email, out.code, { product: 'Onile' });
+      if (!sent.ok) { json(res, mailer.testMode ? 503 : 502, { ok: false, error: 'mail', message: (sent && sent.message) || 'The code no send. Nothing was sent. Try again.' }); return; }
+      const reply = { ok: true };
+      if (TEST && mailer.testMode) reply.devCode = out.code;
+      json(res, 200, reply);
+    })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
+    return;
+  }
+  if (pathname === '/api/auth/verify' && req.method === 'POST') {
+    (async () => {
+      let body;
+      try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
+      const email = auth.cleanEmail(body && body.email);
+      const pending = email && pendingNames.get(email);
+      const name = displayName(body && body.name) || (pending && Date.now() - pending.at < 10 * 60 * 1000 ? pending.name : null);
+      if (!name) { json(res, 400, { ok: false, error: 'name', message: 'Enter a display name (2 to 40 characters).' }); return; }
+      const out = auth.verifyCode(body && body.email, body && body.code);
+      if (!out.ok) { json(res, 400, { ok: false, error: out.error, message: out.message }); return; }
+      const who = escrow.upsertPlayer({ accountId: out.accountId, email: out.email, name });
       if (!who.ok) { json(res, 400, who); return; }
-      json(res, 200, { ok: true, player: who.player }, { 'Set-Cookie': playerCookie(who.player.id) });
+      if (email) pendingNames.delete(email);
+      json(res, 200, { ok: true, token: out.token, player: who.player }, { 'Set-Cookie': sessionCookie(out.token) });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }
   if (pathname === '/api/challenges' && req.method === 'POST') {
     (async () => {
       if (!allow('create:' + clientIp(req), 20, 60 * 60 * 1000)) { json(res, 429, { ok: false, error: 'rate', message: 'Too many challenges from here. Wait a bit.' }); return; }
+      const player = currentPlayer(req);
+      if (!player) { json(res, 401, { ok: false, error: 'auth', message: 'Sign in with your email first.' }); return; }
+      if (!player.name) { json(res, 409, { ok: false, error: 'name', message: 'Add a display name, then open the challenge.' }); return; }
       let body;
       try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
-      let player = currentPlayer(req);
-      let cookie = null;
-      if (!player) {
-        const who = escrow.upsertPlayer(body || {});
-        if (!who.ok) { json(res, 400, who); return; }
-        player = who.player;
-        cookie = playerCookie(player.id);
-      }
       const made = escrow.create({
         playerId: player.id,
         title: body.title,
@@ -287,27 +306,20 @@ const server = http.createServer((req, res) => {
         deadline: body.deadline
       });
       if (!made.ok) { json(res, 400, made); return; }
-      const extra = cookie ? { 'Set-Cookie': cookie } : null;
-      json(res, 200, { ok: true, challenge: publish(made.challenge, player.id) }, extra);
+      json(res, 200, { ok: true, challenge: publish(made.challenge, player.id) });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }
   if (pathname === '/api/challenges/join' && req.method === 'POST') {
     (async () => {
+      const player = currentPlayer(req);
+      if (!player) { json(res, 401, { ok: false, error: 'auth', message: 'Sign in with your email first.' }); return; }
+      if (!player.name) { json(res, 409, { ok: false, error: 'name', message: 'Add a display name, then join.' }); return; }
       let body;
       try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
-      let player = currentPlayer(req);
-      let cookie = null;
-      if (!player) {
-        const who = escrow.upsertPlayer(body || {});
-        if (!who.ok) { json(res, 400, who); return; }
-        player = who.player;
-        cookie = playerCookie(player.id);
-      }
       const joined = escrow.join({ code: body.code, playerId: player.id });
       if (!joined.ok) { json(res, joined.error === 'unknown' ? 404 : 400, joined); return; }
-      const extra = cookie ? { 'Set-Cookie': cookie } : null;
-      json(res, 200, { ok: true, challenge: publish(joined.challenge, player.id) }, extra);
+      json(res, 200, { ok: true, challenge: publish(joined.challenge, player.id) });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }

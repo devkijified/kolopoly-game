@@ -271,13 +271,19 @@ function createEscrow(opts) {
     const email = cleanEmail(input && input.email);
     const name = cleanText(input && input.name, 2, 40);
     if (!email) return { ok: false, error: 'email', message: 'Enter a real email address.' };
-    if (!name) return { ok: false, error: 'name', message: 'Enter your name (2 to 40 characters).' };
-    let p = state.players.find((x) => x.email === email);
+    if (!name) return { ok: false, error: 'name', message: 'Enter a display name (2 to 40 characters).' };
+    const accountId = input && input.accountId ? String(input.accountId) : '';
+    if (accountId && !/^a_[0-9a-f]{20}$/.test(accountId)) {
+      return { ok: false, error: 'account', message: 'That account is not a Kolopoly account.' };
+    }
+    let p = state.players.find((x) => (accountId && x.id === accountId) || x.email === email);
     if (!p) {
-      p = { id: nid('p_'), name, email, createdAt: now() };
+      p = { id: accountId || nid('p_'), name, email, createdAt: now() };
       state.players.push(p);
-    } else if (p.name !== name) {
-      p.name = name;
+    } else {
+      if (accountId) p.id = accountId;
+      p.email = email;
+      if (p.name !== name) p.name = name;
     }
     commit();
     return { ok: true, player: { id: p.id, name: p.name, email: p.email } };

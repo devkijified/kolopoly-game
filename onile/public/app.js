@@ -41,12 +41,19 @@ function go(href) {
 function flash(msg) { state.flash = msg || ''; }
 
 function shell(inner) {
-  var me = state.me ? '<div class="who">Signed in as ' + esc(state.me.name) + '</div>' : '';
+  var signed = state.me && state.me.name;
+  var me = signed ? '<div class="who">Signed in as ' + esc(state.me.name) + '</div>' : '';
   var note = state.flash ? '<div class="flash" role="status">' + esc(state.flash) + '</div>' : '';
+  var nav = signed
+    ? '<a class="navlink" href="/mine" data-nav>Mine</a>'
+    : '<a class="navlink" href="/signin" data-nav>Sign in</a>';
   return '<div class="wrap">' +
     '<header class="topbar"><a class="brand" href="/" data-nav><span class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9.5 10 3l7 6.5V17a1 1 0 0 1-1 1h-4.2v-5H8.2V18H4a1 1 0 0 1-1-1V9.5z" fill="#1b140f"/></svg></span>ONILE</a>' +
-    '<a class="navlink" href="/mine" data-nav>Mine</a></header>' +
+    nav + '</header>' +
     note + me + inner + '</div>';
+}
+function signInCard(next) {
+  return '<section class="card"><strong>Sign in first.</strong><p class="fine">A display name and your email. Same account as Kolopoly. No password.</p><div class="actions"><a class="btn" href="/signin?next=' + encodeURIComponent(next) + '" data-nav>Sign in</a></div></section>';
 }
 function moneyCard(c) {
   return '<section class="money" aria-label="Pot">' +
@@ -99,11 +106,12 @@ function viewHome() {
 }
 
 function viewCreate() {
-  var name = state.me ? '' : '<label for="name">Your name</label><input id="name" name="name" required maxlength="40" autocomplete="name">' +
-    '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="120" autocomplete="email">';
+  if (!state.me || !state.me.name) {
+    return shell('<p class="kicker">New challenge</p><h1 class="display">Open it.</h1><div class="stack">' + signInCard('/new') + '</div>');
+  }
   return shell(
     '<p class="kicker">New challenge</p><h1 class="display">Open it.</h1>' +
-    '<form class="card" data-act="create" style="margin-top:14px">' + name +
+    '<form class="card" data-act="create" style="margin-top:14px">' +
       '<label for="title">Title</label><input id="title" name="title" required maxlength="80" placeholder="Friday at Tobi\'s">' +
       '<label for="activity">Game or activity</label><input id="activity" name="activity" required maxlength="60" placeholder="FIFA, chess, a race">' +
       '<label for="amount">Amount each (₦)</label><input id="amount" name="stakeNaira" inputmode="numeric" required placeholder="5000">' +
@@ -115,11 +123,12 @@ function viewCreate() {
 }
 
 function viewJoin() {
-  var who = state.me ? '' : '<label for="name">Your name</label><input id="name" name="name" required maxlength="40">' +
-    '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="120">';
+  if (!state.me || !state.me.name) {
+    return shell('<p class="kicker">Join</p><h1 class="display">Enter the code.</h1><div class="stack">' + signInCard('/join') + '</div>');
+  }
   return shell(
     '<p class="kicker">Join</p><h1 class="display">Enter the code.</h1>' +
-    '<form class="card" data-act="join" style="margin-top:14px">' + who +
+    '<form class="card" data-act="join" style="margin-top:14px">' +
       '<label for="code">Challenge code</label><input id="code" name="code" required maxlength="16" autocapitalize="characters" placeholder="ABCD 2345">' +
       '<div class="actions"><button type="submit">Find the challenge</button></div>' +
     '</form>'
@@ -178,9 +187,8 @@ function payBlock(c) {
 
 function joinBlock(c) {
   if (c.you || c.status !== 'open') return '';
-  var who = state.me ? '<p class="fine">Joining as ' + esc(state.me.name) + '.</p>' :
-    '<label for="name">Your name</label><input id="name" name="name" required maxlength="40"><label for="email">Email</label><input id="email" name="email" type="email" required>';
-  return '<form class="card" data-act="join-here">' + who + '<div class="actions"><button type="submit">Join this challenge</button></div></form>';
+  if (!state.me || !state.me.name) return signInCard('/c/' + c.code);
+  return '<form class="card" data-act="join-here"><p class="fine">Joining as ' + esc(state.me.name) + '.</p><div class="actions"><button type="submit">Join this challenge</button></div></form>';
 }
 
 function statements(c) {
@@ -209,8 +217,31 @@ function viewMine(rows) {
     return '<a class="card challenge-link" href="/c/' + esc(c.code) + '" data-nav><b>' + esc(c.title) + '</b><span class="fine">' + esc(c.activity) + ' · ' + naira(c.stakeKobo) + ' each</span><div style="margin-top:8px"><span class="chip">' + esc(labels[c.status] || c.status) + '</span></div></a>';
   }).join('');
   var body = list || '<section class="card"><strong>Nothing here yet.</strong><p class="fine">Open a challenge and send the code.</p></section>';
-  var who = state.me ? '' : '<form class="card" data-act="signin"><label for="name">Your name</label><input id="name" name="name" required><label for="email">Email</label><input id="email" name="email" type="email" required><div class="actions"><button type="submit">Show my challenges</button></div></form>';
-  return shell('<p class="kicker">Yours</p><h1 class="display">My challenges</h1>' + who + '<div class="list">' + body + '</div>');
+  var who = state.me && state.me.name ? '' : signInCard('/mine');
+  return shell('<p class="kicker">Yours</p><h1 class="display">My challenges</h1><div class="stack">' + who + '</div><div class="list">' + (state.me && state.me.name ? body : '') + '</div>');
+}
+function nextPath() {
+  var n = new URLSearchParams(location.search).get('next') || '/mine';
+  if (n.charAt(0) !== '/' || n.indexOf('//') === 0) return '/mine';
+  return n;
+}
+function viewSignin() {
+  if (state.me && state.me.name && !state.codeSent) {
+    return shell('<p class="kicker">Account</p><h1 class="display">You are in.</h1><p class="lede">Signed in as ' + esc(state.me.name) + '.</p><div class="actions"><a class="btn" href="' + esc(nextPath()) + '" data-nav>Continue</a></div>');
+  }
+  var pending = state.pending || { name: '', email: '' };
+  var codeForm = state.codeSent
+    ? '<form class="card" data-act="verify-code" style="margin-top:12px"><label for="signin-code">Sign-in code</label><input id="signin-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required placeholder="6 digit code"><div class="actions"><button type="submit" class="green">Sign in</button></div></form>'
+    : '';
+  return shell(
+    '<p class="kicker">Account</p><h1 class="display">Sign in.</h1>' +
+    '<p class="lede">A display name and your email. It is the same account as Kolopoly. No password: we send a 6 digit code.</p>' +
+    '<form class="card" data-act="send-code" style="margin-top:14px">' +
+      '<label for="display-name">Display name</label><input id="display-name" name="name" required maxlength="40" autocomplete="nickname" value="' + esc(pending.name) + '">' +
+      '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="120" autocomplete="email" value="' + esc(pending.email) + '">' +
+      '<div class="actions"><button type="submit">Send code</button></div>' +
+    '</form>' + codeForm
+  );
 }
 
 function viewAdmin(data) {
@@ -256,6 +287,7 @@ function route() {
   if (path === '/new') return { name: 'new' };
   if (path === '/join') return { name: 'join' };
   if (path === '/mine') return { name: 'mine' };
+  if (path === '/signin') return { name: 'signin' };
   if (path === '/admin') return { name: 'admin' };
   var m = path.match(/^\/c\/([A-Za-z0-9]+)$/);
   if (m) return { name: 'challenge', code: m[1].toUpperCase() };
@@ -269,6 +301,7 @@ function draw() {
   else if (r.name === 'new') html = viewCreate();
   else if (r.name === 'join') html = viewJoin();
   else if (r.name === 'mine') html = viewMine(page.mine);
+  else if (r.name === 'signin') html = viewSignin();
   else if (r.name === 'admin') html = viewAdmin(page.admin);
   else html = viewChallenge(r.code, page.challenge);
   document.getElementById('app').innerHTML = html;
@@ -360,8 +393,8 @@ document.addEventListener('submit', function (e) {
     if (data.deadline) data.deadline = new Date(data.deadline).toISOString();
     else delete data.deadline;
     api('/api/challenges', { method: 'POST', body: data }).then(function (res) {
+      if (res.status === 401) { go('/signin?next=/new'); return; }
       if (!res.ok) { flash(res.message || 'Could not open it.'); load(); return; }
-      state.me = state.me || { name: data.name, email: data.email };
       flash('Challenge open. Share the code.');
       go('/c/' + res.challenge.code);
     });
@@ -404,12 +437,25 @@ document.addEventListener('submit', function (e) {
     });
     return;
   }
-  if (act === 'signin') {
-    api('/api/session', { method: 'POST', body: data }).then(function (res) {
-      if (!res.ok) { flash(res.message || 'Could not sign in.'); if (button) button.disabled = false; return; }
+  if (act === 'send-code') {
+    api('/api/auth/request', { method: 'POST', body: { name: data.name, email: data.email } }).then(function (res) {
+      if (!res.ok) { flash(res.message || 'The code was not sent.'); state.codeSent = false; draw(); return; }
+      state.pending = { name: data.name, email: data.email };
+      state.codeSent = true;
+      flash('Code sent. Check your email and enter the 6 digits.' + (res.devCode ? ' Test code: ' + res.devCode : ''));
+      draw();
+    });
+    return;
+  }
+  if (act === 'verify-code') {
+    var pending = state.pending || {};
+    api('/api/auth/verify', { method: 'POST', body: { name: pending.name, email: pending.email, code: data.code } }).then(function (res) {
+      if (!res.ok) { flash(res.message || 'That code was not right.'); draw(); return; }
       state.me = res.player;
+      state.codeSent = false;
+      state.pending = null;
       flash('');
-      load();
+      go(nextPath());
     });
     return;
   }

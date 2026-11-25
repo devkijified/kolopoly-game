@@ -11,7 +11,8 @@ Do not copy those secrets into git, into this file, or into the journal.
 |---|---|
 | `PAYSTACK_SECRET_KEY` | The existing Kolopoly env file. Server only. |
 | `KP_ADMIN_TOKEN` | The existing ops desk key. Opens `/admin`. |
-| `KP_AUTH_SECRET` | Keeps Onile sign-in cookies across restarts. |
+| `KP_AUTH_SECRET` | Same value as Kolopoly. Sign-in tokens and account ids match, so one email is one person on both. |
+| `RESEND_API_KEY`, `KP_MAIL_FROM` | Same mail setup as Kolopoly. The sign-in code is a 6 digit code. |
 | `KP_PAYOUT_MODE` | `manual` (default) or `auto`, same as the game. |
 | `PAYSTACK_API_BASE` | Optional. Leave unset in production. |
 | `PORT` | `4180` for this service only. |
