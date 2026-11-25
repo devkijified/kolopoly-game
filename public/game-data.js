@@ -227,6 +227,33 @@ const SPACE_STICKER = {
 function stickerFor(sp) {
   return (sp && SPACE_STICKER[sp.name]) || '';
 }
+// Board-face lines. The deed keeps sp.name. A side tile is only about
+// eight characters wide at phone size, so a long name is two short lines
+// that still name the place, never a clipped word.
+const FACE_LINES = {
+  'Third Mainland Bridge': ['3rd', 'Mainland'],
+  'Family Meeting': ['Family', 'Meet'],
+  'FIRS Income Tax': ['FIRS', 'Tax'],
+  'Computer Village': ['Comp', 'Village'],
+  'Lekki Tollgate': ['Lekki', 'Toll'],
+  'Mama Put': ['Mama', 'Put'],
+  'Party Rentals': ['Party', 'Rentals'],
+  'Murtala Muhammed Intl Airport': ['MMIA'],
+  'Police Checkpoint': ['Check', 'point'],
+  'Go to Kirikiri': ['Go to', 'Kirikiri'],
+  'Danfo Park': ['Danfo', 'Park'],
+  'Eko Hotel': ['Eko', 'Hotel'],
+  'Eko Atlantic': ['Eko', 'Atlantic'],
+  'Banana Island': ['Banana', 'Isl.'],
+  'The Marina': ['The', 'Marina'],
+  'Oriental Hotel': ['Oriental']
+};
+function faceLines(sp) {
+  if (!sp) return [''];
+  if (FACE_LINES[sp.name]) return FACE_LINES[sp.name].slice();
+  const s = String(sp.short || sp.name || '');
+  return s ? [s] : [''];
+}
 
 const PLAYER_COLORS = ['#ff6b4a', '#ffc857', '#39c2a5', '#5aa9e6', '#c39bff', '#ff8fb2'];
 
@@ -249,6 +276,6 @@ function buildCostOf(sp) {
   return sp.duplex;
 }
 
-const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, faceLines, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;

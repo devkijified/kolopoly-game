@@ -171,6 +171,30 @@ const KPBoard = {
     L2D = L;
     el.style.gridTemplateColumns = L.colX.map((v) => v.toFixed(4) + 'fr').join(' ');
     el.style.gridTemplateRows = L.rowD.map((v) => v.toFixed(4) + 'fr').join(' ');
+    this.fitNames();
+  },
+
+  // Shrink a name only until it fits its own tile. Two short lines stay
+  // at the band's normal size; a long single word steps down, never
+  // below a phone-readable 7.5px.
+  fitNames() {
+    const board = this.boardEl;
+    if (!board) return;
+    board.querySelectorAll('.nm').forEach((el) => {
+      el.style.fontSize = '';
+      el.style.overflow = 'visible';
+      const box = el.clientWidth;
+      if (!box) { el.style.overflow = ''; return; }
+      let size = parseFloat(getComputedStyle(el).fontSize) || 11;
+      el.style.fontSize = size + 'px';
+      let guard = 0;
+      while (el.scrollWidth > el.clientWidth && size > 6 && guard < 24) {
+        size = Math.round((size - 0.5) * 10) / 10;
+        el.style.fontSize = size + 'px';
+        guard += 1;
+      }
+      el.style.overflow = '';
+    });
   },
 
   build(boardEl) {
@@ -189,10 +213,10 @@ const KPBoard = {
       const bandColor = bandColorFor(i, sp);
       el.style.setProperty('--band', bandColor);
       if (bandIsLight(bandColor)) el.classList.add('band-light');
+      const lines = D.faceLines ? D.faceLines(sp) : [sp.short || sp.name];
       el.innerHTML =
-        '<div class="band"></div>' +
+        '<div class="band"><div class="nm">' + lines.map(escTag).join('<br>') + '</div></div>' +
         '<div class="tile-art" style="color:' + bandColor + '">' + tilePicture(sp, artFor(i, sp)) + '</div>' +
-        '<div class="nm">' + (sp.short || sp.name) + '</div>' +
         '<div class="pips"></div>' +
         (i === D.PARKING_INDEX ? '<div class="potamt"></div>' : '') +
         '<div class="pr">' + priceLabel(sp) + '</div>' +
@@ -232,6 +256,7 @@ const KPBoard = {
 
   render(state) {
     this.fitLayout();
+    this.fitNames();
     this.lastState = state;
     const byId = {};
     for (const p of state.players) byId[p.id] = p;
@@ -824,6 +849,12 @@ function wrapText(x, text, cx, y, maxW, lh) {
 window.KPBoard = KPBoard;
 window.addEventListener('resize', () => {
   KPBoard.fitLayout();
+  KPBoard.fitNames();
+});
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(() => KPBoard.fitNames());
+}
+window.addEventListener('resize', () => {
   if (KPBoard.lastState) {
     KPBoard.applyCamera(KPBoard.lastState);
     KPBoard.renderTokens(KPBoard.lastState);

@@ -7,6 +7,7 @@
 import WebSocket from 'ws';
 import { spawn } from 'child_process';
 import fs from 'fs';
+import gameData from './public/game-data.js';
 
 const PORT = 4231;
 const RETENTION_FILE = '/tmp/kolopoly-retention-' + PORT + '.json';
@@ -20,6 +21,15 @@ function check(name, cond, extra) {
   else { failures += 1; console.log('  FAIL ' + checks + ' - ' + name + (extra ? ' :: ' + extra : '')); }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+{
+  const long = ['Party Rentals', 'Murtala Muhammed Intl Airport', 'Police Checkpoint', 'Banana Island', 'Family Meeting', 'Go to Kirikiri'];
+  for (const name of long) {
+    const sp = gameData.SPACES.find((s) => s.name === name);
+    const lines = gameData.faceLines(sp);
+    check(name + ' face fits a phone tile', lines.length <= 2 && lines.every((ln) => ln.length <= 9) && lines.join('').length > 0, lines.join('/'));
+  }
+  check('a deed still carries the full Banana Island name', gameData.SPACES.find((s) => s.name === 'Banana Island').name === 'Banana Island');
+}
 
 class Client {
   constructor(name) {

@@ -411,7 +411,9 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 @media (hover: hover) { .bspace:hover { filter: brightness(1.05); } }
 .bspace .band {
-  width: 100%; height: 18%; flex: none; position: relative; z-index: 2;
+  width: 100%; min-height: 18%; height: auto; flex: none; position: relative; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1px 1px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent 40%, rgba(0, 0, 0, 0.22)),
     linear-gradient(180deg, color-mix(in srgb, var(--band) 78%, #fff), var(--band) 50%, color-mix(in srgb, var(--band) 62%, #000));
@@ -429,13 +431,13 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
     drop-shadow(2px 3px 0 rgba(20, 12, 4, 0.7));
 }
 .bspace .nm {
-  position: absolute; top: 0; left: 0; right: 0; height: 18%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: clamp(8px, 2.3cqw, 12px);
-  font-weight: 900; line-height: 1; text-align: center;
-  padding: 0 1px; letter-spacing: -0.2px; z-index: 3;
+  position: relative; width: 100%; height: auto;
+  display: block;
+  font-size: clamp(8px, 3.5cqw, 12px);
+  font-weight: 900; line-height: 1.05; text-align: center;
+  padding: 0; letter-spacing: -0.45px; z-index: 3;
   color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
-  background: transparent;
+  background: transparent; overflow: hidden;
 }
 .bspace.band-light .nm { color: #1a140c; text-shadow: none; }
 .bspace .pr {
@@ -450,8 +452,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   .bspace .pr .pr-compact { display: none; }
 }
 .bspace.corner { background: linear-gradient(180deg, #fdf6df, #f3e3bc); }
-.bspace.corner .nm { font-size: clamp(9px, 2.6cqw, 14px); height: 20%; }
-.bspace.corner .band { height: 20%; }
+.bspace.corner .nm { font-size: clamp(8px, 3cqw, 13px); height: auto; }
+.bspace.corner .band { min-height: 20%; height: auto; }
 .bspace.owned { box-shadow: inset 0 0 0 2.5px var(--own), inset 0 1px 0 rgba(255, 255, 255, 0.9); }
 .bspace.mortgaged { filter: grayscale(0.9); opacity: 0.62; }
 .bspace.mortgaged::after {
