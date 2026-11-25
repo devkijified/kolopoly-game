@@ -585,10 +585,24 @@ function stickerImage(sp) {
   const img = stickerImg[path];
   return img.complete && img.naturalWidth ? img : null;
 }
+function stickerPlate(x, cx, cy, size) {
+  const s = size * 1.08;
+  const x0 = cx - s / 2, y0 = cy - s / 2;
+  x.save();
+  x.fillStyle = '#fffdf8';
+  x.strokeStyle = '#1a140c';
+  x.lineWidth = Math.max(5, size * 0.045);
+  x.beginPath();
+  x.rect(x0, y0, s, s);
+  x.fill();
+  x.stroke();
+  x.restore();
+}
 function drawMark(x, art, cx, cy, size, band, sp) {
   const img = stickerImage(sp);
-  if (!img) { emblem(x, art, cx, cy, size, band); return; }
-  const s = size * 1.15;
+  stickerPlate(x, cx, cy, size);
+  if (!img) { emblem(x, art, cx, cy, size * 0.92, band); return; }
+  const s = size * 0.96;
   x.drawImage(img, cx - s / 2, cy - s / 2, s, s);
 }
 function tileTexture(i, mortgaged, wPx) {
@@ -608,22 +622,22 @@ function tileTexture(i, mortgaged, wPx) {
   const g = x.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#fffdf8'); g.addColorStop(1, '#f3e2bc');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
-  x.fillStyle = 'rgba(43,32,24,0.10)';
-  for (let yy = 5; yy < H; yy += 7) {
-    for (let xx = (yy % 14 < 7 ? 3 : 6); xx < W; xx += 7) x.fillRect(xx, yy, 1.6, 1.6);
+  x.fillStyle = 'rgba(43,32,24,0.20)';
+  for (let yy = 4; yy < H; yy += 5) {
+    for (let xx = (yy % 10 < 5 ? 2 : 4); xx < W; xx += 5) x.fillRect(xx, yy, 2.2, 2.2);
   }
-  x.strokeStyle = '#2b2018'; x.lineWidth = 7; x.strokeRect(4, 4, W - 8, H - 8);
+  x.strokeStyle = '#1a140c'; x.lineWidth = 10; x.strokeRect(3, 3, W - 6, H - 6);
   x.strokeStyle = 'rgba(255,255,255,0.55)'; x.lineWidth = 2; x.strokeRect(10, 10, W - 20, H - 20);
   x.textAlign = 'center';
   const name = sp.short || sp.name;
   if (sp.type === 'card') {
     x.fillStyle = sp.deck === 'wahala' ? '#f9ded8' : '#dcecfb'; x.fillRect(6, 6, W - 12, H - 12);
-    emblem(x, 'cards', W / 2, H * 0.40, corner ? 150 : 118, band);
+    emblem(x, 'cards', W / 2, H * 0.42, corner ? 210 : 190, band);
     x.fillStyle = band; x.fillRect(6, H * 0.70, W - 12, H * 0.24);
     x.fillStyle = '#fff'; fitFont(x, name.toUpperCase(), W - 20, 44, '900', '"Aeonik Pro", sans-serif');
     x.fillText(name.toUpperCase(), W / 2, H * 0.86);
   } else if (corner) {
-    drawMark(x, art, W / 2, H * 0.40, 168, band, sp);
+    drawMark(x, art, W / 2, H * 0.36, 200, band, sp);
     x.fillStyle = band; x.fillRect(6, H * 0.70, W - 12, H * 0.24);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
     fitFont(x, name.toUpperCase(), W - 26, 42, '900', '"Aeonik Pro", sans-serif');
@@ -633,33 +647,38 @@ function tileTexture(i, mortgaged, wPx) {
   } else if (sp.type === 'street') {
     // board20: a thick colour band (30 percent of the tile) carrying the
     // name in heavy type, and a big price on a cream foot.
-    x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.30);
-    glossStrip(x, 6, 6, W - 12, H * 0.30);
-    x.fillStyle = 'rgba(0,0,0,0.30)'; x.fillRect(6, H * 0.30 + 3, W - 12, 6);
+    const bandH = H * 0.20;
+    x.fillStyle = band; x.fillRect(6, 6, W - 12, bandH);
+    glossStrip(x, 6, 6, W - 12, bandH);
     x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
     const words = name.split(' ');
     let lines = [name];
-    if (x.measureText(name).width > 0 && fitFont(x, name.toUpperCase(), W - 16, 46, '900', '"Aeonik Pro", sans-serif') <= 30 && words.length > 1) {
+    if (fitFont(x, name.toUpperCase(), W - 16, 32, '900', '"Aeonik Pro", sans-serif') <= 20 && words.length > 1) {
       const mid = Math.ceil(words.length / 2);
       lines = [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
     }
-    const nameSize = Math.min(46, Math.min.apply(null, lines.map((ln) => fitFont(x, ln.toUpperCase(), W - 16, 46, '900', '"Aeonik Pro", sans-serif'))));
+    const nameSize = Math.min(32, Math.min.apply(null, lines.map((ln) => fitFont(x, ln.toUpperCase(), W - 16, 32, '900', '"Aeonik Pro", sans-serif'))));
     x.font = '900 ' + nameSize + 'px "Aeonik Pro", sans-serif';
-    if (lines.length === 1) x.fillText(lines[0].toUpperCase(), W / 2, H * 0.185);
-    else lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, H * 0.135 + k * H * 0.115));
-    drawMark(x, art, W / 2, H * 0.58, 96, band, sp);
-    x.fillStyle = '#f3ead6';
-    fitFont(x, D.fmtN(sp.price), W - 16, 44, '900', '"Aeonik Pro", sans-serif');
-    x.fillText(D.fmtN(sp.price), W / 2, H * 0.94);
+    if (lines.length === 1) x.fillText(lines[0].toUpperCase(), W / 2, 6 + bandH * 0.72);
+    else lines.forEach((ln, k) => x.fillText(ln.toUpperCase(), W / 2, 6 + bandH * (0.42 + k * 0.46)));
+    drawMark(x, art, W / 2, H * 0.56, 200, band, sp);
+    x.fillStyle = '#fffdf8';
+    x.fillRect(8, H * 0.86, W - 16, H * 0.12);
+    x.fillStyle = INK;
+    fitFont(x, D.fmtN(sp.price), W - 16, 36, '900', '"Aeonik Pro", sans-serif');
+    x.fillText(D.fmtN(sp.price), W / 2, H * 0.955);
   } else {
-    x.fillStyle = band; x.fillRect(6, 6, W - 12, H * 0.13);
-    x.fillStyle = '#f3ead6';
-    fitFont(x, name.toUpperCase(), W - 16, 40, '900', '"Aeonik Pro", sans-serif');
-    x.fillText(name.toUpperCase(), W / 2, H * 0.25);
-    drawMark(x, art, W / 2, H * 0.56, 104, band, sp);
-    x.fillStyle = '#f3ead6';
-    if (sp.price) { fitFont(x, D.fmtN(sp.price), W - 16, 42, '900', '"Aeonik Pro", sans-serif'); x.fillText(D.fmtN(sp.price), W / 2, H * 0.94); }
-    else if (sp.amount) { fitFont(x, 'Pay ' + D.fmtN(sp.amount), W - 16, 36, '800', '"Aeonik Pro", sans-serif'); x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.94); }
+    const bandH = H * 0.16;
+    x.fillStyle = band; x.fillRect(6, 6, W - 12, bandH);
+    x.fillStyle = lum(band) > 0.55 ? INK : '#fff';
+    fitFont(x, name.toUpperCase(), W - 16, 30, '900', '"Aeonik Pro", sans-serif');
+    x.fillText(name.toUpperCase(), W / 2, 6 + bandH * 0.72);
+    drawMark(x, art, W / 2, H * 0.54, 190, band, sp);
+    x.fillStyle = '#fffdf8';
+    x.fillRect(8, H * 0.86, W - 16, H * 0.12);
+    x.fillStyle = INK;
+    if (sp.price) { fitFont(x, D.fmtN(sp.price), W - 16, 34, '900', '"Aeonik Pro", sans-serif'); x.fillText(D.fmtN(sp.price), W / 2, H * 0.955); }
+    else if (sp.amount) { fitFont(x, 'Pay ' + D.fmtN(sp.amount), W - 16, 30, '800', '"Aeonik Pro", sans-serif'); x.fillText('Pay ' + D.fmtN(sp.amount), W / 2, H * 0.955); }
   }
   if (mortgaged) {
     x.fillStyle = 'rgba(60,60,66,0.45)'; x.fillRect(0, 0, W, H);
@@ -1067,8 +1086,8 @@ function tokenTexture(id) {
 }
 function buildStandee(tokenId, scale, gold) {
   const g = new THREE.Group();
-  const h = 1.25 * (scale || 1);
-  const w = 1.05 * (scale || 1);
+  const h = 0.5 * (scale || 1);
+  const w = 0.42 * (scale || 1);
   const tex = tokenTexture(tokenId);
   const mat = new THREE.MeshStandardMaterial({
     map: tex, color: 0xfff8ee, roughness: 0.55, metalness: gold ? 0.25 : 0.02,
@@ -1322,14 +1341,7 @@ function centreTexture(innerW, innerD) {
     }
     bx0 += w + 14;
   });
-  // Third Mainland arc + lagoon wash (believable water, not a flat stripe)
-  x.strokeStyle = 'rgba(210,200,180,0.55)'; x.lineWidth = 7;
-  x.beginPath(); x.moveTo(px(-4.2), pz(-2.45)); x.quadraticCurveTo(px(0), pz(-3.6), px(4.2), pz(-2.45)); x.stroke();
-  const lag = x.createLinearGradient(px(-4.5), pz(-2.8), px(4.5), pz(-1.6));
-  lag.addColorStop(0, 'rgba(30,110,160,0.45)'); lag.addColorStop(0.5, 'rgba(80,180,225,0.6)'); lag.addColorStop(1, 'rgba(30,110,160,0.45)');
-  x.fillStyle = lag; x.beginPath(); x.moveTo(px(-4.4), pz(-2.55)); x.quadraticCurveTo(px(0), pz(-1.55), px(4.4), pz(-2.55)); x.lineTo(px(4.4), pz(-1.85)); x.quadraticCurveTo(px(0), pz(-1.35), px(-4.4), pz(-1.85)); x.closePath(); x.fill();
-  x.strokeStyle = 'rgba(180,220,245,0.45)'; x.lineWidth = 2.5;
-  x.beginPath(); x.moveTo(px(-4.2), pz(-2.05)); x.quadraticCurveTo(px(0), pz(-1.7), px(4.2), pz(-2.05)); x.stroke();
+  // A thin gold arc marks the bridge. No blue lagoon bar across the plaza.
   // One continuous wordmark. KOLO stays ink and POLY stays gold, but
   // the two halves share a baseline and overlap by a few pixels so the
   // join cannot open a gap. The bridge (north, z -2.45) never crosses
@@ -1603,18 +1615,16 @@ class GameScene {
       b.userData.baseX = sx + w / 2;
       sx += w + 0.16; s.add(b); this.skylineBars.push(b);
     });
-    // water and bridge
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x2a78a8, roughness: 0.08, metalness: 0.25, envMapIntensity: 1.4, emissive: 0x0b2a40, emissiveIntensity: 0.6 }));
-    water.rotation.x = -Math.PI / 2; water.position.set(0, 0.035, -2.45); water.receiveShadow = true; s.add(water);
-    water.scale.x = Math.min(1, (innerW - 0.3) / 8.4); this.water = water;
-    const bridgeMat = std(0x333a40, 0.6, 0.3);
+    // A short sand-coloured span. The old lagoon plane was a blue bar
+    // across the plaza, so it stays off the board.
+    this.water = null;
+    const bridgeMat = std(0xc9b48a, 0.72, 0.08);
     // Bridge arc shrunk (Lesson 6c): radius 1.1 (peak 1.2), deck 2.6 long,
     // piers to match. Between the smaller arc and the wordmark's move
     // south, the bridge can no longer reach the word at any camera angle.
     const arc = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.05, 8, 36, Math.PI), bridgeMat);
     arc.position.set(0, 0.10, -2.45); arc.castShadow = true; s.add(arc);
-    s.add(bx(2.6, 0.07, 0.55, bridgeMat, 0, 0.09, -2.45));
-    for (const px2 of [-1.0, 0, 1.0]) s.add(bx(0.16, 0.5, 0.4, bridgeMat, px2, -0.1, -2.45));
+    s.add(bx(2.1, 0.045, 0.22, bridgeMat, 0, 0.08, -2.45));
     this.bridgeDanfo = buildDanfo(0.52); s.add(this.bridgeDanfo);
     // Owambe pot
     const potPts = [];
@@ -1831,7 +1841,11 @@ class GameScene {
     const t = this.tiles[i];
     const off = TOKEN_SLOTS[slotIdx % TOKEN_SLOTS.length];
     const w = localToWorld(t.rect, t.th, off[0] * Math.min(t.lx, 1.15), off[1] * Math.min(t.lz, 1.5));
-    return new THREE.Vector3(w.x, 0.22, w.z);
+    const v = new THREE.Vector3(w.x, 0.22, w.z);
+    // Slide the piece toward the plaza so the outer name and price stay clear.
+    v.x *= 0.86;
+    v.z *= 0.86;
+    return v;
   }
 
   sync(state) {
@@ -1984,8 +1998,8 @@ class GameScene {
         // Sized for a phone held upright: about a tile wide, so the name
         // reads at a glance from across the board.
         o.you = textSprite(tag, { bg: p.color, fg: '#ffffff', size: 64, rim: isMe ? '#ffe9a8' : '#ffffff' });
-        o.you.scale.set(1.8, 0.45, 1);
-        o.you.position.set(0, 0.95, 0);
+        o.you.scale.set(0.55, 0.16, 1);
+        o.you.position.set(0, 0.42, 0);
         o.you.renderOrder = isMe ? 21 : 20;
         o.grp.add(o.you);
         o.tagText = tag; o.tagColor = p.color; o.isMe = isMe;
