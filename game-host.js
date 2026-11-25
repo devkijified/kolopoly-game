@@ -10,6 +10,7 @@ const { createPrizeLedger } = require('./prize-ledger.js');
 const { createPayProvider } = require('./pay-provider.js');
 const shelfRewards = require('./shelf-rewards.js');
 const emotes = require('./emotes.js');
+const events = require('./events.js');
 
 function randomHex(n) {
   const bytes = new Uint8Array(n);
@@ -607,6 +608,9 @@ function shelfIdOf(player) {
   if (player.accountId) return 'acct:' + player.accountId;
   return player.clientId || null;
 }
+function shelfOfId(room, playerId) {
+  return shelfIdOf(room.players.find((p) => p.id === playerId));
+}
 function noteIdentity(player) {
   if (!player || player.bot) return;
   try { retention.link({ clientId: player.clientId, token: player.reconnectToken, name: player.name, accountId: player.accountId || null }); }
@@ -769,9 +773,13 @@ function publicRoom(room) {
     // still keeps 40. Sending all 14 on every tick was most of a fat update.
     contentCity: room.cityId || emotes.homeCity(),
     emote: room.emote || null,
+    event: activeEvent(room),
+    lightsOut: room.lightsOut == null ? null : room.lightsOut,
+    payback: room.payback || null,
     feed: room.feed.slice(-6),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
+      accountId: p.accountId || null,
       isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
       paidSeat: !!p.paidSeat, payPending: !!p.payPending,
       inJail: p.inJail, bankrupt: p.bankrupt, resigned: !!p.resigned, goojf: p.goojf.length,
@@ -1068,6 +1076,13 @@ function finishRent(room, player, owner, i, rent, printedRent, phaseMult, resume
   if (phaseMult > 1) stamp(room, 'rent', rentReason + ', paid by ' + player.name + ' to ' + owner.name + '.', rent, player.id);
   charge(room, player, rent, owner, rentReason, resume,
     { stat: 'rent', spaceName: sp.name });
+  if (rent >= 100000 && retention && retention.noteRivalry) {
+    retention.noteRivalry({
+      payer: shelfIdOf(player), owner: shelfIdOf(owner),
+      payerName: player.name, ownerName: owner.name, amount: rent
+    });
+    room.payback = { fromId: player.id, toId: owner.id, toName: owner.name, amount: rent, at: now() };
+  }
 }
 // Settle a frozen Lifeline bill exactly once. The bill is cleared before any
 // money moves, so retries, double clicks and reconnects can never settle it
@@ -1146,6 +1161,14 @@ function resolveLanding(room, player, opts) {
         }
         const printedRent = rent;
         rent = rent * phaseMult;
+        const week = activeEvent(room);
+        if (week && week.effect === 'lights-out' && room.lightsOut === i) {
+          pushFeed(room, 'info', 'NEPA don take light for ' + sp.name + '. ' + player.name + ' pay ₦0.', { playerId: player.id, space: i });
+          rent = 0;
+        } else if (week && week.effect === 'toll-free' && /toll/i.test(sp.name)) {
+          pushFeed(room, 'info', 'Toll holiday. ' + player.name + ' pass ' + sp.name + ' free.', { playerId: player.id, space: i });
+          rent = 0;
+        }
         let forgiven = false;
         if (player.shield && rent > 0) {
           rent = Math.floor(rent / 2);
@@ -1601,7 +1624,7 @@ function titlesFor(room, player, winner) {
     if (!player.everMortgaged) return 'Certified Nepo Landlord';
     const lowest = Math.min(...room.players.map((p) => p.minCash));
     if (player.minCash <= lowest) return 'Lapo wey don blow';
-    return 'Real Landlord of Lagos';
+    return tableCity(room) === emotes.homeCity() ? 'Real Landlord of Lagos' : 'Real Landlord';
   }
   if (player.resigned) return 'Landlord wey resign';
   if (player.bankrupt) return 'Lapo (funds don finish)';
@@ -1629,6 +1652,17 @@ function endGame(room, winner, why) {
     if (room.hornRanking) return room.hornRanking.indexOf(a.playerId) - room.hornRanking.indexOf(b.playerId);
     return b.netWorth - a.netWorth;
   });
+  if (retention && retention.noteMatch) {
+    const win = room.endTable[0];
+    const winShelf = shelfOfId(room, win.playerId);
+    for (const row of room.endTable.slice(1)) {
+      if (row.bot || win.bot) continue;
+      retention.noteMatch({
+        winner: winShelf, loser: shelfOfId(room, row.playerId),
+        winnerName: win.name, loserName: row.name
+      });
+    }
+  }
   room.phase = 'end';
   room.turnDeadline = null;
   room.gameEndsAt = null;
@@ -1806,6 +1840,15 @@ function queueChoice(room, player, spaceIdx) {
 // ---------------------------------------------------------------------------
 // Start of game
 // ---------------------------------------------------------------------------
+function tableCity(room) {
+  return (room && room.cityId) || emotes.homeCity();
+}
+function lagosToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function activeEvent(room) {
+  return events.forCity(lagosToday(), tableCity(room));
+}
 function startGame(room) {
   // a fresh key per start (including play-again rematches) so the
   // client's countdown ceremony runs for every game, not just the first
@@ -1813,6 +1856,11 @@ function startGame(room) {
   room.props = {};
   for (const i of D.OWNABLE) room.props[i] = { owner: null, mortgaged: false, buildings: 0, mansionLap: -1, pledged: null };
   room.duplexSupply = D.DUPLEX_SUPPLY; room.mansionSupply = D.MANSION_SUPPLY; room.pot = 0;
+  room.lightsOut = null;
+  const week = activeEvent(room);
+  if (week && week.effect === 'lights-out' && D.OWNABLE.length) {
+    room.lightsOut = D.OWNABLE[Math.floor(Math.random() * D.OWNABLE.length)];
+  }
   room.decks = { wahala: shuffle(D.WAHALA.map((c) => c.id)), family: shuffle(D.FAMILY.map((c) => c.id)) };
   room.discard = { wahala: [], family: [] };
   room.bankAuctionQueue = [];
@@ -2275,7 +2323,9 @@ function owambeGrab(room, player, rushId) {
   if (!player || player.bankrupt || player.resigned) return 'Only players inside the game fit grab.';
   // Exactly once: the record closes before any money moves.
   room.owambe = null;
-  const amount = room.pot;
+  let amount = room.pot;
+  const week = activeEvent(room);
+  if (week && week.effect === 'pot-double') amount *= 2;
   room.pot = 0;
   if (amount > 0) moveMoney(room, null, player, amount, 'OWAMBE RUSH! ' + player.name + ' grab the whole pot, ' + D.fmtN(amount) + '. Spray am!', {});
   room.owambeResult = { id: r.id, winnerId: player.id, amount, at: t, reactionMs: Math.max(0, t - r.opensAt) };
