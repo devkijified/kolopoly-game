@@ -120,7 +120,8 @@
     const spec = LINES[id];
     if (!spec || !enabled()) return false;
     const lesson = window.__kolopolyState && window.__kolopolyState();
-    if (lesson && lesson.practice && lesson.practice.kind !== 'free') {
+    const teaching = lesson && lesson.practice && lesson.practice.kind !== 'free' && lesson.practice.action !== 'free' && lesson.practice.step !== 'ready';
+    if (teaching) {
       pending.push({ id, extra });
       hide();
       return true;
