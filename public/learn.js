@@ -163,6 +163,8 @@
     if (card && !card.hidden) boxes.push(card.getBoundingClientRect());
     const topbar = document.querySelector('.topbar');
     if (topbar) boxes.push(topbar.getBoundingClientRect());
+    const nav = document.getElementById('secondaryBar');
+    if (nav) boxes.push(nav.getBoundingClientRect());
     document.querySelectorAll('#deedSheet p, #deedSheet .kv, #deedSheet td, #deedSheet .flavour, #deedSheet .meaning').forEach((node) => {
       const st = getComputedStyle(node);
       if (st.visibility === 'hidden' || st.display === 'none') return;

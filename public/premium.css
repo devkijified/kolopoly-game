@@ -229,6 +229,14 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 
 /* End screen: reward reveal. */
 .end-card, .end-panel { background: var(--g-panel) !important; border-radius: 14px !important; box-shadow: var(--g-drop), var(--g-bevel) !important; animation: kpRiseIn 0.5s var(--g-ease-pop) both; }
+.train-end-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.train-end-actions .btn { width: 100%; min-height: 48px; }
+.train-end .train-badge { margin-bottom: 8px; background: #ffc857; color: #1a140c; }
+.train-end .end-headline { font-size: 22px; }
+.train-end .end-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.train-end .end-worth { font-size: 16px; }
+.train-end .end-title { display: block; margin-top: 2px; line-height: 1.3; }
+#endOverlay { padding-top: calc(18px + env(safe-area-inset-top)); }
 .end-row { background: rgba(255, 255, 255, 0.04); border-radius: 8px; color: var(--g-text); animation: kpSlideIn 0.4s var(--g-ease-pop) both; }
 .end-row:nth-child(2) { animation-delay: 0.08s; } .end-row:nth-child(3) { animation-delay: 0.16s; } .end-row:nth-child(4) { animation-delay: 0.24s; }
 .end-row.winner {
@@ -240,8 +248,12 @@ body:has(#view-landing.active), body:has(#view-lobby.active) { background: #0f11
 .end-row.winner .end-title,
 .end-row.winner .end-lessons,
 .end-row.winner .end-worth,
-.end-row.winner .bot-tag,
 .end-row.winner .end-flag { color: #1a140c; }
+.end-row .bot-tag {
+  background: #1a140c;
+  color: #ffc857;
+  border: 1px solid #ffc857;
+}
 
 /* Press ripple from game-feel.js */
 .kp-ripple { position: absolute; border-radius: 50%; pointer-events: none; transform: scale(0); background: rgba(255, 255, 255, 0.35); animation: kpRipple 0.45s ease-out forwards; }
@@ -1259,14 +1271,15 @@ body:has(#view-landing.active) #muteBtn.on {
 }
 #coachPop[hidden] { display: none; }
 #coachPop .coach-row { display: flex; align-items: center; gap: 8px; }
-#coachPop .coach-daddy { width: 44px; height: 56px; object-fit: contain; flex: none; filter: drop-shadow(1px 2px 0 rgba(26,20,12,.28)); }
-#coachPop .coach-copy { min-width: 0; }
+#coachPop .coach-daddy { width: 28px; height: 36px; object-fit: contain; flex: none; filter: drop-shadow(1px 2px 0 rgba(26,20,12,.28)); }
+#coachPop .coach-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+#coachPop .coach-kicker { display: none; }
 #coachPop .coach-bubble {
   pointer-events: auto; flex: 1; min-width: 0;
-  background: #fff6e4; color: #1a140c; border: 3px solid #1a140c; border-radius: 16px;
-  box-shadow: 4px 5px 0 #1a140c; padding: 8px 10px 10px;
+  background: #fff6e4; color: #1a140c; border: 2px solid #1a140c; border-radius: 12px;
+  box-shadow: 3px 3px 0 #1a140c; padding: 5px 8px 6px;
 }
-#coachPop .coach-title { margin: 0; font-size: 15px; font-weight: 900; letter-spacing: 0.2px; color: #8a5a00; }
+#coachPop .coach-title { margin: 0; font-size: 13px; line-height: 1.15; font-weight: 900; letter-spacing: 0.2px; color: #8a5a00; }
 #coachPop .coach-line { margin: 2px 0 8px; font-size: 15px; line-height: 1.3; font-weight: 750; color: #1a140c; }
 #coachPop .coach-line[hidden] { display: none; }
 #coachPop.coach-dock { left: 0; right: 0; bottom: 0; max-width: none; align-items: flex-start; background: #fff6e4; }
@@ -1308,9 +1321,14 @@ body.train-gate #deedSheet .deed-aside { visibility: hidden; min-height: 96px; }
   font-weight: 900; letter-spacing: 1px; font-size: 13px;
 }
 #coachPop .coach-actions { display: flex; flex-direction: column; gap: 6px; }
-#coachPop .coach-nav { display: flex; flex-wrap: nowrap; gap: 6px; }
-#coachPop .coach-nav .btn { flex: 1 1 0; min-width: 0; min-height: 36px; padding: 6px 4px; font-size: 12px; letter-spacing: 0.03em; }
-#coachPop .btn { min-height: 40px; }
+#coachPop .coach-actions:empty { display: none; }
+#coachPop .coach-nav { display: flex; flex-wrap: nowrap; gap: 4px; margin-left: auto; }
+#coachPop .coach-nav .btn {
+  flex: 0 0 32px; width: 32px; min-width: 32px; min-height: 28px;
+  padding: 0; font-size: 16px; font-weight: 900; line-height: 1; letter-spacing: 0;
+}
+#coachPop .btn { min-height: 28px; }
+#coachPop .coach-actions .btn.block { min-height: 44px; font-size: 15px; }
 body.train-gate #coachGate {
   position: fixed; z-index: 160; pointer-events: none; border-radius: 18px;
 }
@@ -1407,7 +1425,40 @@ body.train-gate .bspace.coach-path { box-shadow: inset 0 0 0 3px #ffc857; }
 #learnTip[hidden] { display: none; }
 #learnTip p { margin: 0; font-size: 14px; font-weight: 800; line-height: 1.25; }
 .coach-progress:empty { display: none; }
-.coach-progress { margin: 0; font-size: 12px; font-weight: 900; letter-spacing: 0.8px; color: #8a5a00; }
+.coach-progress { margin: 0; font-size: 11px; font-weight: 900; letter-spacing: 0.4px; color: #8a5a00; }
+body.train-gate .board-wrap, body.train-done .board-wrap { background: #f6e2b8; }
+body.train-gate #view-game.active { padding-top: var(--coach-h, 0px); box-sizing: border-box; }
+body.train-gate #boardWrap .gl-canvas, body.train-done #boardWrap .gl-canvas {
+  filter: brightness(1.26) contrast(1.1) saturate(1.18);
+}
+body.train-gate .bspace .nm, body.train-done .bspace .nm {
+  font-size: clamp(11px, 4.4cqw, 14px); letter-spacing: -0.15px;
+  text-shadow: 0 1px 0 #1a140c, 0 0 2px #1a140c;
+}
+body.train-gate .bspace.band-light .nm, body.train-done .bspace.band-light .nm { text-shadow: none; color: #1a140c; }
+body.train-gate .bspace .pr, body.train-done .bspace .pr {
+  font-size: clamp(11px, 3cqw, 14px); font-weight: 900; color: #1a140c; background: #fffdf8;
+}
+body.train-gate .btoken, body.train-done .btoken { --ts: clamp(30px, 9.5cqw, 44px); }
+body.train-gate .bspace.you-stand, body.train-done .bspace.you-stand {
+  z-index: 4; box-shadow: inset 0 0 0 3px #ffc857, 0 0 0 2px #1a140c;
+}
+.cash-float {
+  position: fixed; z-index: 230; pointer-events: none;
+  font-weight: 900; font-size: 15px; line-height: 1.2; padding: 3px 8px;
+  border: 2px solid #1a140c; border-radius: 999px;
+  animation: cashfloat 1.25s ease-out forwards;
+}
+.cash-float.up { background: #d8f5e4; color: #0f7a50; }
+.cash-float.down { background: #ffe1dc; color: #9a2e24; }
+@keyframes cashfloat {
+  0% { transform: translateY(8px); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: translateY(-26px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cash-float { animation: none; opacity: 1; }
+}
 .coach-nudge:empty { display: none; }
 .coach-nudge { margin: 4px 0 0; font-size: 13px; font-weight: 800; color: #9a2e24; }
 .prof-card h4 { margin: 12px 0 4px; font-size: 14px; letter-spacing: 0.4px; color: #8a5a00; }

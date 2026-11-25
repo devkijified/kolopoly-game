@@ -725,8 +725,9 @@ function practicePublic(room) {
   const spec = stepSpec(room);
   return {
     kind: 'intro', step: spec.id, action: spec.action, wait: spec.action === 'tap' ? 'tap' : spec.action,
-    n: spec.mark, of: 12, title: spec.title, line: spec.line, target: spec.target,
-    sheet: spec.sheet || '', fx: spec.fx || '', replay: room.practice.replay || 0
+    n: spec.mark, of: 12, title: spec.title, line: spec.line, target: spec.target || '',
+    sheet: spec.sheet || '', fx: spec.fx || '', replay: room.practice.replay || 0,
+    ended: !!room.practice.ended
   };
 }
 function prepareLessonRoll(room) {
@@ -1830,9 +1831,21 @@ function titlesFor(room, player, winner) {
   if (D.OWNABLE.filter((i) => room.props[i].owner === player.id).length >= mostDeeds && mostDeeds >= 4) return 'Estate Collector';
   return 'Tenant wey dey try';
 }
+function stopPracticeLesson(room) {
+  if (!room.practice) return;
+  room.practice.ended = true;
+  room.practice.sawTap = '';
+  if (room.practice.kind === 'free') {
+    room.practice.step = 'free';
+    return;
+  }
+  room.practice.kind = 'intro';
+  room.practice.step = 'ready';
+}
 function endGame(room, winner, why) {
   const finishing = room.status === 'playing';
   room.status = 'ended';
+  stopPracticeLesson(room);
   room.winner = { playerId: winner.id, name: winner.name };
   room.pendingBill = null;
   if (room.hustle) room.hustle = null;
@@ -3376,6 +3389,13 @@ function handleConnection(ws) {
         dropRoom(room.code);
         return;
       }
+      if (msg.type === 'test_bot_win') {
+        const human = room.players.find((p) => !p.bot && !p.bankrupt);
+        if (human) { human.bankrupt = true; human.cash = 0; }
+        checkWinBySolvency(room);
+        broadcast(room);
+        return;
+      }
       broadcast(room);
       return;
     }
@@ -4377,10 +4397,15 @@ function handleConnection(ws) {
     // ---- Turn intents ---------------------------------------------------------
     if (msg.type === 'practice_ack' || msg.type === 'practice_skip') {
       if (!room.practice) return fail('This table no be a lesson.');
+      if (room.status !== 'playing') { stopPracticeLesson(room); broadcast(room); return; }
       if (msg.type === 'practice_skip') {
         room.practice.kind = 'intro';
         room.practice.step = 'ready';
         setMessage(room, 'Lesson skipped. No money move.');
+      } else if (msg.what === 'missing') {
+        const spec = stepSpec(room);
+        if (spec.action === 'tap') room.practice.sawTap = spec.id;
+        else stopPracticeLesson(room);
       } else if (msg.what === 'next') room.practice.sawTap = room.practice.step;
       else if (msg.what === 'deals' && room.practice.step === 'deals') room.practice.sawDeals = true;
       else if (msg.what === 'back') {
@@ -4396,6 +4421,7 @@ function handleConnection(ws) {
     }
     if (msg.type === 'practice_recover') {
       if (!room.practice || room.practice.kind === 'free') return fail('This table no be a lesson.');
+      if (room.status !== 'playing') { stopPracticeLesson(room); broadcast(room); return; }
       if (room.practice.delayBuy) { broadcast(room); return; }
       const spec = stepSpec(room);
       if (spec.action === 'buy' && room.phase !== 'buy') offerLessonBuy(room);

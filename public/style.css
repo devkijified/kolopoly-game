@@ -863,6 +863,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .end-row.winner .end-rank { background: var(--gold); color: var(--ink); }
 .end-who { flex: 1; min-width: 0; }
+.end-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.end-who .end-worth { padding-top: 0; }
 .end-name { font-weight: 800; font-size: 16px; color: var(--ink); line-height: 1.25; }
 .end-worth {
   flex: none; font-family: 'Aeonik Pro', sans-serif; font-size: 18px; font-weight: 800;

@@ -942,6 +942,20 @@ function queueAlert(kind, amount, text, balanceAfter, voiceLine) {
   if (alertQueue.length > 3) alertQueue.splice(0, alertQueue.length - 3);
   pumpAlerts();
 }
+function floatLessonCash(isCredit, amount) {
+  if (!document.body.classList.contains('train-gate') && !document.body.classList.contains('train-done')) return;
+  const cash = document.getElementById('hudCashBtn');
+  if (!cash || amount == null) return;
+  const r = cash.getBoundingClientRect();
+  const f = document.createElement('div');
+  f.className = 'cash-float ' + (isCredit ? 'up' : 'down');
+  f.textContent = (isCredit ? '+' : '−') + fmtN(amount);
+  const width = 108;
+  f.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, r.left)) + 'px';
+  f.style.top = Math.max(8, r.bottom + 4) + 'px';
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 1300);
+}
 const SUCC_SVG = '<svg viewBox="0 0 52 52" aria-hidden="true"><circle class="succ-c" cx="26" cy="26" r="23" fill="none"/><path class="succ-k" fill="none" d="M14.5 27.5l7.5 7.5L37.5 19"/></svg>';
 function pumpAlerts() {
   if (alertBusy || !alertQueue.length) return;
@@ -959,6 +973,7 @@ function pumpAlerts() {
     '<div class="why">' + esc(a.text) + '</div>' +
     (a.balanceAfter != null ? '<div class="bal">Balance: ' + fmtN(a.balanceAfter) + '</div>' : '');
   $('alerts').appendChild(el);
+  floatLessonCash(isCredit, a.amount);
   // KP14: the amount counts up while the coins sound. The cascade runs
   // exactly the count-up's length, so the last coin lands as the number
   // settles; the spoken line (state 1 only) waits for the cascade tail
@@ -2889,7 +2904,7 @@ function placeGate(gate, el) {
     gate.style.top = '0px';
     gate.style.width = '100%';
     gate.style.height = '100%';
-    gate.style.background = 'rgba(8, 6, 4, 0.62)';
+    gate.style.background = 'transparent';
     gate.style.boxShadow = 'none';
     return;
   }
@@ -2901,7 +2916,7 @@ function placeGate(gate, el) {
   gate.style.width = (r.width + pad * 2) + 'px';
   gate.style.height = (r.height + pad * 2) + 'px';
   gate.style.background = 'transparent';
-  gate.style.boxShadow = '0 0 0 9999px rgba(8, 6, 4, 0.62)';
+  gate.style.boxShadow = '0 0 0 9999px rgba(36, 22, 8, 0.26)';
 }
 let lessonMisses = 0;
 let lessonWait = 0;
@@ -2932,7 +2947,13 @@ function lessonVisible(el) {
   const w = vv ? vv.width : window.innerWidth;
   return r.bottom > 8 && r.top < h - 8 && r.right > 0 && r.left < w;
 }
+function lessonTargetGone(step) {
+  if (!step || !step.target) return false;
+  if (!state || state.status !== 'playing') return true;
+  return !document.querySelector(step.target);
+}
 function lessonNudge() {
+  if (state && state.practice && lessonTargetGone(state.practice)) return;
   lessonMisses += 1;
   const n = document.getElementById('coachNudge');
   if (n) n.textContent = 'No be that one, tap the glowing one';
@@ -2982,19 +3003,20 @@ function parkCoach(targetEl) {
   pop.style.background = '';
   pop.style.width = 'auto';
   if (done) {
-    const tray = document.querySelector('.hud-tray');
-    const trayTop = tray ? tray.getBoundingClientRect().top : window.innerHeight - 220;
-    const top = Math.max(window.innerHeight * 0.46, Math.min(trayTop - 4, window.innerHeight - 210));
-    pop.style.top = top + 'px';
+    pop.style.top = 'auto';
     pop.style.bottom = '0px';
     pop.style.left = '0px';
     pop.style.right = '0px';
-    pop.style.padding = '12px 10px calc(16px + env(safe-area-inset-bottom))';
+    pop.style.padding = '12px 12px calc(12px + env(safe-area-inset-bottom))';
     pop.style.background = '#fff6e4';
     pop.style.alignItems = 'flex-start';
+    pop.style.maxHeight = '78vh';
+    pop.style.overflow = 'auto';
     return;
   }
   pop.style.padding = '';
+  pop.style.maxHeight = '';
+  pop.style.overflow = '';
   pop.style.left = '8px';
   pop.style.right = '8px';
   const cardModal = document.querySelector('#cardScrim.show');
@@ -3162,7 +3184,7 @@ function lessonArm(step) {
   const started = performance.now();
   const hunt = () => {
     if (token !== lessonToken) return;
-    if (!state || !state.practice || state.practice.step !== step.step) return;
+    if (!state || state.status !== 'playing' || !state.practice || state.practice.step !== step.step) return;
     lessonCloseStray(state.practice);
     const el = lessonTarget(state.practice);
     if (el) {
@@ -3193,6 +3215,23 @@ function lessonArm(step) {
 function paintLessonFx() {
   const fx = document.getElementById('coachFx');
   if (fx) fx.hidden = true;
+}
+function clearLessonChrome() {
+  lessonToken += 1;
+  const pop = document.getElementById('coachPop');
+  const gate = document.getElementById('coachGate');
+  const ring = document.getElementById('coachRing');
+  const finger = document.getElementById('coachFinger');
+  const bar = document.getElementById('learnBar');
+  if (pop) pop.hidden = true;
+  if (gate) gate.hidden = true;
+  if (ring) ring.hidden = true;
+  if (finger) finger.hidden = true;
+  if (bar) bar.hidden = true;
+  document.body.classList.remove('train-gate', 'train-done');
+  document.documentElement.style.setProperty('--coach-h', '0px');
+  document.querySelectorAll('.coach-live').forEach((node) => node.classList.remove('coach-live'));
+  if (window.KPLearn) window.KPLearn.hide(true);
 }
 function renderCoach(room) {
   let pop = document.getElementById('coachPop');
@@ -3230,8 +3269,9 @@ function renderCoach(room) {
     pop = document.createElement('div');
     pop.id = 'coachPop';
     pop.innerHTML = '<div class="coach-bubble">' +
-      '<div class="coach-row"><img class="coach-daddy" alt="" width="44" height="56">' +
-      '<div class="coach-copy"><p class="coach-progress"></p><p class="coach-kicker">Training Ground</p><p class="coach-title"></p></div></div>' +
+      '<div class="coach-row"><img class="coach-daddy" alt="" width="28" height="36">' +
+      '<div class="coach-copy"><p class="coach-progress"></p><p class="coach-kicker">Training Ground</p><p class="coach-title"></p></div>' +
+      '<div class="coach-nav"></div></div>' +
       '<p class="coach-line"></p><p class="coach-nudge" id="coachNudge"></p><div class="coach-actions"></div></div>';
     document.body.appendChild(pop);
     pop.addEventListener('click', (ev) => {
@@ -3242,6 +3282,7 @@ function renderCoach(room) {
       if (b.dataset.act === 'back') send('practice_ack', { what: 'back' });
       if (b.dataset.act === 'replay') send('practice_ack', { what: 'replay' });
       if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
+      if (b.dataset.act === 'again') window.KPStartPractice('intro');
     });
   }
   if (!room || !room.practice) {
@@ -3253,6 +3294,10 @@ function renderCoach(room) {
     return;
   }
   const step = room.practice;
+  if (room.status === 'ended') {
+    clearLessonChrome();
+    return;
+  }
   if (step.step === 'ready' || step.kind === 'free') markTraining({ seen: true, done: true });
   const locked = step.kind !== 'free' && step.action !== 'free' && step.action !== 'stay';
   gate.hidden = !locked;
@@ -3271,6 +3316,8 @@ function renderCoach(room) {
   if (fill) fill.style.width = Math.round(frac * 100) + '%';
   pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' || step.step === 'adacheer' || step.step === 'built' ? 'daddy-clap' : 'daddy-stand') + '.webp';
   pop.querySelector('.coach-title').textContent = step.title || '';
+  const prog = pop.querySelector('.coach-progress');
+  if (prog) prog.textContent = step.of && step.kind !== 'free' ? ((step.n || 1) + '/' + step.of) : '';
   const lineEl = pop.querySelector('.coach-line');
   const bubbleOwns = !!(step.target && step.kind !== 'free' && step.step !== 'ready' && (!window.KPLearn || window.KPLearn.tipsOn()));
   lineEl.hidden = bubbleOwns;
@@ -3284,24 +3331,37 @@ function renderCoach(room) {
     if (nudge) nudge.textContent = '';
   }
   const actions = pop.querySelector('.coach-actions');
+  const nav = pop.querySelector('.coach-nav');
+  const iconNav = '<button type="button" class="btn small ghost" data-act="back" aria-label="Back" title="Back">‹</button>' +
+    '<button type="button" class="btn small ghost" data-act="replay" aria-label="Replay" title="Replay">↻</button>' +
+    '<button type="button" class="btn small ghost" data-act="skip" aria-label="Skip" title="Skip">»</button>';
   document.body.classList.toggle('train-done', step.step === 'ready');
   if (step.step === 'ready') {
-    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn block" data-act="real">Play your first real game</button>';
+    if (nav) nav.innerHTML = '';
+    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn block" data-act="real">Play your first real game</button><button type="button" class="btn block ghost" data-act="again">Replay lesson</button>';
     lessonSpot(null, false);
   } else if (step.kind === 'free') {
-    actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Leave</button>';
+    if (nav) nav.innerHTML = '<button type="button" class="btn small ghost" data-act="skip" aria-label="Leave" title="Leave">»</button>';
+    actions.innerHTML = '';
     parkCoach(null);
   } else {
     const hear = step.action === 'tap' && !step.target;
-    actions.innerHTML = (hear ? '<button type="button" class="btn block" data-act="next">Next</button>' : '') +
-      '<div class="coach-nav">' +
-      '<button type="button" class="btn small ghost" data-act="back">Back</button>' +
-      '<button type="button" class="btn small ghost" data-act="replay">Replay</button>' +
-      '<button type="button" class="btn small ghost" data-act="skip">Skip</button></div>';
+    if (nav) nav.innerHTML = iconNav;
+    actions.innerHTML = hear ? '<button type="button" class="btn block" data-act="next">Next</button>' : '';
     lessonArm(step);
     parkCoach(lessonTarget(step));
   }
   paintLessonFx();
+  syncCoachGap();
+}
+function syncCoachGap() {
+  const pop = document.getElementById('coachPop');
+  const docked = !pop || pop.hidden || pop.classList.contains('coach-dock') || pop.style.top === 'auto';
+  const next = docked ? '0px' : ((pop.offsetHeight || 0) + 6) + 'px';
+  const root = document.documentElement;
+  if (root.style.getPropertyValue('--coach-h') === next) return;
+  root.style.setProperty('--coach-h', next);
+  window.dispatchEvent(new Event('resize'));
 }
 
 document.addEventListener('pointerup', () => {
@@ -3312,6 +3372,13 @@ document.addEventListener('click', (ev) => {
   if (!document.body.classList.contains('train-gate')) return;
   if (ev.target.closest('#coachPop') || ev.target.closest('.coach-live') || ev.target.closest('[data-close]')) return;
   const tile = ev.target.closest('.bspace');
+  if (state && state.practice && lessonTargetGone(state.practice)) {
+    if (state.status !== 'playing') send('practice_skip', {});
+    else send('practice_ack', { what: 'missing' });
+    ev.preventDefault();
+    ev.stopPropagation();
+    return;
+  }
   lessonNudge();
   if (tile) {
     requestAnimationFrame(() => { if (state && state.practice) lessonCloseStray(state.practice); });
@@ -3648,7 +3715,7 @@ function renderActionBar(room) {
   if (spectator || !me) {
     html = '<p class="caption" style="align-self:center;">You dey watch this game as spectator.</p>';
   } else if (room.status === 'ended') {
-    html = '<p class="caption" style="align-self:center;">Game don finish. See the final table.</p>';
+    html = room.practice ? '' : '<p class="caption" style="align-self:center;">Game don finish. See the final table.</p>';
   } else if (room.auction) {
     html = '';
   } else if (room.debt) {
@@ -3774,10 +3841,9 @@ function renderActionBar(room) {
     if (!leaveArmed) { leaveArmed = true; renderActionBar(room); setTimeout(() => { leaveArmed = false; if (state) renderActionBar(state); }, 4000); return; }
     leaveArmed = false;
     sendAs('resign', {});
-    // KP13 WS2: a confirmed leave is final. The leaver's own client
-    // exits to the landing at once, the same way the lobby Leave flow
-    // already leaves; it never sits in the room as a ghost seat. In
-    // pass-and-play the phone is shared, so it stays with the game.
+    // A practice table stays on the finish card. A real game leaves
+    // at once. Pass-and-play keeps the shared phone in the room.
+    if (room.practice) return;
     if (room.mode !== 'pass') { clearSeat(); setTimeout(() => location.reload(), 250); }
   });
   wire('sbEndRoom', () => {
@@ -5005,14 +5071,16 @@ function renderEnd(room) {
     const won = !!(room.winner && (room.winner.playerId === myId || room.mode === 'pass'));
     try { if (won) { logSfx('cheer', null, 'end'); sfx.cheer(); } else { logSfx('lose', null, 'end'); sfx.lose(); } } catch (e) { }
   }
+  const trainingEndEarly = !!(room.practice && (room.practice.kind === 'intro' || room.practice.kind === 'free'));
   const rows = room.endTable.map((r, idx) =>
     '<li class="end-row' + (idx === 0 ? ' winner' : '') + '">' +
     '<div class="end-rank">' + (idx === 0 ? window.icon('crown', 22) : String(idx + 1)) + '</div>' +
     '<span class="end-token">' + window.tokenArt(r.token, 32) + '</span>' +
-    '<div class="end-who"><div class="end-name">' + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' <span class="end-flag">resigned</span>' : r.bankrupt ? ' <span class="end-flag">out</span>' : '') + '</div>' +
+    '<div class="end-who"><div class="end-top"><div class="end-name">' + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' <span class="end-flag">resigned</span>' : r.bankrupt ? ' <span class="end-flag">out</span>' : '') + '</div>' +
+    '<div class="end-worth">' + fmtN(r.netWorth) + '</div></div>' +
     '<div class="end-title">' + esc(r.title) + '</div>' +
     (r.lessons && r.lessons.length ? r.lessons.map((l) => '<p class="end-lessons">' + esc(l) + '</p>').join('') : '') +
-    '</div><div class="end-worth">' + fmtN(r.netWorth) + '</div></li>').join('');
+    '</div></li>').join('');
   const hasReal = room.endTable.some((r) => r.realNetWorth != null);
   const realRows = hasReal ? room.endTable.slice().sort((a, b) => b.realNetWorth - a.realNetWorth).map((r, idx) =>
     '<li class="end-row"><div class="end-rank">' + (idx + 1) + '</div><div class="end-who"><div class="end-name">' + esc(r.name) + '</div><div class="end-title">Cash ' + fmtN(r.realCash) + ' at Phase 1 power</div></div><div class="end-worth">' + fmtN(r.realNetWorth) + '</div></li>').join('') : '';
@@ -5054,13 +5122,17 @@ function renderEnd(room) {
           : '');
     }
   }
-  o.innerHTML = '<div class="end-card">' +
+  const trainingEnd = trainingEndEarly;
+  o.innerHTML = '<div class="end-card' + (trainingEnd ? ' train-end' : '') + '">' +
+    (trainingEnd
+      ? '<div class="train-badge">TRAINED</div><h2 class="end-headline">You are trained. Play for real.</h2>'
+      : '') +
     '<p class="end-kicker">FINAL TABLE</p>' +
     '<h2 class="end-headline">' + esc(winName) + ' na the real landlord</h2>' +
     (room.endReason === 'resignation' ? '<p class="end-reason">Won by resignation.</p>' : '') +
     (room.endReason === 'abandoned' ? '<p class="end-reason">Everybody leave the table, so the room close.</p>' : '') +
     (room.endReason === 'host' ? '<p class="end-reason">The host end the room.</p>' : '') +
-    paidPrizeHtml(room) +
+    (trainingEnd ? '' : paidPrizeHtml(room)) +
     '<div class="end-tables">' +
       '<section class="end-panel"><h3 class="end-panel-title">The table</h3><p class="end-panel-sub">Net worth, highest first</p>' +
         '<ol class="end-board">' + rows + '</ol></section>' +
@@ -5071,37 +5143,50 @@ function renderEnd(room) {
     (room.dealOfGame ? '<p class="end-deal">Deal of the Game: ' + esc(room.dealOfGame) + '</p>' : '') +
     (room.interestLine ? '<p class="end-note">' + esc(room.interestLine) + '</p>' : '') +
     (room.bankerGhost ? '<p class="end-note">Banker: ' + esc(room.bankerGhost) + ', wey inflation first catch. The ghost run the announcements, no money power.</p>' : '') +
-    infEndHtml +
-    '<p class="end-note" id="endWalletNote">Wallet holds your prize and any entry that comes back. Add your bank there and the house sends it.</p>' +
+    (trainingEnd ? '' : infEndHtml) +
+    (trainingEnd ? '' : '<p class="end-note" id="endWalletNote">Wallet holds your prize and any entry that comes back. Add your bank there and the house sends it.</p>') +
     (function () {
       const eq = window.KPRewards && window.KPRewards.current && window.KPRewards.current.equipped;
       if (!eq) return '';
       const bits = [eq.token, eq.board, eq.daddy, eq.celebrate].filter(Boolean);
       return bits.length ? '<p class="end-note">Your look: ' + bits.map((id) => esc(id.replace(/-/g, ' '))).join(' · ') + '</p>' : '';
     })() +
-    (window.KPRetention && window.KPRetention.endInstallHtml ? window.KPRetention.endInstallHtml() : '') +
-    '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
-    '<button class="btn" id="endProfile">My profile</button>' +
-    '<button class="btn" id="endWallet">Wallet</button>' +
-    '<button class="btn green" id="endAgain">Play again</button></div>' +
-    '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
+    (trainingEnd || !(window.KPRetention && window.KPRetention.endInstallHtml) ? '' : window.KPRetention.endInstallHtml()) +
+    (trainingEnd
+      ? '<div class="end-actions train-end-actions"><button class="btn block" id="endReal">Play your first real game</button>' +
+        '<button class="btn block ghost" id="endReplay">Replay lesson</button>' +
+        '<button class="btn block ghost" id="endLeave">Leave</button></div></div>'
+      : '<div class="btnrow end-actions"><button class="btn" id="endShare">Final Table card</button>' +
+        '<button class="btn" id="endProfile">My profile</button>' +
+        '<button class="btn" id="endWallet">Wallet</button>' +
+        '<button class="btn green" id="endAgain">Play again</button></div>' +
+        '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>');
   o.classList.add('show');
-  const collect = $('endCollect');
-  if (collect) collect.addEventListener('click', () => collectPrize(room, collect));
-  const endWallet = $('endWallet');
-  if (endWallet) endWallet.addEventListener('click', () => openWinnings(false));
-  const endProfile = $('endProfile');
-  if (endProfile) endProfile.addEventListener('click', () => openProfile());
-  paintWalletNote();
-  kickWallet();
-  if (window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
-  $('endShare').addEventListener('click', () => {
+  if (trainingEnd) {
+    const real = $('endReal');
+    if (real) real.addEventListener('click', () => { o.classList.remove('show'); window.KPStartPractice('free'); });
+    const replay = $('endReplay');
+    if (replay) replay.addEventListener('click', () => { o.classList.remove('show'); window.KPStartPractice('intro'); });
+  } else {
+    const collect = $('endCollect');
+    if (collect) collect.addEventListener('click', () => collectPrize(room, collect));
+    const endWallet = $('endWallet');
+    if (endWallet) endWallet.addEventListener('click', () => openWinnings(false));
+    const endProfile = $('endProfile');
+    if (endProfile) endProfile.addEventListener('click', () => openProfile());
+    paintWalletNote();
+    kickWallet();
+  }
+  if (!trainingEnd && window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
+  const endShare = $('endShare');
+  if (endShare) endShare.addEventListener('click', () => {
     openShare('final', {
       rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0, bot: !!(r.bot || r.afkTaken), token: r.token })),
       deal: room.dealOfGame, code: room.code
     });
   });
-  $('endAgain').addEventListener('click', () => {
+  const endAgain = $('endAgain');
+  if (endAgain) endAgain.addEventListener('click', () => {
     o.classList.remove('show');
     // Play again needs a live seat again: rejoin path is not used; host
     // play_again resets the room and clients keep myId/sessionLive.

@@ -292,6 +292,10 @@ const KPBoard = {
       }
       el.classList.toggle('legal', !!this.legalSet && this.legalSet.has(i));
     }
+    const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
+    const me = meId != null ? byId[meId] : null;
+    const stand = me ? (this.displayedPos[me.id] != null ? this.displayedPos[me.id] : me.position) : -1;
+    for (let i = 0; i < N; i++) this.els[i].classList.toggle('you-stand', stand === i);
     const centerPot = document.getElementById('centerPot');
     const potAmt = state.pot || 0;
     const potMax = (state.owambeRules && state.owambeRules.auto) || 500000;
@@ -471,9 +475,20 @@ const KPBoard = {
         inner.classList.add('hop');
       }
       beat2d('hop', { playerId: p.id });
-      const hop = state.practice && state.practice.kind === 'intro' ? 70 : 230;
+      const hop = state.practice && state.practice.kind === 'intro' ? 280 : 230;
       if (cur !== to) setTimeout(step, hop);
-      else { this.animating = false; beat2d('land', { playerId: p.id, space: to }); if (this.lastState) this.renderTokens(this.lastState); }
+      else {
+        this.animating = false;
+        beat2d('land', { playerId: p.id, space: to });
+        const tile = this.els[to];
+        if (tile) {
+          tile.classList.remove('just-landed');
+          void tile.offsetWidth;
+          tile.classList.add('just-landed');
+          setTimeout(() => tile.classList.remove('just-landed'), 900);
+        }
+        if (this.lastState) this.renderTokens(this.lastState);
+      }
     };
     setTimeout(step, 60);
   },
