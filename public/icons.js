@@ -132,12 +132,33 @@ const KP_TOKEN_ART = {
     '<path d="M12 24 Q24 20 36 24" stroke="#f6b73c" stroke-width="2.4" fill="none"/>' +
     '<path d="M11 29 Q24 25 37 29" stroke="#f6b73c" stroke-width="2" fill="none" opacity=".8"/>'
 };
-function tokenArt(id, size) {
+const TOKEN_IMAGES = {};
+function tokenFile(id) {
+  const data = window.KP_DATA;
+  if (data && data.canonToken) return data.canonToken(id);
+  return id || 'big-man';
+}
+function tokenSrc(id) {
+  const file = tokenFile(id);
+  const stamp = (document.querySelector('meta[name="kolopoly-build"]') || {}).content || '';
+  return '/tokens/' + file + '.webp' + (stamp ? '?v=' + stamp : '');
+}
+function tokenImage(id) {
+  const file = tokenFile(id);
+  if (!TOKEN_IMAGES[file]) {
+    const img = new Image();
+    img.src = tokenSrc(file);
+    TOKEN_IMAGES[file] = img;
+  }
+  return TOKEN_IMAGES[file];
+}
+function tokenArt(id, size, opts) {
   const s = size || 48;
-  const body = KP_TOKEN_ART[id] || KP_TOKEN_PATHS[id] || '';
-  return '<svg class="tokart" width="' + s + '" height="' + s + '" viewBox="0 0 48 48" aria-hidden="true">' + body + '</svg>';
+  const gold = opts && opts.gold;
+  return '<img class="tokart' + (gold ? ' tok-gold' : '') + '" alt="" width="' + s + '" height="' + s + '" decoding="async" src="' + tokenSrc(id) + '">';
 }
 window.tokenArt = tokenArt;
+window.KPTokenImage = tokenImage;
 window.KP_TOKEN_ART = KP_TOKEN_ART;
 
 // ---------------------------------------------------------------------------

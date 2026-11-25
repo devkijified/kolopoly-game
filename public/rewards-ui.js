@@ -66,6 +66,7 @@
         return '<span class="reward-card">' + name + ' <b>' + (cards[id] || 0) + '</b></span>';
       }).join('') +
       '</div>';
+    if (window.KPRefreshTokenGold) window.KPRefreshTokenGold();
     const open = $('openPackBtn');
     if (open) open.addEventListener('click', () => openPack());
     const album = $('albumBtn');

@@ -378,13 +378,15 @@ const KPBoard = {
       const meId = typeof window.__kolopolyMe === 'function' ? window.__kolopolyMe() : null;
       const isMe = state.mode !== 'pass' && meId != null && p.id === meId;
       const tag = isMe ? 'YOU' : pieceTag(p.name);
-      const sig = p.token + '|' + p.color + '|' + (isMe ? 'me' : '') + '|' + tag;
+      const gold = isMe && window.KPTokenGold && window.KPTokenGold();
+      const sig = p.token + '|' + p.color + '|' + (isMe ? 'me' : '') + '|' + (gold ? 'gold' : '') + '|' + tag;
       if (el.dataset.sig !== sig) {
         el.dataset.sig = sig;
-        el.innerHTML = '<span class="tok-base" style="background:' + p.color + '"></span><span class="tok-in">' + window.tokenArt(p.token) + '</span>' +
+        el.innerHTML = '<span class="tok-base" style="background:' + p.color + '"></span><span class="tok-in">' + window.tokenArt(p.token, 64, { gold: gold }) + '</span>' +
           '<span class="' + (isMe ? 'tok-you tok-tag' : 'tok-name tok-tag') + '" style="--own:' + p.color + '">' + escTag(tag) + '</span>';
       }
       el.classList.toggle('me', isMe);
+      el.classList.toggle('tok-gold', !!gold);
       el.title = isMe ? p.name + ' (you)' : p.name;
       const target = p.position;
       const shown = this.displayedPos[p.id];
@@ -707,6 +709,15 @@ const KPBoard = {
         x.arc(168, y + h / 2, 30, 0, Math.PI * 2);
         x.fillStyle = i === 0 ? gold : ink;
         x.fill();
+        const face = r.token && window.KPTokenImage && window.KPTokenImage(r.token);
+        if (face && face.complete && face.naturalWidth) {
+          x.save();
+          x.beginPath();
+          x.arc(168, y + h / 2, 28, 0, Math.PI * 2);
+          x.clip();
+          x.drawImage(face, 140, y + h / 2 - 28, 56, 56);
+          x.restore();
+        }
         x.fillStyle = i === 0 ? ink : goldSoft;
         x.font = '700 28px "Aeonik Pro", sans-serif';
         x.textAlign = 'center';

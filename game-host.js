@@ -546,7 +546,7 @@ function sanitizeSettings(raw, isPublic) {
 }
 function newPlayer(name, token, colorIdx) {
   return {
-    id: nextPlayerId++, name, token: token || 'danfo',
+    id: nextPlayerId++, name, token: (D.canonToken ? D.canonToken(token) : token) || 'big-man',
     color: D.PLAYER_COLORS[colorIdx % D.PLAYER_COLORS.length],
     connected: true, ws: null, spectator: false,
     reconnectToken: randomHex(12), clientId: null,
@@ -778,7 +778,7 @@ function publicRoom(room) {
     payback: room.payback || null,
     feed: room.feed.slice(-6),
     players: room.players.map((p) => ({
-      id: p.id, name: p.name, color: p.color, token: p.token, connected: p.connected,
+      id: p.id, name: p.name, color: p.color, token: (D.canonToken ? (p.token = D.canonToken(p.token)) : p.token), connected: p.connected,
       accountId: p.accountId || null,
       isHost: p.id === room.hostId, bot: !!p.bot, afkTaken: !!p.afkTaken, cash: p.cash, position: p.position,
       paidSeat: !!p.paidSeat, payPending: !!p.payPending,
@@ -2838,9 +2838,10 @@ function resolveMortgageChoice(room, player, choice) {
 }
 function pickToken(room, wanted) {
   const taken = new Set(room.players.map((p) => p.token));
-  if (wanted && !taken.has(wanted) && D.TOKENS.some((t) => t.id === wanted)) return wanted;
+  const id = D.canonToken ? D.canonToken(wanted) : wanted;
+  if (wanted && id && !taken.has(id) && D.TOKENS.some((t) => t.id === id)) return id;
   for (const t of D.TOKENS) if (!taken.has(t.id)) return t.id;
-  return 'danfo';
+  return 'big-man';
 }
 function cleanName(v) { return String(v || '').trim().slice(0, 20); }
 

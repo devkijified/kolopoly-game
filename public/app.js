@@ -84,13 +84,31 @@ let myCode = null;
 let spectator = false;
 let state = null;
 let entrySent = false;
+function canonLocalToken(id) {
+  return (window.KP_DATA && window.KP_DATA.canonToken) ? window.KP_DATA.canonToken(id) : (id || 'big-man');
+}
 let selectedToken = (() => {
   try {
     const t = localStorage.getItem('kolopolyToken');
-    if (t && window.KP_DATA && window.KP_DATA.TOKENS.some((x) => x.id === t)) return t;
+    if (t) {
+      const next = canonLocalToken(t);
+      if (next !== t) localStorage.setItem('kolopolyToken', next);
+      return next;
+    }
   } catch (e) { }
-  return 'danfo';
+  return 'big-man';
 })();
+function tokenGoldOn() {
+  const eq = window.KPRewards && window.KPRewards.current && window.KPRewards.current.equipped;
+  return !!(eq && (eq.token === 'token-gold-danfo' || eq.token === 'token-suya'));
+}
+window.KPTokenGold = tokenGoldOn;
+function refreshTokenGold() {
+  const gold = tokenGoldOn();
+  document.querySelectorAll('.token-pick').forEach((b) => b.classList.toggle('tok-gold', gold && b.dataset.token === selectedToken));
+  document.querySelectorAll('.btoken.me').forEach((el) => el.classList.toggle('tok-gold', gold));
+}
+window.KPRefreshTokenGold = refreshTokenGold;
 // KP13 WS5: Inflation is the landing default and the promoted mode. A
 // stored pick from an explicit earlier choice is respected; everyone
 // else lands on Inflation.
@@ -1235,7 +1253,7 @@ function buildTokenPickers() {
   // KP14 re-engineer: the hero token-rain strip is gone (decoration
   // competing with the determiner); tokens live in this compact strip.
   $('tokenGrid').innerHTML = window.KP_DATA.TOKENS.map((t) =>
-    '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + '" data-token="' + t.id + '">' + window.tokenArt(t.id, 30) + '<span>' + esc(t.name) + '</span></button>').join('');
+    '<button type="button" class="token-pick' + (t.id === selectedToken ? ' sel' : '') + (tokenGoldOn() && t.id === selectedToken ? ' tok-gold' : '') + '" data-token="' + t.id + '">' + window.tokenArt(t.id, 44, { gold: tokenGoldOn() && t.id === selectedToken }) + '<span>' + esc(t.name) + '</span></button>').join('');
   $('tokenGrid').querySelectorAll('[data-token]').forEach((b) => b.addEventListener('click', () => {
     selectedToken = b.dataset.token;
     try { localStorage.setItem('kolopolyToken', selectedToken); } catch (e) { }
@@ -2471,7 +2489,7 @@ function renderLobby(room) {
   $('slotBoard').innerHTML = Array.from({ length: 6 }, (_, k) => {
     const p = room.players[k];
     if (!p) return '<div class="slot empty">Waiting for player…</div>';
-    return '<div class="slot"><div class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 22) + '</div>' +
+    return '<div class="slot"><div class="avatar" style="background:' + p.color + '">' + window.tokenArt(p.token, 36) + '</div>' +
       '<div class="seat-copy"><div class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
       '<div class="meta">' + (room.paid && !p.bot
         ? (p.paidSeat ? 'Paid ' + fmtN(room.paid.fee) : p.payPending ? 'Payment dey go…' : 'Awaiting payment') + (p.connected ? '' : ' · Disconnected')
@@ -2743,7 +2761,7 @@ function renderGame(room) {
     if (cueP && room.status === 'playing') {
       cueEl.style.display = '';
       cueEl.style.background = cueP.color;
-      cueEl.innerHTML = window.icon(cueP.token, 13);
+      cueEl.innerHTML = window.tokenArt(cueP.token, 22);
     } else cueEl.style.display = 'none';
   }
   // Players strip
@@ -2754,7 +2772,7 @@ function renderGame(room) {
     const mineChip = room.inf && p.id === (room.mode === 'pass' ? room.turnPlayerId : myId);
     const chipTitle = mineChip ? (' title="' + (p.lifelineUsed ? 'Lifeline: don use am this match' : 'Lifeline: still dey. E fit cut one big rent back to the printed price') + '"') : '';
     return '<div class="pchip' + (p.id === room.turnPlayerId ? ' turn' : '') + (p.bankrupt ? ' bankrupt' : '') + (p.inJail ? ' jailed' : '') + '"' + chipTitle + '>' +
-      '<span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 15) + '</span>' +
+      '<span class="avatar" style="background:' + p.color + '">' + window.tokenArt(p.token, 22) + '</span>' +
       '<span><span class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">' + (p.afkTaken ? 'AFK' : 'BOT') + '</span>' : '') + (p.chaosRole ? ' (' + p.chaosRole + ')' : '') + (room.debt && room.debt.playerId === p.id ? ' <span class="sapa-tag" title="Dey raise money: others fit offer a Sapa Deal">SAPA</span>' : '') + '</span> ' +
       '<span class="cash">' + fmtN(p.cash) + '</span><span class="meta"> · ' + p.deeds + ' deeds' + loanMark + '</span></span></div>';
   }).join('');
@@ -4018,7 +4036,7 @@ function openHud(kind) {
   const rows = room.players.map((p) => {
     const marks = (p.id === room.turnPlayerId ? ' · turn' : '') + (p.inJail ? ' · Kirikiri' : '') + (p.bankrupt ? ' · out' : '') + (p.bot ? ' · ' + (p.afkTaken ? 'AFK' : 'BOT') : '');
     const self = meId != null && p.id === meId;
-    return '<button type="button" class="hud-sheet-row" data-opp="' + p.id + '"' + (self ? ' data-self="1"' : '') + '><span class="avatar" style="background:' + p.color + '">' + window.icon(p.token, 18) + '</span>' +
+    return '<button type="button" class="hud-sheet-row" data-opp="' + p.id + '"' + (self ? ' data-self="1"' : '') + '><span class="avatar" style="background:' + p.color + '">' + window.tokenArt(p.token, 32) + '</span>' +
       '<div class="grow"><b>' + esc(p.name) + '</b><div class="caption">' + p.deeds + ' deeds' + marks + '</div></div>' +
       '<span class="cash">' + fmtN(p.cash) + '</span></button>';
   }).join('');
@@ -4189,6 +4207,7 @@ function renderEnd(room) {
   const rows = room.endTable.map((r, idx) =>
     '<li class="end-row' + (idx === 0 ? ' winner' : '') + '">' +
     '<div class="end-rank">' + (idx === 0 ? window.icon('crown', 22) : String(idx + 1)) + '</div>' +
+    '<span class="end-token">' + window.tokenArt(r.token, 32) + '</span>' +
     '<div class="end-who"><div class="end-name">' + esc(r.name) + (r.bot || r.afkTaken ? ' <span class="bot-tag">BOT</span>' : '') + (r.resigned ? ' <span class="end-flag">resigned</span>' : r.bankrupt ? ' <span class="end-flag">out</span>' : '') + '</div>' +
     '<div class="end-title">' + esc(r.title) + '</div>' +
     (r.lessons && r.lessons.length ? r.lessons.map((l) => '<p class="end-lessons">' + esc(l) + '</p>').join('') : '') +
@@ -4274,7 +4293,7 @@ function renderEnd(room) {
   if (window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
   $('endShare').addEventListener('click', () => {
     openShare('final', {
-      rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0, bot: !!(r.bot || r.afkTaken) })),
+      rows: room.endTable.map((r, idx) => ({ name: r.name, netWorth: r.netWorth, title: r.title, crown: idx === 0, bot: !!(r.bot || r.afkTaken), token: r.token })),
       deal: room.dealOfGame, code: room.code
     });
   });

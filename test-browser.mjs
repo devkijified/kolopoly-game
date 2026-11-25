@@ -1289,7 +1289,7 @@ try {
   check('structure: the rendered section gaps follow the KP20 pattern (4px at the card top padding, 3px between sections, 12px after the preset explainer block)', JSON.stringify(st14.labelGaps) === JSON.stringify([4, 3, 3, 3, 3, 12, 3, 3]), JSON.stringify(st14.labelGaps));
   check('structure: the phase salaries are four stat chips with exact amounts', st14.chips.length === 4 && st14.chips[0].includes('₦200,000') && st14.chips[1].includes('₦100,000') && st14.chips[2].includes('₦50,000') && st14.chips[3].includes('₦25,000'), JSON.stringify(st14.chips));
   check('structure: one slogan, the stacked taglines are gone', st14.tls.length === 0, JSON.stringify(st14.tls));
-  check('structure: the token pick is one compact strip of six even cells in a single row', st14.cells.length === 6 && st14.cells.every((c) => c.h === st14.cells[0].h && c.top === st14.cells[0].top), JSON.stringify(st14.cells));
+  check('structure: the token pick is eight even cells in one sideways row', st14.cells.length === 8 && st14.cells.every((c) => c.h === st14.cells[0].h && c.top === st14.cells[0].top), JSON.stringify(st14.cells));
   check('structure: the MOST PLAYED badge is out of flow', st14.badgePos === 'absolute', st14.badgePos);
   await LND.close();
 

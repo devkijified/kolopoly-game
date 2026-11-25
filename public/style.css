@@ -230,9 +230,10 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .slot.empty { border-style: dashed; color: var(--ink-soft); justify-content: center; font-weight: 600; }
 .slot .avatar {
-  width: 38px; height: 38px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-  color: #fff; flex: none; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18);
+  width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  color: #fff; flex: none; overflow: hidden; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18);
 }
+.avatar img.tokart { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
 .slot .nm { font-weight: 800; }
 .slot { min-width: 0; }
 .slot .seat-copy { min-width: 0; flex: 1; }
@@ -374,7 +375,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 }
 .pchip.turn { border-color: var(--gold-deep); box-shadow: 0 0 0 2px var(--gold); }
 .pchip.bankrupt { opacity: 0.45; }
-.pchip .avatar { width: 22px; height: 22px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2); }
+.pchip .avatar { width: 26px; height: 26px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; overflow: hidden; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2); }
 .pchip .nm { font-weight: 700; font-size: 13px; }
 .pchip .cash { font-weight: 800; font-size: 13px; color: var(--green-deep); }
 .pchip.jailed .nm::after { content: ' · Kirikiri'; color: var(--red-deep); }
@@ -445,17 +446,23 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 @keyframes spaceflash { 0%, 100% { filter: none; } 50% { filter: brightness(1.5); } }
 .btokens { position: absolute; inset: 0; pointer-events: none; }
 .btoken {
-  --ts: clamp(32px, 11.5cqw, 52px); /* board28: bolder pieces */
+  --ts: clamp(46px, 16cqw, 72px);
   position: absolute; width: var(--ts); height: var(--ts);
   margin: calc(var(--ts) / -2) 0 0 calc(var(--ts) / -2);
   transition: left 0.2s ease, top 0.2s ease; z-index: 5;
 }
 .btoken .tok-base {
-  position: absolute; left: 50%; bottom: 1%; transform: translateX(-50%);
-  width: 76%; height: 30%; border-radius: 50%; opacity: 0.92;
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 72%; height: 22%; border-radius: 50%; opacity: 0.92;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35), inset 0 -2px 3px rgba(0, 0, 0, 0.30), inset 0 2px 2px rgba(255, 255, 255, 0.45);
 }
-.btoken .tok-in { position: absolute; inset: 0; display: block; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #2b2018) drop-shadow(0 3px 3px rgba(20, 12, 4, 0.45)); }
+.btoken .tok-in {
+  position: absolute; left: 6%; right: 6%; bottom: 8%; height: 92%;
+  display: block; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #2b2018) drop-shadow(0 3px 3px rgba(20, 12, 4, 0.45));
+}
+.btoken .tok-in img { width: 100%; height: 100%; object-fit: contain; object-position: bottom center; display: block; }
+.btoken.tok-gold .tok-in { filter: drop-shadow(0 0 6px #ffc857) drop-shadow(0 0 2px #fff1c2) drop-shadow(0 3px 3px rgba(20, 12, 4, 0.45)); }
+.btoken.tok-gold .tok-base { box-shadow: 0 0 0 3px #ffc857, 0 2px 5px rgba(0, 0, 0, 0.35); }
 .btoken .tok-base { outline: 2px solid rgba(43, 32, 24, 0.75); outline-offset: -1px; }
 .btoken.me { z-index: 7; }
 .btoken.me .tok-base { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--gold-deep, #b8860b), 0 2px 6px rgba(0, 0, 0, 0.4); }
@@ -469,7 +476,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .btoken .tok-you { font-size: 12.5px; letter-spacing: 0.06em; border-color: #ffe9a8; }
 .btoken .tok-name { padding: 3px 6px; }
 .btoken.me .tok-tag { z-index: 2; }
-.btoken .tok-in svg { width: 100%; height: 100%; display: block; }
+.btoken .tok-in svg, .btoken .tok-in img { width: 100%; height: 100%; display: block; }
 .btoken .tok-in.hop { animation: tokenhop 0.23s ease; }
 @keyframes tokenhop {
   0% { transform: translateY(0) scale(1, 1); }
@@ -1385,10 +1392,12 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   box-shadow: 0 10px 22px rgba(20, 14, 5, 0.20), inset 0 1px 0 rgba(255, 248, 232, 0.13), inset 0 0 0 1px rgba(255, 248, 232, 0.05);
 }
 .msg-cue {
-  width: 24px; height: 24px; border-radius: 50%; flex: none;
+  width: 24px; height: 24px; border-radius: 50%; flex: none; overflow: hidden;
   display: inline-flex; align-items: center; justify-content: center; color: #fff;
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 2px 6px rgba(10, 6, 2, 0.30);
 }
+.end-token { width: 36px; height: 36px; flex: none; border-radius: 50%; overflow: hidden; background: #1a140c; }
+.end-token img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* The Inflation phase strip: the same dark glass language in a wine
    tint (its identity), one slim row; its buttons become ghost items on
@@ -1631,10 +1640,11 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
 #gameModeRow .mode-pick .d { font-size: 12px; line-height: 1.3; }
 #gameModeRow .mode-appeal { font-size: 12px; padding-top: 4px; }
 
-/* Token pick: one compact strip of six, names stay visible. */
-.token-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
-.token-pick { flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; padding: 6px 1px 5px; border-radius: 12px; font-size: 12px; line-height: 1.15; }
-.token-pick svg { width: 30px; height: 30px; }
+/* Token pick: eight pieces, names stay visible. The landing rail scrolls them. */
+.token-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.token-pick { flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; padding: 6px 2px 5px; border-radius: 12px; font-size: 11px; line-height: 1.15; }
+.token-pick svg, .token-pick img { width: 40px; height: 40px; object-fit: contain; }
+.token-pick.tok-gold img { filter: drop-shadow(0 0 5px #ffc857) sepia(0.35) saturate(1.35); }
 .token-pick span { text-align: center; overflow-wrap: break-word; }
 
 /* Room settings disclosure. */
@@ -2074,7 +2084,7 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   display: flex; align-items: center; gap: 10px; padding: 10px 2px;
   border-bottom: 1px solid var(--line); min-height: 48px;
 }
-.hud-sheet-row .avatar { width: 36px; height: 36px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.hud-sheet-row .avatar { width: 36px; height: 36px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; overflow: hidden; }
 .hud-sheet-row .cash { font-weight: 800; font-variant-numeric: tabular-nums; }
 .records-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
 @media (max-width: 699px) {

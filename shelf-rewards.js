@@ -37,8 +37,8 @@ const SETS = {
   night: { name: 'Night Market', city: 'lagos', reward: { kind: 'cosmetic', id: 'daddy-gold' } }
 };
 const COSMETICS = {
-  'token-gold-danfo': { id: 'token-gold-danfo', slot: 'token', city: 'lagos', name: 'Gold Danfo' },
-  'token-suya': { id: 'token-suya', slot: 'token', city: 'lagos', name: 'Suya Gold' },
+  'token-gold-danfo': { id: 'token-gold-danfo', slot: 'token', city: 'lagos', name: 'Gold Big Man' },
+  'token-suya': { id: 'token-suya', slot: 'token', city: 'lagos', name: 'Gold Suya' },
   'board-night': { id: 'board-night', slot: 'board', city: 'lagos', name: 'Night Market' },
   'daddy-gold': { id: 'daddy-gold', slot: 'daddy', city: 'lagos', name: 'Gold Agbada' },
   'frame-bridge': { id: 'frame-bridge', slot: 'frame', city: 'lagos', name: 'Bridge Name Frame' },
