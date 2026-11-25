@@ -400,33 +400,49 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   container-type: inline-size;
 }
 .bspace {
-  position: relative; border: 2px solid #2b2018; border-radius: 7px;
+  position: relative; border: 2.5px solid #1a140c; border-radius: 8px;
   background:
-    radial-gradient(rgba(43, 32, 24, 0.09) 0.7px, transparent 0.8px) 0 0 / 4px 4px,
-    linear-gradient(180deg, #fffdf8, #f4e4c0);
-  box-shadow: 1px 2px 0 rgba(20, 12, 4, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    repeating-linear-gradient(0deg, rgba(43, 32, 24, 0.07) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(43, 32, 24, 0.05) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, #fffdf8, #f3dfb4);
+  box-shadow: 2px 3px 0 rgba(20, 12, 4, 0.55);
   overflow: hidden; cursor: pointer;
   display: flex; flex-direction: column; align-items: center;
 }
 @media (hover: hover) { .bspace:hover { filter: brightness(1.05); } }
 .bspace .band {
-  width: 100%; height: 22%; flex: none;
+  width: 100%; height: 18%; flex: none; position: relative; z-index: 2;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 42%, rgba(0, 0, 0, 0.18)),
-    linear-gradient(180deg, color-mix(in srgb, var(--band) 72%, #ffffff), var(--band) 55%, color-mix(in srgb, var(--band) 70%, #000));
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent 40%, rgba(0, 0, 0, 0.22)),
+    linear-gradient(180deg, color-mix(in srgb, var(--band) 78%, #fff), var(--band) 50%, color-mix(in srgb, var(--band) 62%, #000));
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
-.bspace .tile-art { flex: 1 1 0; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding-top: 1px; }
-.bspace .tileart { height: 100%; width: auto; max-width: 94%; }
-.bspace .tile-photo { width: 92%; height: 92%; object-fit: contain; filter: drop-shadow(0 1px 0 rgba(20, 12, 4, 0.45)); }
+.bspace .tile-art {
+  flex: 1 1 auto; min-height: 0; width: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+.bspace .tileart, .bspace .tile-photo {
+  width: 100%; height: 100%; max-width: none; object-fit: contain;
+  filter:
+    drop-shadow(1.6px 0 0 #fffdf8) drop-shadow(-1.6px 0 0 #fffdf8)
+    drop-shadow(0 1.6px 0 #fffdf8) drop-shadow(0 -1.6px 0 #fffdf8)
+    drop-shadow(2px 3px 0 rgba(20, 12, 4, 0.7));
+}
 .bspace .nm {
-  font-size: 12px; font-size: clamp(12px, 3.8cqw, 20px); /* board20: 4 long tiles per side, big bold type */
-  font-weight: 900; line-height: 1.06; text-align: center;
-  padding: 1px 1px 0; letter-spacing: -0.2px; flex: none;
+  position: absolute; top: 0; left: 0; right: 0; height: 18%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: clamp(8px, 2.3cqw, 12px);
+  font-weight: 900; line-height: 1; text-align: center;
+  padding: 0 1px; letter-spacing: -0.2px; z-index: 3;
+  color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
+  background: transparent;
 }
+.bspace.band-light .nm { color: #1a140c; text-shadow: none; }
 .bspace .pr {
-  font-size: 12px; font-size: clamp(12px, 3.3cqw, 17px);
-  font-weight: 800; color: var(--ink-soft); padding-bottom: 2px; flex: none;
+  font-size: clamp(8px, 2.2cqw, 12px);
+  font-weight: 800; color: #1a140c; line-height: 1.1;
+  padding: 0 1px 1px; flex: none; width: 100%;
+  background: rgba(255, 253, 246, 0.94); position: relative; z-index: 2;
 }
 .bspace .pr .pr-full { display: none; }
 @container (min-width: 520px) {
@@ -434,7 +450,8 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   .bspace .pr .pr-compact { display: none; }
 }
 .bspace.corner { background: linear-gradient(180deg, #fdf6df, #f3e3bc); }
-.bspace.corner .nm { font-size: 12px; font-size: clamp(12px, 3.4cqw, 19px); padding-top: 2px; }
+.bspace.corner .nm { font-size: clamp(9px, 2.6cqw, 14px); height: 20%; }
+.bspace.corner .band { height: 20%; }
 .bspace.owned { box-shadow: inset 0 0 0 2.5px var(--own), inset 0 1px 0 rgba(255, 255, 255, 0.9); }
 .bspace.mortgaged { filter: grayscale(0.9); opacity: 0.62; }
 .bspace.mortgaged::after {
@@ -451,7 +468,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 @keyframes spaceflash { 0%, 100% { filter: none; } 50% { filter: brightness(1.5); } }
 .btokens { position: absolute; inset: 0; pointer-events: none; }
 .btoken {
-  --ts: clamp(46px, 16cqw, 72px);
+  --ts: clamp(24px, 7.5cqw, 34px);
   position: absolute; width: var(--ts); height: var(--ts);
   margin: calc(var(--ts) / -2) 0 0 calc(var(--ts) / -2);
   transition: left 0.2s ease, top 0.2s ease; z-index: 5;
@@ -472,10 +489,10 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .btoken.me { z-index: 7; }
 .btoken.me .tok-base { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--gold-deep, #b8860b), 0 2px 6px rgba(0, 0, 0, 0.4); }
 .btoken .tok-tag {
-  position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -2px);
-  font: 900 12px/1 "Figtree", system-ui, sans-serif; letter-spacing: 0.03em; color: #fff;
+  position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 0);
+  font: 900 8px/1 "Figtree", system-ui, sans-serif; letter-spacing: 0.02em; color: #fff;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
-  background: var(--own, #2b2018); border: 2px solid #fff; border-radius: 999px; padding: 3px 7px;
+  background: var(--own, #2b2018); border: 2px solid #fff; border-radius: 999px; padding: 1px 4px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35); white-space: nowrap; pointer-events: none;
 }
 .btoken .tok-you { font-size: 12.5px; letter-spacing: 0.06em; border-color: #ffe9a8; }
@@ -714,7 +731,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .deed-art img { height: 124px; width: auto; max-width: 86%; object-fit: contain; filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35)); }
 .deed-doc.deed-mort { filter: grayscale(0.72); }
 .deed-doc.deed-mort::after {
-  content: 'MORTGAGED'; position: absolute; left: 50%; top: 46%; z-index: 3;
+  content: 'MORTGAGED'; position: absolute; left: 50%; top: 52px; z-index: 3;
   transform: translate(-50%, -50%) rotate(-14deg);
   border: 4px solid #9c2b3a; color: #9c2b3a; background: rgba(255, 248, 236, 0.88);
   font-weight: 900; letter-spacing: 0.12em; font-size: 22px; padding: 4px 12px; border-radius: 8px;
@@ -733,7 +750,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
 .deed-head > * { position: relative; z-index: 1; }
 .deed-seal { width: 46px; height: 46px; flex: none; color: rgba(255, 255, 255, 0.92); }
 .deed-seal svg { width: 100%; height: 100%; display: block; }
-.deed-kicker { font-size: 12px; font-weight: 900; letter-spacing: 1.4px; opacity: 0.88; }
+.deed-kicker { font-size: 11px; font-weight: 900; letter-spacing: 0.08em; opacity: 0.95; white-space: nowrap; background: transparent; padding: 0; }
 .deed-head .title { color: #fff; font-size: 23px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
 .deed-sub { font-size: var(--fs-caption); opacity: 0.94; margin: 2px 0 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
 .deed-body {
@@ -741,7 +758,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   background: repeating-linear-gradient(180deg, transparent 0 27px, rgba(92, 76, 61, 0.05) 27px 28px);
 }
 .deed-stamp {
-  position: absolute; top: 92px; right: 12px; z-index: 2;
+  position: absolute; top: -86px; right: 14px; z-index: 2;
   transform: rotate(-13deg);
   border: 3px solid var(--own); color: var(--own);
   font-family: 'Aeonik Pro', sans-serif; font-size: 15px; letter-spacing: 2px;
@@ -1107,6 +1124,9 @@ body.gl-on #board { background: transparent; box-shadow: none; z-index: 2; point
 body.gl-on .board-wrap { background: #241708; }
 body.gl-on .bspace { opacity: 0; pointer-events: none; }
 body.gl-on .btokens, body.gl-on .bcenter { display: none; }
+/* One center at a time. The 3D canvas stays out of the 2D board unless
+   WebGL is actually on, so the two KOLOPOLY marks cannot stack. */
+body:not(.gl-on) #boardWrap .gl-canvas { display: none !important; }
 body.gl-on #boardWrap .gl-canvas { z-index: 1; }
 
 /* Lobby slots become a compact management strip under the 3D gathering */

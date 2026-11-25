@@ -188,6 +188,7 @@ const KPBoard = {
       el.dataset.space = i;
       const bandColor = bandColorFor(i, sp);
       el.style.setProperty('--band', bandColor);
+      if (bandIsLight(bandColor)) el.classList.add('band-light');
       el.innerHTML =
         '<div class="band"></div>' +
         '<div class="tile-art" style="color:' + bandColor + '">' + tilePicture(sp, artFor(i, sp)) + '</div>' +
@@ -512,13 +513,15 @@ const KPBoard = {
     const byId = {};
     for (const p of state.players) byId[p.id] = p;
     const esc = window.KPesc || ((s) => String(s));
-    const band = bandColorFor(i, sp);
+    const band = sp.type === 'station' ? '#1d4e89' : sp.type === 'bridge' ? '#0f6e78' : bandColorFor(i, sp);
+    const artFile = D.stickerFor && D.stickerFor(sp);
+    const stamp = (document.querySelector('meta[name="kolopoly-build"]') || {}).content || '';
     const head =
-      '<div class="grab"></div><div class="deed-doc">' +
-      (D.stickerFor && D.stickerFor(sp) ? '<div class="deed-art"><img alt="" decoding="async" src="' + D.stickerFor(sp) + '?v=' + ((document.querySelector('meta[name="kolopoly-build"]') || {}).content || '') + '"></div>' : '') +
+      '<div class="grab"></div><div class="deed-doc" style="--band:' + band + '">' +
+      (artFile ? '<div class="deed-art"><img alt="" decoding="async" src="' + artFile + '?v=' + stamp + '"></div>' : '') +
       '<div class="deed-head' + (bandIsLight(band) ? ' light' : '') + '" style="background:' + band + '">' +
-      '<div class="deed-seal">' + (D.stickerFor && D.stickerFor(sp) ? '' : SEAL_SVG) + '</div>' +
-      '<div class="deed-head-tx"><div class="deed-kicker">KOLOPOLY LAND REGISTRY · TITLE DEED</div>' +
+      (artFile ? '' : '<div class="deed-seal">' + SEAL_SVG + '</div>') +
+      '<div class="deed-head-tx"><div class="deed-kicker">TITLE DEED</div>' +
       '<h3 class="title">' + esc(sp.name) + '</h3>';
     if (!sp.price) {
       let body = '';

@@ -1057,3 +1057,50 @@ body:has(#view-landing.active) #muteBtn.on {
 .p2e-chip.warn { background: #3d1f17; color: #ffb59f; }
 .p2e-chip.muted { background: #262a33; color: #d6ccbb; }
 @media (prefers-reduced-motion: reduce) { .p2e-confirm { transition: none; } .p2e-spin { animation: none; } }
+
+/* A deed is a paper card, not another dark sheet. The colour band is the
+   group, the body is printed cream, and the kicker stays on one line. */
+.sheet .deed-doc {
+  background:
+    repeating-linear-gradient(0deg, rgba(43, 32, 24, 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #fffdf6, #f6ead2) !important;
+  color: #2b2018;
+  border: 3px solid #1a140c;
+}
+.sheet .deed-doc .deed-art {
+  background:
+    radial-gradient(circle at 50% 110%, color-mix(in srgb, var(--band, #e8a90c) 70%, #fff) , transparent 62%),
+    color-mix(in srgb, var(--band, #e8a90c) 42%, #1a140c);
+}
+.sheet .deed-doc .deed-body {
+  background:
+    linear-gradient(90deg, var(--band, #e8a90c) 0 12px, transparent 12px),
+    repeating-linear-gradient(0deg, rgba(43, 32, 24, 0.11) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(43, 32, 24, 0.06) 0 1px, transparent 1px 5px),
+    #fffaf0 !important;
+  color: #1a140c;
+  padding-left: 22px;
+}
+.sheet .deed-doc .kv b,
+.sheet .deed-doc .ladder td,
+.sheet .deed-doc .ladder td:last-child,
+.sheet .deed-doc .ladder th { color: #1a140c; }
+.sheet .deed-doc .deed-kicker {
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  white-space: nowrap;
+  background: transparent;
+  padding: 0;
+  display: block;
+}
+.sheet .deed-doc .deed-head { align-items: center; }
+.sheet .deed-doc .deed-head-tx { min-width: 0; }
+.sheet .deed-doc .kv,
+.sheet .deed-doc .lead,
+.sheet .deed-doc .caption,
+.sheet .deed-doc .flavour,
+.sheet .deed-doc .perk-line { color: #2b2018; }
+.sheet .deed-doc .meaning { color: #2b2018; background: #fdf3da; }
+.sheet .deed-doc .ladder,
+.sheet .deed-doc .ladder td,
+.sheet .deed-doc .ladder th { color: #2b2018; }
