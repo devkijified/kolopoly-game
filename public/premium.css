@@ -1302,6 +1302,40 @@ body:has(#view-landing.active) #muteBtn.on {
 }
 #coachPop .coach-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 #coachPop .btn { min-height: 40px; }
+body.train-gate #coachGate {
+  position: fixed; z-index: 160; pointer-events: none; border-radius: 18px;
+}
+#coachGate[hidden] { display: none; }
+body.train-gate .coach-live {
+  position: relative; z-index: 140 !important; pointer-events: auto;
+  outline: 3px solid #ffc857 !important;
+  box-shadow: 0 0 0 6px rgba(255, 200, 87, 0.55) !important;
+}
+body.train-gate #coachPop { z-index: 190; }
+body.train-gate #deedScrim.show, body.train-gate #cardScrim.show, body.train-gate #hudScrim.show { z-index: 175; }
+body.train-gate .bspace.coach-path { box-shadow: inset 0 0 0 3px #ffc857; }
+#coachFx { position: fixed; inset: 0; z-index: 170; pointer-events: none; }
+#coachFx[hidden] { display: none; }
+.coach-arrow {
+  position: fixed; height: 8px; transform-origin: 0 50%; border-radius: 8px;
+  background: #ffc857; box-shadow: 0 2px 0 #1a140c;
+}
+.coach-arrow:after {
+  content: ''; position: absolute; right: -4px; top: -6px;
+  border: 10px solid transparent; border-left: 16px solid #ffc857;
+}
+.coach-fly {
+  position: fixed; width: 96px; padding: 6px 8px; background: #fff6e4; color: #1a140c;
+  border: 3px solid #1a140c; border-radius: 10px; font-size: 12px; font-weight: 900;
+  box-shadow: 3px 3px 0 #1a140c; transition: left .7s ease, top .7s ease;
+}
+.coach-fly[hidden] { display: none; }
+.coach-tag {
+  position: fixed; background: #1a140c; color: #ffc857; font-size: 12px; font-weight: 900;
+  padding: 3px 8px; border-radius: 999px;
+}
+.coach-progress { margin: 0; font-size: 12px; font-weight: 900; letter-spacing: 0.8px; color: #8a5a00; }
+.coach-nudge { margin: 4px 0 0; min-height: 18px; font-size: 13px; font-weight: 800; color: #9a2e24; }
 .prof-card h4 { margin: 12px 0 4px; font-size: 14px; letter-spacing: 0.4px; color: #8a5a00; }
 .prof-balance { margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #1a140c; }
 .prof-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid rgba(26,20,12,.12); color: #1a140c; font-size: 14px; }

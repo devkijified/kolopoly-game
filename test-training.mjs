@@ -41,14 +41,15 @@ function socket(port) {
   });
   return new Promise((resolve) => ws.on('open', () => resolve(box)));
 }
-function send(box, type, payload) { box.ws.send(JSON.stringify(Object.assign({ type }, payload || {}))); }
+function send(box, type, payload) { box.error = null; box.ws.send(JSON.stringify(Object.assign({ type }, payload || {}))); }
 async function waitFor(box, pred, label) {
   const start = Date.now();
   while (Date.now() - start < 8000) {
     if (box.state && pred(box.state)) return;
     await sleep(40);
   }
-  throw new Error(label + ' ' + JSON.stringify(box.error || (box.state && box.state.practice)));
+  const snap = box.state ? { step: box.state.practice, phase: box.state.phase, turn: box.state.turnPlayerId, pos: (box.state.players || []).map((p) => p.name + '@' + p.position), err: box.error } : box.error;
+  throw new Error(label + ' ' + JSON.stringify(snap));
 }
 
 const port = 4551;
@@ -58,24 +59,81 @@ try {
   const me = await socket(port);
   send(me, 'create_room', { name: 'Kiji', token: 'big-man', mode: 'online', practice: true, clientId: 'train-device-1111', settings: { gameMode: 'classic' } });
   await waitFor(me, (s) => s.practice && s.practice.step === 'hello' && s.status === 'playing', 'hello');
-  check('the intro starts unpaid on the real board', !me.state.paid && me.state.practice.kind === 'intro' && me.state.practice.wait === 'tap');
+  check('the intro starts unpaid on the real board', !me.state.paid && me.state.practice.kind === 'intro' && me.state.practice.n === 1 && me.state.practice.of === 12);
   check('Ada is seated and the lesson names the aim', me.state.players.some((p) => p.name === 'Ada' && p.bot) && /broke/.test(me.state.practice.line));
+  send(me, 'roll', {});
+  await sleep(300);
+  check('a roll before the roll lesson does not move the token', me.state.practice.step === 'hello' && me.state.players.find((p) => p.name === 'Kiji').position === 0);
   send(me, 'practice_ack', { what: 'next' });
   await waitFor(me, (s) => s.practice.step === 'cash', 'cash');
   send(me, 'practice_ack', { what: 'next' });
-  await waitFor(me, (s) => s.practice.step === 'tile', 'tile');
-  send(me, 'practice_ack', { what: 'next' });
   await waitFor(me, (s) => s.practice.step === 'roll', 'roll');
-  check('the roll lesson points at the dice', me.state.practice.target === '#abRoll');
+  check('the roll lesson spotlights the dice and is step 3', me.state.practice.target === '#abRoll' && me.state.practice.n === 3);
   send(me, 'roll', {});
-  await waitFor(me, (s) => s.practice.step === 'whybuy' && s.players.find((p) => p.name === 'Kiji').position === 4, 'landed');
-  check('scripted dice land on Ajegunle and Big Daddy explains buying', me.state.practice.step === 'whybuy');
-  send(me, 'practice_ack', { what: 'next' });
-  await waitFor(me, (s) => s.practice.step === 'buy', 'buy prompt');
+  await waitFor(me, (s) => s.practice.step === 'walked' && s.players.find((p) => p.name === 'Kiji').position === 4, 'landed');
+  check('the roll stops on the explanation instead of skipping ahead', me.state.practice.step === 'walked' && /Ajegunle/.test(me.state.practice.line));
   send(me, 'buy', {});
-  await waitFor(me, (s) => s.practice.step === 'cheerbuy', 'cheer');
+  await sleep(200);
+  check('buying is refused until the deed lesson says buy', me.state.practice.step === 'walked' && !(me.state.props[4] && me.state.props[4].o));
+  send(me, 'practice_ack', { what: 'next' });
+  await waitFor(me, (s) => s.practice.step === 'deed', 'deed');
+  send(me, 'practice_ack', { what: 'deed' });
+  await waitFor(me, (s) => s.practice.step === 'deedread', 'read');
+  send(me, 'practice_ack', { what: 'next' });
+  await waitFor(me, (s) => s.practice.step === 'buy', 'buy');
+  send(me, 'buy', {});
+  await waitFor(me, (s) => s.practice.step === 'bought', 'bought');
   const mine = me.state.players.find((p) => p.name === 'Kiji');
-  check('buying celebrates and the deed is yours', me.state.practice.title.indexOf('paper') >= 0 && me.state.props[4] && me.state.props[4].o === mine.id);
+  const cashAfterBuy = mine.cash;
+  check('buying pauses to show the cash and the deed', me.state.practice.step === 'bought' && /cash went down/.test(me.state.practice.line) && me.state.props[4] && me.state.props[4].o === mine.id);
+  const tap = async (id) => {
+    send(me, 'practice_ack', { what: 'next' });
+    await waitFor(me, (s) => s.practice.step === id, id);
+  };
+  await tap('endturn');
+  send(me, 'end_turn', {});
+  await waitFor(me, (s) => s.practice.step === 'adacheer', 'ada paid');
+  const afterAda = me.state.players.find((p) => p.name === 'Kiji').cash;
+  check('Ada lands on Ajegunle and the lesson pauses on the rent', me.state.players.find((p) => p.name === 'Ada').position === 4 && afterAda > cashAfterBuy);
+  await tap('paytalk');
+  await tap('payroll');
+  send(me, 'roll', {});
+  await waitFor(me, (s) => s.practice.step === 'paidcheer' && s.players.find((p) => p.name === 'Kiji').position === 8, 'paid ada');
+  check('landing on Ada’s place pauses before the next lesson', me.state.practice.step === 'paidcheer' && me.state.players.find((p) => p.name === 'Kiji').cash < afterAda);
+  await tap('badtalk');
+  await tap('badroll');
+  send(me, 'roll', {});
+  await waitFor(me, (s) => s.practice.step === 'badcheer' && s.lastCard && s.lastCard.id === 'w09', 'bad card');
+  check('the bad card is NEPA and the lesson does not skip it', me.state.practice.step === 'badcheer');
+  await tap('gooddraw');
+  send(me, 'practice_draw', {});
+  await waitFor(me, (s) => s.practice.step === 'goodcheer' && s.lastCard && s.lastCard.id === 'w06', 'good card');
+  const afterGood = me.state.players.find((p) => p.name === 'Kiji').cash;
+  check('the good card pays the player and then waits', me.state.practice.step === 'goodcheer');
+  await tap('timer');
+  check('the turn clock is on for the timer lesson', me.state.turnDeadline > 0 && me.state.practice.target === '.timer-ring');
+  await tap('timerroll');
+  send(me, 'roll', {});
+  await waitFor(me, (s) => s.practice.step === 'starttalk' && s.players.find((p) => p.name === 'Kiji').position === 27, 'marina');
+  await tap('startroll');
+  send(me, 'roll', {});
+  await waitFor(me, (s) => s.practice.step === 'startcheer' && s.players.find((p) => p.name === 'Kiji').position === 5 && s.phase === 'tax', 'salary and bill');
+  check('passing START pays salary before the bill', me.state.players.find((p) => p.name === 'Kiji').cash > afterGood && me.state.phase === 'tax');
+  await tap('bill');
+  send(me, 'tax_choice', { choice: 'flat' });
+  await waitFor(me, (s) => s.practice.step === 'billcheer', 'bill paid');
+  await tap('deals');
+  send(me, 'practice_ack', { what: 'deals' });
+  await waitFor(me, (s) => s.practice.step === 'dealcheer', 'deals');
+  await tap('wintalk');
+  await tap('freeplay');
+  check('free play inside the lesson unlocks the dice', me.state.practice.action === 'free');
+  send(me, 'roll', {});
+  await sleep(200);
+  check('a free-play roll does not skip to the badge', me.state.practice.step === 'freeplay');
+  send(me, 'practice_ack', { what: 'trained' });
+  await waitFor(me, (s) => s.practice.step === 'ready', 'badge');
+  check('the lesson ends on the trained step', me.state.practice.step === 'ready' && /ready/.test(me.state.practice.title));
 
   const free = await socket(port);
   send(free, 'create_room', { name: 'Adaeze', token: 'gele', mode: 'online', practice: 'free', clientId: 'train-device-2222', settings: { gameMode: 'classic' } });
