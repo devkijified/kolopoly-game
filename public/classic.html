@@ -4,12 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <script>
-/* Shell height is the layout viewport, locked before first paint.
-   100dvh follows the mobile toolbar: a top alert makes the bar show,
-   the board shrinks, then it snaps back. A pixel lock does not. */
+/* Visible height before first paint. visualViewport follows the
+   mobile toolbar; 100svh/100dvh are the CSS fallback in style.css. */
 (function () {
-  var h = window.innerHeight;
-  if (h) document.documentElement.style.setProperty('--app-h', h + 'px');
+  var vv = window.visualViewport;
+  var h = (vv && vv.height) || window.innerHeight;
+  if (!h) return;
+  var root = document.documentElement;
+  root.style.setProperty('--app-h', Math.round(h) + 'px');
+  root.style.setProperty('--vh', (h * 0.01) + 'px');
+  if (vv) root.style.setProperty('--vv-offset', Math.round(vv.offsetTop || 0) + 'px');
 })();
 </script>
 <link rel="icon" href="/icons/icon-192.png?v=__KOLOPOLY_BUILD__" type="image/png">

@@ -2,46 +2,45 @@
 // KOLOPOLY client. Sends intents only; the server owns dice, money and deeds.
 // Test hooks: window.__kolopolyState() and window.__kolopolySend(type, obj).
 const $ = (id) => document.getElementById(id);
-// The game column is sized from --app-h, a pixel lock of the layout
-// viewport. 100dvh and visualViewport.height both follow the mobile
-// toolbar. A top alert makes that bar show, the board and dock shrink
-// (and the GL buffer clears to a black edge), then they snap back.
-// Shrinks the size of a toolbar are ignored. Rotation still applies.
+// The game column is --app-h, the visible viewport. 100svh keeps the
+// action row inside the browser toolbar before this runs; 100dvh grows
+// the board when the bar hides. visualViewport is the fallback when
+// those units still report the tall layout height.
 (function lockAppShell() {
   let lockedH = 0;
-  let lockedW = 0;
-  function alertUp() {
-    const box = document.getElementById('alerts');
-    return !!(box && box.childElementCount);
-  }
-  function apply(h) {
-    lockedH = h;
-    document.documentElement.style.setProperty('--app-h', h + 'px');
-  }
-  function consider(h, w, reason) {
+  function apply(h, top) {
     h = Math.round(h || 0);
-    w = Math.round(w || 0);
     if (!h) return lockedH;
-    if (!lockedH) { apply(h); lockedW = w; return lockedH; }
-    if (alertUp() && reason !== 'orient') return lockedH;
-    const dw = Math.abs(w - lockedW);
-    const dh = h - lockedH;
-    if (reason !== 'orient') {
-      if (dw < 48 && dh < 0 && -dh < 180) return lockedH;
-      if (dw < 48 && Math.abs(dh) < 32) return lockedH;
-    }
-    apply(h);
-    lockedW = w;
+    lockedH = h;
+    const root = document.documentElement;
+    root.style.setProperty('--app-h', h + 'px');
+    root.style.setProperty('--vh', (h * 0.01) + 'px');
+    if (top != null) root.style.setProperty('--vv-offset', Math.round(top) + 'px');
     return lockedH;
   }
-  function refresh(reason) { return consider(window.innerHeight, window.innerWidth, reason || 'resize'); }
-  refresh('boot');
-  window.addEventListener('resize', () => refresh('resize'));
+  function visible() {
+    const vv = window.visualViewport;
+    return {
+      h: (vv && vv.height) || window.innerHeight || 0,
+      top: (vv && vv.offsetTop) || 0
+    };
+  }
+  function refresh() {
+    const v = visible();
+    return apply(v.h, v.top);
+  }
+  function consider(h) { return apply(h, 0); }
+  refresh();
+  window.addEventListener('resize', refresh);
   window.addEventListener('orientationchange', () => {
-    setTimeout(() => refresh('orient'), 80);
-    setTimeout(() => refresh('orient'), 320);
+    setTimeout(refresh, 80);
+    setTimeout(refresh, 320);
   });
-  window.KPShell = { height: () => lockedH, consider, refresh, alertOpen: alertUp };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', refresh);
+    window.visualViewport.addEventListener('scroll', refresh);
+  }
+  window.KPShell = { height: () => lockedH, consider, refresh };
 })();
 // KP9: the header carries ONE meta chip. The room chip also carries the
 // running match clock while a timed game plays ("Room NKNZ · 59:52"), so
@@ -1043,9 +1042,6 @@ function connect() {
       return;
     }
     if (msg.type === 'shelf') {
-      if (msg.inventory) shelfView = Object.assign({}, shelfView || {}, { inventory: msg.inventory, ok: true });
-      const box = document.querySelector('#hudSheet #shelfBox');
-      if (box && shelfView) paintShelfBox($('hudSheet'));
       if (msg.line) toast(esc(msg.line));
       return;
     }
@@ -3847,15 +3843,32 @@ function openHud(kind) {
     const fp = focusPlayer();
     const sapa = fp && fp.sapa && fp.sapa.warn
       ? '<p class="caption">Sapa dey near: one bad landing fit cost you ' + fmtN(fp.sapa.exposure) + '.</p>' : '';
+    const rewards = window.KPRewards && window.KPRewards.current;
+    const usable = !!(room && !room.paid && room.status === 'playing' && !spectator && fp);
+    const names = { bail: 'Bail', shield: 'Area Boys', double: 'Double Alert', dash: 'Danfo dash' };
+    const cards = (rewards && rewards.cards) || {};
+    const held = usable ? Object.keys(names).filter((id) => (cards[id] || 0) > 0) : [];
+    const cardsHtml = held.map((id) =>
+      '<button type="button" class="btn block" data-play-card="' + id + '" style="margin-top:8px;">' + names[id] + ' · ' + cards[id] + '</button>').join('');
+    const stickers = (rewards && rewards.stickers) || [];
+    const owned = stickers.filter((s) => s.count > 0).length;
+    const prog = stickers.length ? (' · ' + owned + '/' + stickers.length) : '';
     $('hudSheet').innerHTML = '<div class="grab"></div><h3 class="title">' + (fp ? esc($('walletLabel').textContent) : 'Cash') + '</h3>' +
       '<p class="lead">' + (fp ? fmtN(fp.cash) : 'Spectating') + '</p>' + sapa +
-      '<div class="shelf-head"><span class="shelf-kicker">SHELF</span></div>' +
-      '<div class="market-shelf" id="shelfBox"></div>' +
-      '<p class="shelf-tip" id="shelfTip"></p>' +
+      (held.length ? '<p class="caption" style="margin-top:10px;">Power cards</p>' + cardsHtml : '') +
+      '<button type="button" class="btn block" id="cashAlbum" style="margin-top:10px;">Lagos sticker album' + prog + '</button>' +
       '<div class="btnrow"><button class="btn ghost" data-close="1">Close</button></div>';
     $('hudScrim').classList.add('show');
     wireSheetButtons($('hudSheet'), myId);
-    paintShelfBox($('hudSheet'));
+    const album = $('cashAlbum');
+    if (album) album.addEventListener('click', () => {
+      closeScrim('hudScrim');
+      if (window.KPRewards && window.KPRewards.openAlbum) window.KPRewards.openAlbum();
+    });
+    $('hudSheet').querySelectorAll('[data-play-card]').forEach((b) => b.addEventListener('click', () => {
+      send('play_card', { card: b.dataset.playCard });
+      closeScrim('hudScrim');
+    }));
     return;
   }
   const meId = focusPlayer() ? focusPlayer().id : null;
@@ -3908,77 +3921,6 @@ function openTheirDeeds(playerId) {
     closeScrim('listScrim');
     onSpaceTap(Number(b.dataset.openDeed));
   }));
-}
-let shelfView = null;
-const SHELF_FACE = {
-  cowries: { label: 'Cowries', cost: 3, use: '3 cowries → ₦50,000 cash' },
-  kola: { label: 'Kola', cost: 1, use: 'Next rent, up to ₦100,000' },
-  yams: { label: 'Yam', cost: 1, use: 'Next fee or tax, up to ₦200,000' },
-  cloth: { label: 'Cloth', cost: 1, use: '₦150,000 cash for your hand' }
-};
-const SHELF_ICON = {
-  cowries: '<svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="18" rx="10" ry="7" fill="#f4e2b0" stroke="#2b2018" stroke-width="1.6"/><path d="M10 17c2 2 10 2 12 0" fill="none" stroke="#8a5a10" stroke-width="1.4"/><ellipse cx="16" cy="12" rx="4" ry="2.2" fill="#e8a90c"/></svg>',
-  kola: '<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="9" fill="#c4552a" stroke="#2b2018" stroke-width="1.6"/><path d="M16 9v16M10 14c3 2 9 2 12 0" fill="none" stroke="#6a2410" stroke-width="1.3"/></svg>',
-  yams: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 8c2 6 1 12 4 16 4 2 9-1 8-6-1-6-4-12-8-13-2 0-3 1-4 3z" fill="#e7c27a" stroke="#2b2018" stroke-width="1.6"/><path d="M14 14c2 2 4 2 6 0" fill="none" stroke="#8a5a10" stroke-width="1.2"/></svg>',
-  cloth: '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 10h18l-2 14H9L7 10z" fill="#f7f1e4" stroke="#2b2018" stroke-width="1.6"/><path d="M7 10l4-4h10l4 4" fill="#e8a90c" stroke="#2b2018" stroke-width="1.4"/><path d="M12 14h8M12 18h8" stroke="#c4552a" stroke-width="1.4"/></svg>'
-};
-window.KPGoods = {
-  face: SHELF_FACE,
-  slots(inv, opts) {
-    opts = opts || {};
-    const data = inv || {};
-    const uses = opts.uses || {};
-    const armed = opts.armed || {};
-    return Object.keys(SHELF_FACE).map((key) => {
-      const face = SHELF_FACE[key];
-      const cost = uses[key] && uses[key].cost ? uses[key].cost : face.cost;
-      const have = data[key] || 0;
-      const plus = opts.preview && opts.preview[key] ? Math.max(0, Math.floor(Number(opts.preview[key]) || 0)) : 0;
-      const incoming = have < 1 && plus > 0;
-      const on = armed[key] ? ' armed' : '';
-      const empty = have < 1 && !incoming ? ' empty' : '';
-      const shown = incoming ? ('+' + plus) : String(have);
-      return '<button type="button" class="good-slot' + on + empty + (incoming ? ' incoming' : '') + '" data-good="' + key + '" data-cost="' + cost + '" data-have="' + have + '" aria-label="' + face.label + ', ' + have + (incoming ? ', claim +' + plus : '') + '">' +
-        '<span class="good-n' + (incoming ? ' incoming' : '') + '">' + shown + '</span>' +
-        '<span class="good-ico">' + SHELF_ICON[key] + '</span>' +
-        '<span class="good-k">' + face.label + '</span>' +
-        '<span class="good-cost">×' + cost + '</span></button>';
-    }).join('');
-  }
-};
-function shelfHTML(view) {
-  const inv = (view && view.inventory) || { cowries: 0, kola: 0, yams: 0, cloth: 0 };
-  const fp = (typeof focusPlayer === 'function') ? focusPlayer() : null;
-  return window.KPGoods.slots(inv, {
-    uses: view && view.uses,
-    armed: { kola: !!(fp && fp.shelfRent), yams: !!(fp && fp.shelfFee) }
-  });
-}
-function paintShelfBox(root) {
-  const box = root && root.querySelector ? root.querySelector('#shelfBox') : $('shelfBox');
-  if (!box) return;
-  const draw = (view) => {
-    if (!box.isConnected) return;
-    box.innerHTML = shelfHTML(view);
-    const tip = root && root.querySelector ? root.querySelector('#shelfTip') : null;
-    box.querySelectorAll('[data-good]').forEach((b) => b.addEventListener('click', () => {
-      const key = b.dataset.good;
-      const face = SHELF_FACE[key];
-      const cost = Number(b.dataset.cost || face.cost);
-      const have = Number(b.dataset.have || 0);
-      const playing = !!(state && state.status === 'playing' && !spectator && focusPlayer());
-      if (!playing) { if (tip) tip.textContent = 'Spend am inside a match.'; return; }
-      if (have < cost) { if (tip) tip.textContent = 'Need ' + cost + ' ' + face.label.toLowerCase() + '.'; return; }
-      if (tip) tip.textContent = face.use;
-      send('use_shelf', { good: key });
-    }));
-  };
-  if (shelfView) draw(shelfView);
-  const id = (typeof CLIENT_ID !== 'undefined') ? CLIENT_ID : '';
-  if (!id) { draw(shelfView); return; }
-  fetch('/api/retention?clientId=' + encodeURIComponent(id) + (authToken() ? '&authToken=' + encodeURIComponent(authToken()) : '')).then((r) => r.json()).then((view) => {
-    if (view && view.ok) { shelfView = view; draw(view); }
-  }).catch(() => { if (!shelfView) draw(null); });
 }
 function openGist() {
   const room = state;

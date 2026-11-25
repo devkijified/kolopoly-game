@@ -36,7 +36,14 @@
   --btn-h: 43px; --btn-h-s: 38px; --chip-h: 28px;
   --topbar-h: 59px;
   --rail-w: 344px;
+  /* Small viewport first, so a visible browser bar cannot cover Roll.
+     Dynamic viewport grows the board once that bar hides. */
   --app-h: 100svh;
+  --vh: 1svh;
+  --vv-offset: 0px;
+}
+@supports (height: 100dvh) {
+  :root { --app-h: 100dvh; --vh: 1dvh; }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; overflow-x: clip; max-width: 100%; }
@@ -2249,9 +2256,16 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
-/* Shell lock: the game column uses --app-h (a pixel height), never
-   100dvh, so a toolbar dip cannot shrink the board or the dock. */
+/* The playing shell is the visible viewport. A short phone shrinks the
+   board; the cash row and Roll stay inside it, above the home indicator.
+   The page behind the rounded dock stays the table colour. */
+html:has(body.in-game) { background: #0d0e12; }
 body.in-game {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--vv-offset, 0px);
+  width: 100%;
   height: var(--app-h);
   min-height: 0;
   max-height: var(--app-h);

@@ -5,12 +5,6 @@
 // A phone that already refused permission is not asked again.
 (function () {
   const SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
-  const GOODS = [
-    ['cowries', 'Cowries'],
-    ['kola', 'Kola'],
-    ['yams', 'Yams'],
-    ['cloth', 'Cloth']
-  ];
   let deferredInstall = null;
   let pushEnabled = false;
   let publicKey = null;
@@ -79,25 +73,10 @@
     return res.json();
   }
 
-  function renderShelf(inv, uses, preview) {
+  function renderShelf() {
     const shelf = $('marketShelf');
     if (!shelf) return;
-    if (window.KPRewards && window.KPRewards.current) {
-      window.KPRewards.paintShelf(window.KPRewards.current);
-      return;
-    }
-    const data = inv || { cowries: 0, kola: 0, yams: 0, cloth: 0 };
-    if (window.KPGoods) {
-      shelf.innerHTML = window.KPGoods.slots(data, { uses: uses || {}, preview: preview || null });
-      shelf.querySelectorAll('[data-good]').forEach((b) => b.addEventListener('click', () => {
-        const face = window.KPGoods.face[b.dataset.good];
-        if (face) setLine(face.use);
-      }));
-      return;
-    }
-    shelf.innerHTML = GOODS.map(([key, label]) =>
-      '<div class="market-good"><span class="n">' + (data[key] || 0) + '</span><span class="k">' + label + '</span></div>'
-    ).join('');
+    if (window.KPRewards && window.KPRewards.current) window.KPRewards.paintShelf(window.KPRewards.current);
   }
   function paintShelfBtn(view) {
     const b = $('shelfBtn');
@@ -135,7 +114,7 @@
       btn.disabled = true;
       setLine('');
     }
-    renderShelf(view.inventory, view.uses, view.canClaim ? view.nextDrop : null);
+    renderShelf();
     paintShelfBtn(view);
     lastView = view;
     paintStrip();
@@ -280,7 +259,7 @@
       if (body) body.textContent = 'This phone cannot take whispers. The shelf still works.';
     } else if (!pushEnabled) {
       statusText = 'Whispers off';
-      if (body) body.textContent = 'Whispers are not turned on for this server yet. Your shelf still keeps the goods.';
+      if (body) body.textContent = 'Whispers are not turned on for this server yet. Your packs still dey your shelf.';
     } else if (iosNeedsIcon()) {
       if (body) body.textContent = 'Add Kolopoly to your home screen so the table stays one tap away. Whispers only arrive from that icon.';
     } else if (muted) {
@@ -378,7 +357,7 @@
 
   async function enableWhispers() {
     if (!pushEnabled || !publicKey) {
-      setLine('Whispers are not turned on for this server yet. Your shelf still keeps the goods.');
+      setLine('Whispers are not turned on for this server yet. Your packs still dey your shelf.');
       renderSwitch();
       return false;
     }
@@ -476,10 +455,7 @@
       renderClaim(out);
       const landed = $('marketLanded');
       if (landed) {
-        if (out.granted) {
-          const g = out.granted;
-          landed.textContent = '+' + g.cowries + ' cowries  +' + g.kola + ' kola  +' + g.yams + ' yam  +' + g.cloth + ' cloth';
-        } else landed.textContent = '';
+        landed.textContent = out.granted ? (out.line || 'Big Daddy don drop your pack.') : '';
       }
       if (out.granted && window.KPBigDaddy) window.KPBigDaddy.show('drop');
       if (out.first) {

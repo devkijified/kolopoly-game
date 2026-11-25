@@ -2651,14 +2651,11 @@ function fitCanvas(force) {
   if (!host) return;
   let w = host.clientWidth, h = host.clientHeight;
   if (!w || !h) return;
-  // A debit/credit card is an overlay. Refitting here used to follow
-  // 100dvh and visualViewport while the toolbar dipped, and setSize
-  // clears the drawing buffer: black border, shrink, then a snap back.
+  // A debit card is an overlay. Skip the refit so the buffer does not
+  // clear under the card. A toolbar change still refits once it is gone:
+  // the board gives up height so Roll stays on screen.
   if (alertOverlay()) return;
-  // Address-bar sized dips (height only, well under a rotation) are
-  // not a new layout. Ignore them even after the card has left.
   if (!force && lastFitW && Math.abs(w - lastFitW) < 8 && Math.abs(h - lastFitH) < 8) return;
-  if (!force && lastFitH && h < lastFitH && (lastFitH - h) < 180 && Math.abs(w - lastFitW) < 48) return;
   // KP11: the game board's layout is built from this box's own aspect;
   // reflow it whenever the fitted size says the aspect class changed
   // (first activation, rotation, a rail that grows or shrinks).
@@ -3150,11 +3147,10 @@ function initGL() {
   window.addEventListener('resize', () => { fitCanvas(true); motion(1.2); });
   window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(true); motion(1.2); }, 250));
   // Toolbar show/hide fires visualViewport on some phones without a
-  // real window resize. Do not refit while an alert is up, and do not
-  // treat a chrome dip as a new board size (fitCanvas ignores those).
+  // window resize. Follow it so the board shrinks with the shell.
   if (window.visualViewport) window.visualViewport.addEventListener('resize', () => {
     if (alertOverlay()) return;
-    fitCanvas(false);
+    fitCanvas(true);
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastTs = 0; motion(0.8); } });
   // graphics quality button beside the mute button: cycles Auto,
