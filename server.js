@@ -19,6 +19,7 @@ const { createMailer } = require('./mailer');
 const { createAuth } = require('./auth');
 const { createPaystack, createPaymentStore } = require('./paystack');
 const { createPayouts } = require('./payouts');
+const { createPlayCredit } = require('./play-credit');
 const { createDurable } = require('./durable');
 const records = require('./server-records.js');
 
@@ -36,6 +37,7 @@ const BUILD_FILES = [
   'public/retention.js',
   'public/update.js',
   'public/big-daddy.js',
+  'public/tutorial.js',
   'public/big-daddy.css',
   'public/rewards-ui.js',
   'public/rewards-ui.css',
@@ -210,6 +212,7 @@ const prizeLedger = createPrizeLedger({
 const mailer = createMailer({});
 if (mailer.testMode) console.log('Mail runs on the test transport: sign-in codes are logged, not sent. Set RESEND_API_KEY to send real mail.');
 const auth = createAuth({});
+const playCredit = createPlayCredit({ file: process.env.KP_PLAY_CREDIT_FILE || path.join(DATA_DIR, 'play-credits.json') });
 if (auth.ephemeral) console.log('Email sign-in uses a boot secret: sessions reset when the server restarts. Set KP_AUTH_SECRET to keep them.');
 // The shelf is created after auth on purpose: with accounts wired
 // in, the shelf lives under the account, and a device shelf is
@@ -285,6 +288,7 @@ const host = createGameHost({
   prizeLedger,
   payProvider,
   auth,
+  playCredit,
   onMutate() { scheduleRoomSave(); },
   leanWire: true,
   onDelete() { scheduleRoomSave(); },
@@ -490,6 +494,7 @@ const ops = createOps({
   wsCount: () => socketCount(),
   errorRate,
   admin: (body) => host.adminAct(body),
+  playCredit,
   auditFile: process.env.KP_OPS_AUDIT_FILE || path.join(DATA_DIR, 'ops-audit.json')
 });
 function sendJson(res, status, obj) {
@@ -566,6 +571,26 @@ const server = http.createServer((req, res) => {
     })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false }); });
     return;
   }
+  if (cleanUrl === '/api/tables' && req.method === 'GET') {
+    const tables = [];
+    for (const room of rooms.values()) {
+      if (room.status !== 'lobby') continue;
+      const humans = room.players.filter((p) => !p.bot).length;
+      if (humans >= 6) continue;
+      tables.push({
+        code: room.code,
+        paid: !!room.paid,
+        city: room.paidCity || 'Free',
+        mode: room.settings && room.settings.gameMode === 'inflation' ? 'Inflation' : 'Classic',
+        fee: room.paid ? room.paidFee : 0,
+        seats: room.players.length,
+        humans,
+        open: humans < 6
+      });
+    }
+    sendJson(res, 200, { ok: true, tables });
+    return;
+  }
   if (cleanUrl === '/api/auth/me' && req.method === 'GET') {
     const acct = auth.verifyToken(bearerOf(req));
     if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
@@ -586,6 +611,15 @@ const server = http.createServer((req, res) => {
       const seat = room.players.find((p) => !p.bot && p.accountId === acct.accountId);
       if (!seat) { sendJson(res, 403, { ok: false, error: 'seat', message: 'You no get seat for that table.' }); return; }
       if (seat.paidSeat) { sendJson(res, 200, { ok: true, alreadyPaid: true }); return; }
+      const feeKobo = room.paidFee * 100;
+      if (playCredit.balance(acct.accountId) >= feeKobo) {
+        const spent = playCredit.spend(acct.accountId, feeKobo, 'paid seat', room.code);
+        if (spent.ok) {
+          host.settlePaidSeat(room.code, { accountId: acct.accountId }, { ref: spent.spendId });
+          sendJson(res, 200, { ok: true, credited: true, balanceKobo: spent.balanceKobo });
+          return;
+        }
+      }
       if (!paystack.enabled) { sendJson(res, 503, { ok: false, error: 'not-set-up', message: 'Payments never set up yet. The paid table dey wait for the house to finish the setup.' }); return; }
       // An earlier open payment for this seat is reused, after asking
       // Paystack about it: it may have been paid already (settle it now),

@@ -565,7 +565,7 @@
   // early and farming Hustle earn nothing here.
   // -------------------------------------------------------------------
   const INF_RECORD_KEY = 'kolopolyInfRecord';
-  const INF_CHAIN_MS = 20 * 60 * 1000;
+  const INF_CHAIN_MS = 10 * 60 * 1000;
   const INF_BADGES = [
     ['first', 'First Reckoning'],
     ['heat', 'Heat Survivor'],
