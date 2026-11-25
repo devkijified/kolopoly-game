@@ -25,7 +25,7 @@
         <p class="wordmark">KOLO<span>POLY</span></p>
         <p class="eyebrow">House ledger</p>
         <h1>The parlour is for players. This desk watches the house.</h1>
-        <p class="lede">Live tables, landlords in their seats, the market shelf, and whispers. View only. No kicks from here.</p>
+        <p class="lede">Live tables, players, money and the audit. Every change asks first, and the house key stays on the server.</p>
         <svg class="skyline" viewBox="0 0 360 78" aria-hidden="true">
           <path fill="#ffc857" d="M0 78V50h16V34h8v16h12V28h18v50h10V22h4V12h6v10h6v56h14V36h22v42h8V18h5v60h16V44h20v34h9V16h4V8h7v8h5v62H360v8H0z"/>
         </svg>
@@ -60,7 +60,31 @@
       </header>
       <p id="alert" class="alert" role="status" hidden></p>
 
-      <section class="stats" aria-label="Live now">
+      <nav class="live-nav" aria-label="LiveOps">
+        <button type="button" data-live="overview" class="on">Live</button>
+        <button type="button" data-live="rooms">Rooms</button>
+        <button type="button" data-live="players">Players</button>
+        <button type="button" data-live="economy">Economy</button>
+        <button type="button" data-live="payments">Payments</button>
+        <button type="button" data-live="moderation">Moderation</button>
+        <button type="button" data-live="events">Events</button>
+        <button type="button" data-live="broadcast">Broadcast</button>
+        <button type="button" data-live="audit">Audit</button>
+      </nav>
+      <section id="live-root" class="live-root" aria-live="polite"></section>
+      <dialog id="live-confirm" class="live-confirm">
+        <form method="dialog">
+          <h3 id="live-confirm-title">Confirm</h3>
+          <p id="live-confirm-body"></p>
+          <label id="live-phrase-label" hidden>Type SEND PUSH<input id="live-phrase" autocomplete="off"></label>
+          <div class="live-confirm-row">
+            <button type="button" id="live-cancel" class="ghost">Cancel</button>
+            <button type="button" id="live-yes" class="gold">Confirm</button>
+          </div>
+        </form>
+      </dialog>
+
+      <section class="stats legacy" aria-label="Live now">
         <article class="stat">
           <p class="kicker">Tables live</p>
           <b id="n-rooms">–</b>
@@ -83,7 +107,7 @@
         </article>
       </section>
 
-      <section class="panel today-panel" aria-label="Lagos today">
+      <section class="panel today-panel legacy" aria-label="Lagos today">
         <div class="panel-head">
           <h2>Lagos today</h2>
           <p id="roll-line" class="fine"></p>
@@ -96,7 +120,7 @@
         </div>
       </section>
 
-      <div class="layout">
+      <div class="layout legacy">
         <section class="panel" aria-label="Open tables">
           <div class="panel-head stack">
             <h2>Open tables</h2>
@@ -121,7 +145,7 @@
         </aside>
       </div>
 
-      <section class="panel comp-panel money-panel" aria-label="Play to Earn money">
+      <section class="panel comp-panel money-panel legacy" aria-label="Play to Earn money">
         <div class="panel-head stack">
           <h2>Play to Earn money</h2>
           <p class="fine" id="money-mode">Payments in, prizes and refunds out, house take. Amounts in naira.</p>
@@ -135,7 +159,7 @@
         <div id="money-payments" class="money-list"></div>
       </section>
 
-      <section class="panel comp-panel" aria-label="Paid competitions">
+      <section class="panel comp-panel legacy" aria-label="Paid competitions">
         <div class="panel-head stack">
           <h2>Paid competitions</h2>
           <p class="fine">The city ladder for paid tables. Each player pays the entry fee into the pot. The winner takes the winner share for that table size; the house keeps the rest. A paid game prices on the fee and share in force when it starts.</p>
@@ -154,5 +178,6 @@
     </div>
   </section>
 <script src="/ops/desk.js" defer></script>
+<script src="/ops/live.js" defer></script>
 </body>
 </html>

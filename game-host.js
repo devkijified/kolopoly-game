@@ -4460,9 +4460,68 @@ function handleConnection(ws) {
     return true;
   }
 
+  // House desk actions. The ops cookie is checked before this is called.
+  // Each one writes a table line and pushes the new state to the seats.
+  function adminAct(body) {
+    const action = String((body && body.action) || '');
+    const code = String((body && body.code) || '').toUpperCase();
+    const room = rooms.get(code);
+    if (!room) return { ok: false, error: 'missing', message: 'No table with that code.' };
+    const seat = () => room.players.find((p) => p.id === Number(body.playerId));
+    if (action === 'end') {
+      room.status = 'ended';
+      room.phase = 'end';
+      room.paused = false;
+      setMessage(room, 'The house closed this table.');
+      broadcast(room);
+      return { ok: true, code, status: room.status };
+    }
+    if (action === 'close') {
+      dropRoom(code);
+      return { ok: true, code, status: 'closed' };
+    }
+    if (action === 'kick') {
+      const p = seat();
+      if (!p) return { ok: false, error: 'missing', message: 'That seat is not at this table.' };
+      if (p.ws) { try { p.ws.close(4003, 'removed'); } catch (e) { /* already gone */ } }
+      p.ws = null;
+      p.connected = false;
+      p.resigned = true;
+      setMessage(room, p.name + ' was removed by the house.');
+      pushFeed(room, 'info', p.name + ' was removed by the house.', { playerId: p.id });
+      broadcast(room);
+      return { ok: true, code, playerId: p.id };
+    }
+    if (action === 'nudge') {
+      const p = seat();
+      if (!p) return { ok: false, error: 'missing', message: 'That seat is not at this table.' };
+      p.lastActive = now();
+      p.afkWarn = 0;
+      setMessage(room, 'The house nudged ' + p.name + '.');
+      pushFeed(room, 'info', 'The house nudged ' + p.name + '.', { playerId: p.id });
+      broadcast(room);
+      return { ok: true, code, playerId: p.id };
+    }
+    if (action === 'replace') {
+      const p = seat();
+      if (!p || p.bot) return { ok: false, error: 'missing', message: 'That seat is not a human at this table.' };
+      if (p.ws) { try { p.ws.close(4002, 'afk bot'); } catch (e) { /* already gone */ } }
+      p.ws = null;
+      p.connected = false;
+      p.bot = true;
+      p.afkTaken = true;
+      p.humanName = p.humanName || p.name;
+      setMessage(room, p.name + ' seat don convert to bot (house).');
+      pushFeed(room, 'timeout', p.name + ' seat don convert to bot (house).', { playerId: p.id, reason: 'house' });
+      broadcast(room);
+      return { ok: true, code, playerId: p.id };
+    }
+    return { ok: false, error: 'action', message: 'Unknown table action.' };
+  }
+
   return {
     rooms, tick, handleConnection, exportState, importState, restoredFromDisk, nextWake, pokeBots,
-    publicRoom, dropRoom, settlePaidSeat, TEST, accountRequired, signInRequired
+    publicRoom, dropRoom, settlePaidSeat, adminAct, TEST, accountRequired, signInRequired
   };
 }
 

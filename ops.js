@@ -17,7 +17,9 @@ const OPS_DIR = path.join(__dirname, 'ops');
 const DESK_HTML = fs.readFileSync(path.join(OPS_DIR, 'desk.html'), 'utf8');
 const DESK_CSS = fs.readFileSync(path.join(OPS_DIR, 'desk.css'));
 const DESK_JS = fs.readFileSync(path.join(OPS_DIR, 'desk.js'));
-const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/snapshot', '/ops/competition', '/ops/prizes', '/ops/money', '/ops/money/action', '/ops/unlock', '/ops/lock']);
+const LIVE_JS = fs.readFileSync(path.join(OPS_DIR, 'live.js'));
+const { createLive } = require('./ops-live');
+const ROUTES = new Set(['/ops', '/ops/desk.css', '/ops/desk.js', '/ops/live.js', '/ops/snapshot', '/ops/competition', '/ops/prizes', '/ops/money', '/ops/money/action', '/ops/unlock', '/ops/lock', '/ops/live', '/ops/live/act']);
 const QUERY_KEYS = ['token', 'key', 'password', 'secret', 'kp_admin_token'];
 const STRIP_KEYS = new Set([
   'clientId', 'reconnectToken', 'reconnect', 'privateKey', 'publicKey',
@@ -49,6 +51,15 @@ function createOps(opts) {
   const prizes = opts.prizes;
   const money = opts.money || null;
   const bootAt = Date.now();
+  const live = createLive({
+    rooms,
+    seed: !!opts.seed,
+    build: opts.build || '',
+    wsCount: opts.wsCount,
+    errorRate: opts.errorRate,
+    admin: opts.admin,
+    auditFile: opts.auditFile || ''
+  });
   const buckets = new Map();
   const globalBucket = { n: 0, windowEnd: 0, lockedUntil: 0 };
   let sessionGen = 0;
@@ -523,6 +534,20 @@ function createOps(opts) {
   // actions (send, approve, mark paid by hand, recheck a payment).
   // Read and write both sit behind the desk key; writes also need the
   // desk's own origin, like the competition save.
+  function requireOwner(req, res) {
+    const key = clientKey(req);
+    const auth = authenticate(req);
+    if (!auth.ok) {
+      if (auth.guess) recordFail(key);
+      const status = rateLimited(key) && auth.guess ? 429 : 401;
+      const message = status === 429
+        ? 'Too many tries. The desk is quiet for a while.'
+        : 'That key no open this desk.';
+      sendJson(res, status, { ok: false, error: status === 429 ? 'locked' : 'unauthorized', message });
+      return false;
+    }
+    return true;
+  }
   function deskAuth(req, res) {
     const key = clientKey(req);
     const auth = authenticate(req);
@@ -639,6 +664,38 @@ function createOps(opts) {
     }
     if (req.method === 'GET' && route === '/ops/desk.js') {
       send(res, 200, DESK_JS, 'text/javascript; charset=utf-8');
+      return;
+    }
+    if (req.method === 'GET' && route === '/ops/live.js') {
+      send(res, 200, LIVE_JS, 'text/javascript; charset=utf-8');
+      return;
+    }
+    if (req.method === 'GET' && route === '/ops/live') {
+      if (!requireOwner(req, res)) return;
+      const q = new URL(req.url, 'http://desk.local');
+      const part = q.searchParams.get('part') || 'overview';
+      const out = live.view(part, {
+        q: q.searchParams.get('q') || '',
+        code: q.searchParams.get('code') || '',
+        id: q.searchParams.get('id') || '',
+        days: q.searchParams.get('days') || ''
+      });
+      sendJson(res, out && out.ok === false ? 404 : 200, scrub(out, currentToken()));
+      return;
+    }
+    if (req.method === 'POST' && route === '/ops/live/act') {
+      if (!originOk(req)) {
+        sendJson(res, 403, { ok: false, error: 'origin', message: 'That request did not come from this desk.' });
+        return;
+      }
+      if (!requireOwner(req, res)) return;
+      let parsed;
+      try { parsed = JSON.parse(await readJsonBody(req, 4096)); } catch (e) {
+        sendJson(res, 400, { ok: false, error: 'bad', message: 'That action did not arrive in one piece.' });
+        return;
+      }
+      const out = live.act(parsed);
+      sendJson(res, out && out.ok ? 200 : (out && out.status) || 400, scrub(out || { ok: false }, currentToken()));
       return;
     }
     if (req.method === 'GET' && route === '/ops') {
