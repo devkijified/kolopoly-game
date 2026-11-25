@@ -1305,13 +1305,33 @@ body:has(#view-landing.active) #muteBtn.on {
 body.train-gate #coachGate {
   position: fixed; z-index: 160; pointer-events: none; border-radius: 18px;
 }
+#coachRing {
+  position: fixed; z-index: 185; pointer-events: none; border-radius: 16px;
+  border: 3px solid #ffc857; box-shadow: 0 0 0 6px rgba(255, 200, 87, 0.45);
+  animation: coachpulse 1s ease-in-out infinite;
+}
+#coachRing[hidden] { display: none; }
+#coachRing.shake { animation: coachshake 0.35s linear; }
+#coachFinger {
+  position: fixed; z-index: 186; pointer-events: none; font-size: 28px; line-height: 1;
+  filter: drop-shadow(0 2px 0 #1a140c); animation: coachtap 1s ease-in-out infinite;
+}
+#coachFinger[hidden] { display: none; }
+#coachFinger.big { font-size: 44px; }
+@keyframes coachpulse { 50% { box-shadow: 0 0 0 12px rgba(255, 200, 87, 0.15); } }
+@keyframes coachtap { 50% { transform: translateY(6px); } }
+@keyframes coachshake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@media (prefers-reduced-motion: reduce) {
+  #coachRing, #coachFinger { animation: none; }
+}
 #coachGate[hidden] { display: none; }
 body.train-gate .coach-live {
   position: relative; z-index: 140 !important; pointer-events: auto;
   outline: 3px solid #ffc857 !important;
   box-shadow: 0 0 0 6px rgba(255, 200, 87, 0.55) !important;
 }
-body.train-gate #coachPop { z-index: 190; }
+body.train-gate #coachPop, body.train-done #coachPop { z-index: 190; }
+body.train-gate .toast, body.train-done .toast { display: none; }
 body.train-gate #deedScrim.show, body.train-gate #cardScrim.show, body.train-gate #hudScrim.show { z-index: 175; }
 body.train-gate .bspace.coach-path { box-shadow: inset 0 0 0 3px #ffc857; }
 #coachFx { position: fixed; inset: 0; z-index: 170; pointer-events: none; }

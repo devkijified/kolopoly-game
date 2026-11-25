@@ -729,6 +729,7 @@ const sfx = {
   cardFamily() { paperSlide(0, 0.18); tone({ f: 523, dur: 0.12, type: 'triangle', vol: 0.07 }); tone({ f: 659, at: 0.1, dur: 0.18, type: 'triangle', vol: 0.07 }); },
   coinCheer() { sfx.potClink(); sfx.cheer(); },
   powerDown() { tone({ f: 420, f2: 70, dur: 0.5, type: 'sawtooth', vol: 0.055 }); tone({ f: 160, f2: 48, at: 0.08, dur: 0.55, type: 'triangle', vol: 0.07 }); },
+  nudge() { tone({ f: 220, dur: 0.08, type: 'triangle', vol: 0.06 }); tone({ f: 160, at: 0.09, dur: 0.1, type: 'triangle', vol: 0.05 }); },
   swish() { paperSlide(0, 0.26); },
   auctionTick() { tone({ f: 1480, dur: 0.05, vol: 0.07 }); },
   decline() { noiseHit({ dur: 0.14, vol: 0.08, freq: 980, freq2: 360, q: 0.8 }); tone({ f: 220, f2: 110, dur: 0.22, type: 'triangle', vol: 0.08 }); },
@@ -2793,6 +2794,10 @@ function trainingRecord() {
 function markTraining(patch) {
   try { localStorage.setItem('kolopolyTraining', JSON.stringify(Object.assign(trainingRecord(), patch))); } catch (e) { /* private mode */ }
 }
+function lessonShift() {
+  const vv = window.visualViewport;
+  return vv ? { x: vv.offsetLeft || 0, y: vv.offsetTop || 0 } : { x: 0, y: 0 };
+}
 function placeGate(gate, el) {
   if (!el) {
     gate.style.left = '0px';
@@ -2805,12 +2810,122 @@ function placeGate(gate, el) {
   }
   const r = el.getBoundingClientRect();
   const pad = 8;
-  gate.style.left = Math.max(0, r.left - pad) + 'px';
-  gate.style.top = Math.max(0, r.top - pad) + 'px';
+  const shift = lessonShift();
+  gate.style.left = Math.max(0, r.left - pad + shift.x) + 'px';
+  gate.style.top = Math.max(0, r.top - pad + shift.y) + 'px';
   gate.style.width = (r.width + pad * 2) + 'px';
   gate.style.height = (r.height + pad * 2) + 'px';
   gate.style.background = 'transparent';
   gate.style.boxShadow = '0 0 0 9999px rgba(8, 6, 4, 0.62)';
+}
+let lessonMisses = 0;
+let lessonWait = 0;
+let lessonToken = 0;
+function lessonTarget(step) {
+  if (!step) return null;
+  if (step.target) {
+    const el = document.querySelector(step.target);
+    if (el) return el;
+  }
+  if (step.action === 'tap' && !step.target) {
+    const next = document.querySelector('#coachPop [data-act="next"]');
+    if (next) return next;
+  }
+  return null;
+}
+function lessonVisible(el) {
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return false;
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  const w = vv ? vv.width : window.innerWidth;
+  return r.bottom > 8 && r.top < h - 8 && r.right > 0 && r.left < w;
+}
+function lessonNudge() {
+  lessonMisses += 1;
+  const n = document.getElementById('coachNudge');
+  if (n) n.textContent = 'No be that one, tap the glowing one';
+  const ring = document.getElementById('coachRing');
+  if (ring) {
+    ring.classList.remove('shake');
+    void ring.offsetWidth;
+    ring.classList.add('shake');
+  }
+  const finger = document.getElementById('coachFinger');
+  if (finger) finger.classList.toggle('big', lessonMisses >= 2);
+  try { sfx.nudge(); } catch (e) { /* audio can be locked */ }
+  try { buzz(12); } catch (e) { /* no haptics */ }
+}
+function lessonCloseStray(step) {
+  const want = (step && step.sheet) || '';
+  if (want !== 'deed') closeScrim('deedScrim');
+  if (want !== 'card') closeScrim('cardScrim');
+  if (want !== 'deals') closeScrim('hudScrim');
+  closeScrim('listScrim');
+  if (want === 'deed' && !$('deedScrim').classList.contains('show')) onSpaceTap(4);
+  if (want === 'deals' && step.step === 'dealseen' && !$('hudScrim').classList.contains('show')) openHud('deals');
+  if (step && step.step === 'buy' && $('deedScrim').classList.contains('show')) {
+    closeScrim('deedScrim');
+    if ($('deedScrim').classList.contains('show') && !document.getElementById('lessonSheetBuy')) {
+      const b = document.createElement('button');
+      b.id = 'lessonSheetBuy';
+      b.className = 'btn green';
+      b.textContent = 'Buy';
+      b.addEventListener('click', () => send('buy', {}));
+      $('deedSheet').appendChild(b);
+    }
+  }
+}
+function lessonSpot(el, big) {
+  const gate = document.getElementById('coachGate');
+  const ring = document.getElementById('coachRing');
+  const finger = document.getElementById('coachFinger');
+  if (!gate || !ring || !finger) return;
+  if (!el) {
+    placeGate(gate, null);
+    ring.hidden = true;
+    finger.hidden = true;
+    return;
+  }
+  placeGate(gate, el);
+  const r = el.getBoundingClientRect();
+  const shift = lessonShift();
+  const pad = 8;
+  ring.hidden = false;
+  ring.style.left = (r.left - pad + shift.x) + 'px';
+  ring.style.top = (r.top - pad + shift.y) + 'px';
+  ring.style.width = (r.width + pad * 2) + 'px';
+  ring.style.height = (r.height + pad * 2) + 'px';
+  finger.hidden = false;
+  finger.classList.toggle('big', !!big);
+  finger.style.left = (r.right - 8 + shift.x) + 'px';
+  finger.style.top = (r.bottom - 6 + shift.y) + 'px';
+}
+function lessonArm(step) {
+  const token = ++lessonToken;
+  const started = performance.now();
+  const hunt = () => {
+    if (token !== lessonToken) return;
+    if (!state || !state.practice || state.practice.step !== step.step) return;
+    lessonCloseStray(state.practice);
+    const el = lessonTarget(state.practice);
+    if (el) {
+      if (!lessonVisible(el)) el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      document.querySelectorAll('.coach-live').forEach((node) => node.classList.remove('coach-live'));
+      el.classList.add('coach-live');
+      lessonSpot(el, lessonMisses >= 2);
+      return;
+    }
+    if (performance.now() - started > 1500) {
+      send('practice_recover', {});
+      lessonWait = window.setTimeout(() => lessonArm(state.practice), 1500);
+      return;
+    }
+    lessonWait = window.setTimeout(hunt, 120);
+  };
+  if (lessonWait) window.clearTimeout(lessonWait);
+  lessonWait = window.setTimeout(hunt, 0);
 }
 function tokenBox(name) {
   if (!state) return null;
@@ -2826,20 +2941,11 @@ function paintLessonFx(step) {
     fx.innerHTML = '<div class="coach-arrow" id="coachArrow"></div><div class="coach-fly" id="coachFly">Ajegunle deed</div><div class="coach-tag" id="coachTag"></div>';
     document.body.appendChild(fx);
   }
-  const id = step && step.step;
-  const beats = {
-    bought: ['wallet', 'bank', 'to the bank'],
-    adacheer: ['ada', 'wallet', 'rent to you'],
-    paidcheer: ['wallet', 'ada', 'rent to Ada'],
-    badcheer: ['wallet', 'bank', 'the card took it'],
-    goodcheer: ['bank', 'wallet', 'the bank paid you'],
-    startcheer: ['bank', 'wallet', 'salary'],
-    billcheer: ['wallet', 'bank', 'the bill']
-  };
-  const beat = beats[id];
+  const beats = { buy: ['wallet', 'bank', 'to the bank'], 'rent-in': ['ada', 'wallet', 'rent to you'], 'rent-out': ['wallet', 'ada', 'rent to Ada'], salary: ['bank', 'wallet', 'salary'] };
+  const beat = beats[step && step.fx];
   fx.hidden = !beat;
   const fly = document.getElementById('coachFly');
-  if (fly) fly.hidden = id !== 'bought';
+  if (fly) fly.hidden = !step || step.fx !== 'buy';
   if (!beat) return;
   const cash = document.getElementById('hudCashBtn');
   const bank = document.querySelector('.bcenter .logo') || document.getElementById('board');
@@ -2856,17 +2962,16 @@ function paintLessonFx(step) {
   const y1 = a.top + a.height / 2;
   const x2 = b.left + b.width / 2;
   const y2 = b.top + b.height / 2;
-  const len = Math.max(24, Math.hypot(x2 - x1, y2 - y1) - 18);
   arrow.style.left = x1 + 'px';
   arrow.style.top = y1 + 'px';
-  arrow.style.width = len + 'px';
+  arrow.style.width = Math.max(24, Math.hypot(x2 - x1, y2 - y1) - 18) + 'px';
   arrow.style.transform = 'rotate(' + (Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI) + 'deg)';
   if (tag) {
     tag.textContent = beat[2];
     tag.style.left = ((x1 + x2) / 2 - 40) + 'px';
     tag.style.top = ((y1 + y2) / 2 - 28) + 'px';
   }
-  if (id === 'bought' && fly) {
+  if (step.fx === 'buy' && fly) {
     const tile = document.querySelector('.bspace[data-space="4"]');
     const start = tile ? tile.getBoundingClientRect() : a;
     fly.style.left = start.left + 'px';
@@ -2878,17 +2983,26 @@ function paintLessonFx(step) {
   }
 }
 function renderCoach(room) {
-  document.querySelectorAll('.coach-live').forEach((el) => el.classList.remove('coach-live'));
   let pop = document.getElementById('coachPop');
   let gate = document.getElementById('coachGate');
   if (!gate) {
     gate = document.createElement('div');
     gate.id = 'coachGate';
     document.body.appendChild(gate);
-    gate.addEventListener('click', () => {
-      const n = document.getElementById('coachNudge');
-      if (n) n.textContent = 'Tap the one Big Daddy lit.';
-    });
+    const ring = document.createElement('div');
+    ring.id = 'coachRing';
+    ring.hidden = true;
+    document.body.appendChild(ring);
+    const finger = document.createElement('div');
+    finger.id = 'coachFinger';
+    finger.textContent = '👆';
+    finger.hidden = true;
+    document.body.appendChild(finger);
+    ['daddy-stand', 'daddy-clap'].forEach((name) => { const img = new Image(); img.src = '/mascot/' + name + '.webp'; });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => { if (state && state.practice) lessonSpot(lessonTarget(state.practice), lessonMisses >= 2); });
+      window.visualViewport.addEventListener('scroll', () => { if (state && state.practice) lessonSpot(lessonTarget(state.practice), lessonMisses >= 2); });
+    }
   }
   if (!pop) {
     pop = document.createElement('div');
@@ -2901,17 +3015,16 @@ function renderCoach(room) {
       if (!b) return;
       if (b.dataset.act === 'next') send('practice_ack', { what: 'next' });
       if (b.dataset.act === 'skip') send('practice_skip', {});
-      if (b.dataset.act === 'trained') send('practice_ack', { what: 'trained' });
+      if (b.dataset.act === 'back') send('practice_ack', { what: 'back' });
+      if (b.dataset.act === 'replay') send('practice_ack', { what: 'replay' });
       if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); location.reload(); }
       if (b.dataset.act === 'free') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
-      if (b.id === 'lessonDeed') { onSpaceTap(4); send('practice_ack', { what: 'deed' }); }
-      if (b.id === 'lessonCard') send('practice_draw', {});
     });
   }
   if (!room || !room.practice) {
     pop.hidden = true;
     gate.hidden = true;
-    document.body.classList.remove('train-gate');
+    document.body.classList.remove('train-gate', 'train-done');
     return;
   }
   const step = room.practice;
@@ -2922,60 +3035,62 @@ function renderCoach(room) {
   pop.hidden = false;
   const prog = pop.querySelector('.coach-progress');
   if (prog) prog.textContent = (step.n || 1) + ' / ' + (step.of || 12);
-  pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' || step.step === 'adacheer' ? 'daddy-clap' : 'daddy-stand') + '.webp';
+  pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' || step.step === 'adacheer' || step.step === 'built' ? 'daddy-clap' : 'daddy-stand') + '.webp';
   pop.querySelector('.coach-title').textContent = step.title || '';
   pop.querySelector('.coach-line').textContent = step.line || '';
-  const nudge = pop.querySelector('#coachNudge');
-  if (nudge) nudge.textContent = '';
-  const actions = pop.querySelector('.coach-actions');
-  if (step.step === 'ready') {
-    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn small" data-act="real">Play a real game</button><button type="button" class="btn small ghost" data-act="free">Free practice</button>';
-  } else if (step.kind === 'free' || step.action === 'free') {
-    actions.innerHTML = '<button type="button" class="btn small" data-act="trained">I am trained</button>';
-  } else if (step.action === 'deed') {
-    actions.innerHTML = '<button type="button" class="btn small" id="lessonDeed">Open the Ajegunle deed</button>';
-  } else if (step.action === 'card') {
-    actions.innerHTML = '<button type="button" class="btn small" id="lessonCard">Draw the good card</button>';
-  } else if (step.action === 'tap' && step.step !== 'cash' && step.step !== 'timer') {
-    actions.innerHTML = '<button type="button" class="btn small" data-act="next">I hear you</button><button type="button" class="btn small ghost" data-act="skip">Skip</button>';
-  } else {
-    actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Skip</button>';
+  const same = pop.dataset.step === step.step && pop.dataset.replay === String(step.replay || 0);
+  if (!same) {
+    lessonMisses = 0;
+    pop.dataset.step = step.step;
+    pop.dataset.replay = String(step.replay || 0);
+    const nudge = pop.querySelector('#coachNudge');
+    if (nudge) nudge.textContent = '';
   }
-  const el = step.target ? document.querySelector(step.target) : null;
-  if (el) el.classList.add('coach-live');
-  const low = el && el.getBoundingClientRect().top > window.innerHeight * 0.42;
+  const actions = pop.querySelector('.coach-actions');
+  const live = step.target ? document.querySelector(step.target) : null;
+  const low = live && live.getBoundingClientRect().top > window.innerHeight * 0.42;
   const parkTop = low || step.action === 'free';
   pop.style.top = parkTop ? '12px' : 'auto';
   pop.style.bottom = parkTop ? 'auto' : '16px';
-  const spot = step.action === 'deed' ? document.getElementById('lessonDeed') : step.action === 'card' ? document.getElementById('lessonCard') : (!step.target && step.action === 'tap' ? pop.querySelector('[data-act="next"]') : null);
-  if (spot) spot.classList.add('coach-live');
-  if (locked) placeGate(gate, spot || el);
-  else { gate.style.boxShadow = 'none'; }
-  document.querySelectorAll('.bspace.coach-path').forEach((cell) => cell.classList.remove('coach-path'));
-  const paths = { walked: [1, 2, 3, 4], adacheer: [1, 2, 3, 4], paidcheer: [5, 6, 7, 8] };
-  (paths[step.step] || []).forEach((i) => {
-    const cell = document.querySelector('.bspace[data-space="' + i + '"]');
-    if (cell) cell.classList.add('coach-path');
-  });
+  document.body.classList.toggle('train-done', step.step === 'ready');
+  if (step.step === 'ready') {
+    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn small" data-act="real">Play a real game</button><button type="button" class="btn small ghost" data-act="free">Free practice</button>';
+    lessonSpot(null, false);
+  } else if (step.kind === 'free') {
+    actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Leave</button>';
+  } else {
+    const hear = step.action === 'tap' && step.step !== 'cash';
+    actions.innerHTML = (hear ? '<button type="button" class="btn small" data-act="next">I hear you</button>' : '') +
+      '<button type="button" class="btn small ghost" data-act="back">Back</button>' +
+      '<button type="button" class="btn small ghost" data-act="replay">Replay</button>' +
+      '<button type="button" class="btn small ghost" data-act="skip">Skip</button>';
+    lessonArm(step);
+  }
   paintLessonFx(step);
 }
 
+document.addEventListener('pointerup', () => {
+  if (!document.body.classList.contains('train-gate') || !state || !state.practice) return;
+  requestAnimationFrame(() => { if (state && state.practice) lessonCloseStray(state.practice); });
+}, true);
 document.addEventListener('click', (ev) => {
   if (!document.body.classList.contains('train-gate')) return;
-  if (ev.target.closest('#coachPop') || ev.target.closest('.coach-live') || ev.target.closest('#coachGate')) return;
-  ev.preventDefault();
-  ev.stopPropagation();
-  const n = document.getElementById('coachNudge');
-  if (n) n.textContent = 'Tap the one Big Daddy lit.';
+  if (ev.target.closest('#coachPop') || ev.target.closest('.coach-live') || ev.target.closest('[data-close]')) return;
+  const tile = ev.target.closest('.bspace');
+  lessonNudge();
+  if (tile) {
+    requestAnimationFrame(() => { if (state && state.practice) lessonCloseStray(state.practice); });
+  } else {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
 }, true);
 document.addEventListener('click', (ev) => {
   if (!state || !state.practice) return;
-  if (ev.target.closest('#hudCashBtn') && (state.practice.step === 'cash' || state.practice.action === 'tap' && state.practice.target === '#hudCashBtn')) send('practice_ack', { what: 'next' });
-  if (ev.target.closest('.timer-ring') && state.practice.step === 'timer') send('practice_ack', { what: 'next' });
+  if (ev.target.closest('#hudCashBtn') && state.practice.action === 'tap' && state.practice.target === '#hudCashBtn') send('practice_ack', { what: 'next' });
   if (ev.target.closest('#hudDeals') && state.practice.step === 'deals') send('practice_ack', { what: 'deals' });
-  const closer = ev.target.closest('#hudSheet [data-close]');
-  if (closer && state.practice.step === 'deals') send('practice_ack', { what: 'deals' });
-});
+}, false);
+
 window.KPStartPractice = function (kind) {
   const named = ($('nameIn') && $('nameIn').value.trim()) || rememberedName() || 'Learner';
   try { localStorage.setItem('kolopolyName', named); } catch (e) { /* private mode */ }
