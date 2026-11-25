@@ -1,4 +1,6 @@
-import { migrateGoods, openPack, grantPack, ensureRewards, judgePlay, completeSets, spinWheel, homeCity, publicRewards, STICKERS, SETS } from './shelf-rewards.js';
+import { migrateGoods, openPack, grantPack, ensureRewards, judgePlay, completeSets, spinWheel, homeCity, publicRewards, STICKERS, SETS, COSMETICS } from './shelf-rewards.js';
+import gameData from './public/game-data.js';
+const { TOKENS, canonToken } = gameData;
 import { linesFor, byId } from './emotes.js';
 
 let n = 0, fail = 0;
@@ -60,6 +62,9 @@ for (let i = 0; i < 30; i++) {
   if ((pulled.stickers || []).some((s) => s.set === 'limited' || String(s.id).indexOf('event-') === 0)) leaked = true;
 }
 check('a pack never drops a week sticker', leaked === false);
+check('the picker is the eight new pieces', TOKENS.length === 8 && TOKENS[1].id === 'big-man' && !TOKENS.some((t) => t.id === 'danfo' || t.id === 'keke'));
+check('old token ids map onto the new lineup', canonToken('danfo') === 'conductor' && canonToken('keke') === 'mama-put' && canonToken('okada') === 'area-father' && canonToken('generator') === 'jollof-pot' && canonToken('boot') === 'suya' && canonToken('fila') === 'big-man' && canonToken('nope') === 'big-man');
+check('gold looks wear the new names', COSMETICS['token-gold-danfo'].name === 'Gold Big Man' && COSMETICS['token-suya'].name === 'Gold Suya');
 
 console.log(fail ? fail + ' failed' : 'all ' + n + ' passed');
 process.exit(fail ? 1 : 0);

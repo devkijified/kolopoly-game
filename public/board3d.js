@@ -1017,20 +1017,73 @@ function buildFila(scale) {
   return g;
 }
 const TOKEN_BUILDERS = { danfo: buildDanfo, keke: buildKeke, okada: buildOkada, generator: buildGenerator, boot: buildBoot, fila: buildFila };
-function makeToken(tokenId, colorHex, scale) {
+const tokenTex = {};
+function tokenUrl(id) {
+  const file = (D.canonToken ? D.canonToken(id) : id) || 'big-man';
+  const stamp = (document.querySelector('meta[name="kolopoly-build"]') || {}).content || '';
+  return '/tokens/' + file + '.webp' + (stamp ? '?v=' + stamp : '');
+}
+function tokenTexture(id) {
+  const file = (D.canonToken ? D.canonToken(id) : id) || 'big-man';
+  if (tokenTex[file]) return tokenTex[file];
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(tokenUrl(file), undefined, undefined, () => { tex.userData.failed = true; });
+  if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tokenTex[file] = tex;
+  return tex;
+}
+function buildStandee(tokenId, scale, gold) {
+  const g = new THREE.Group();
+  const h = 1.25 * (scale || 1);
+  const w = 1.05 * (scale || 1);
+  const tex = tokenTexture(tokenId);
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex, color: 0xfff8ee, roughness: 0.55, metalness: gold ? 0.25 : 0.02,
+    emissive: gold ? 0xffc857 : 0x000000, emissiveIntensity: gold ? 0.22 : 0,
+    side: THREE.DoubleSide, transparent: true, alphaTest: 0.04
+  });
+  // The board camera sits almost overhead, so the sticker lies on the
+  // pedestal and tips a few degrees toward that camera.
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  face.rotation.x = -Math.PI / 2 + 0.18;
+  face.position.y = 0.22;
+  face.castShadow = true;
+  g.add(face);
+  const lip = new THREE.Mesh(
+    new THREE.PlaneGeometry(w * 0.98, h * 0.98),
+    std(gold ? 0xffc857 : 0x2b2018, 0.7)
+  );
+  lip.rotation.x = face.rotation.x;
+  lip.position.y = 0.16;
+  g.add(lip);
+  g.userData.face = face;
+  g.userData.billboard = false;
+  return g;
+}
+function makeToken(tokenId, colorHex, scale, gold) {
   const g = new THREE.Group();
   // Phone track: thicker coloured pedestal so the piece reads against cream tiles.
-  // board28: bolder pieces: a wider pedestal with a dark rim so every piece
-  // pops off the cream tiles at phone size.
   const disc = cyl(0.30, 0.32, 0.07, std(new THREE.Color(colorHex).getHex(), 0.48), 0, 0.035, 0, 28);
   g.add(disc);
-  g.add(cyl(0.335, 0.345, 0.03, std(0x2b2018, 0.6), 0, 0.015, 0, 28));
+  g.add(cyl(0.335, 0.345, 0.03, std(gold ? 0xffc857 : 0x2b2018, 0.45), 0, 0.015, 0, 28));
+  if (gold) {
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.30, 0.38, 28), new THREE.MeshStandardMaterial({
+      color: 0xffc857, metalness: 0.55, roughness: 0.28, emissive: 0xffc857, emissiveIntensity: 0.45, side: THREE.DoubleSide
+    }));
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = 0.08;
+    g.add(rim);
+  }
   const sc = (scale == null ? 1.18 : scale);
-  const inner = (TOKEN_BUILDERS[tokenId] || buildDanfo)(sc);
-  inner.position.y = 0.055;
+  let inner;
+  try { inner = buildStandee(tokenId, sc, !!gold); }
+  catch (e) { inner = (TOKEN_BUILDERS[tokenId] || buildDanfo)(sc); }
+  inner.position.y = 0.06;
   g.add(inner);
   g.add(blobShadow(0.34));
   g.userData.inner = inner;
+  g.userData.billboard = !!(inner.userData && inner.userData.billboard);
   return g;
 }
 
@@ -1875,11 +1928,14 @@ class GameScene {
     for (const p of state.players) {
       seen.add(p.id);
       const slot = slotCount[p.position] || 0; slotCount[p.position] = slot + 1;
+      const isMeEarly = state.mode !== 'pass' && (typeof window.__kolopolyMe === 'function') && window.__kolopolyMe() === p.id;
+      const gold = isMeEarly && window.KPTokenGold && window.KPTokenGold();
       let o = this.tokens.get(p.id);
-      if (!o) {
-        const grp = makeToken(p.token, p.color, 1.32);
+      if (!o || o.tokenId !== p.token || o.gold !== !!gold || o.color !== p.color) {
+        if (o) { this.tokenGroup.remove(o.grp); this.tokens.delete(p.id); }
+        const grp = makeToken(p.token, p.color, 1.32, gold);
         this.tokenGroup.add(grp);
-        o = { grp, inner: grp.userData.inner, pos: p.position, target: p.position, anim: null, bob: Math.random() * 6, slot };
+        o = { grp, inner: grp.userData.inner, billboard: grp.userData.billboard, pos: p.position, target: p.position, anim: null, bob: Math.random() * 6, slot, tokenId: p.token, gold: !!gold, color: p.color };
         this.tokens.set(p.id, o);
         grp.position.copy(this.worldFor(p.position, slot));
       }
@@ -1897,7 +1953,7 @@ class GameScene {
         // reads at a glance from across the board.
         o.you = textSprite(tag, { bg: p.color, fg: '#ffffff', size: 64, rim: isMe ? '#ffe9a8' : '#ffffff' });
         o.you.scale.set(1.8, 0.45, 1);
-        o.you.position.set(0, 1.3, 0);
+        o.you.position.set(0, 0.95, 0);
         o.you.renderOrder = isMe ? 21 : 20;
         o.grp.add(o.you);
         o.tagText = tag; o.tagColor = p.color; o.isMe = isMe;
@@ -2191,7 +2247,8 @@ class GameScene {
         }
       } else {
         o.inner.position.y = 0.045 + Math.sin(tNow * 1.7 + o.bob) * 0.012;
-        o.inner.rotation.y = Math.sin(tNow * 0.6 + o.bob) * 0.05;
+        if (o.billboard && this.camera) o.inner.lookAt(this.camera.position);
+        else o.inner.rotation.y = Math.sin(tNow * 0.6 + o.bob) * 0.05;
         const base = o.bankrupt ? 0.78 : 1;
         if (o.ping > 0) {
           o.ping = Math.max(0, o.ping - dt);

@@ -793,7 +793,7 @@ body:has(#view-landing.active) #muteBtn.on {
   flex: 0 0 auto; width: 78px; min-height: 86px; padding: 10px 4px 8px;
   border-radius: 16px; scroll-snap-align: start; gap: 6px;
 }
-#view-landing .token-pick .tokart { width: 44px; height: 44px; }
+#view-landing .token-pick .tokart { width: 48px; height: 48px; object-fit: contain; }
 
 /* ---------- Whispers: a slim glass row under the rail ---------- */
 #view-landing .whisper-row {

@@ -186,13 +186,28 @@ const FAMILY = [
 ];
 
 const TOKENS = [
-  { id: 'danfo', name: 'Danfo' },
-  { id: 'keke', name: 'Keke Napep' },
-  { id: 'okada', name: 'Okada' },
-  { id: 'generator', name: 'Generator' },
-  { id: 'boot', name: 'Football Boot' },
-  { id: 'fila', name: 'Fila' }
+  { id: 'mama-put', name: 'Mama Put' },
+  { id: 'big-man', name: 'Big Man' },
+  { id: 'conductor', name: 'Conductor' },
+  { id: 'area-father', name: 'Area Father' },
+  { id: 'suya', name: 'Suya' },
+  { id: 'gele', name: 'Gele' },
+  { id: 'jollof-pot', name: 'Jollof Pot' },
+  { id: 'agege-bread', name: 'Agege Bread' }
 ];
+const TOKEN_LEGACY = {
+  danfo: 'conductor',
+  keke: 'mama-put',
+  okada: 'area-father',
+  generator: 'jollof-pot',
+  boot: 'suya',
+  fila: 'big-man'
+};
+function canonToken(id) {
+  const raw = String(id || '');
+  if (TOKENS.some((t) => t.id === raw)) return raw;
+  return TOKEN_LEGACY[raw] || 'big-man';
+}
 
 const PLAYER_COLORS = ['#ff6b4a', '#ffc857', '#39c2a5', '#5aa9e6', '#c39bff', '#ff8fb2'];
 
@@ -215,6 +230,6 @@ function buildCostOf(sp) {
   return sp.duplex;
 }
 
-const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;
