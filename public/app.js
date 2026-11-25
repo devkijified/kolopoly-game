@@ -929,8 +929,78 @@ function dismissLessonAlerts() {
   const layer = document.getElementById('alerts');
   if (layer) layer.querySelectorAll('.alert-card').forEach((el) => el.remove());
 }
+function trainingNeedsLeaveAsk(room) {
+  const step = room && room.practice;
+  if (!step || room.status !== 'playing') return false;
+  if (step.kind === 'free') return true;
+  return step.step !== 'hello' && step.step !== 'ready';
+}
+function hideTrainLeave() {
+  const sheet = document.getElementById('trainLeaveSheet');
+  if (sheet) sheet.hidden = true;
+}
+function showTrainLeave() {
+  let sheet = document.getElementById('trainLeaveSheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'trainLeaveSheet';
+    sheet.hidden = true;
+    sheet.innerHTML = '<div class="train-leave-card" role="dialog" aria-label="Leave training">' +
+      '<p>Leave training?</p>' +
+      '<button type="button" class="btn" data-act="leave">Leave</button>' +
+      '<button type="button" class="btn ghost" data-act="stay">Stay</button></div>';
+    document.body.appendChild(sheet);
+    sheet.addEventListener('click', (ev) => {
+      const b = ev.target.closest('button');
+      if (!b) return;
+      if (b.dataset.act === 'leave') exitTrainingHome();
+      else hideTrainLeave();
+    });
+  }
+  sheet.hidden = false;
+  const pop = document.getElementById('coachPop');
+  const bar = document.querySelector('.topbar');
+  const floor = (bar ? bar.getBoundingClientRect().bottom : 64) + 8;
+  let top = floor;
+  if (pop && !pop.hidden) {
+    const r = pop.getBoundingClientRect();
+    if (r.height > 20 && r.bottom < window.innerHeight * 0.72) top = Math.ceil(r.bottom + 16);
+  }
+  sheet.style.top = top + 'px';
+}
+function ensureTrainExit() {
+  let btn = document.getElementById('trainExit');
+  if (btn) return btn;
+  btn = document.createElement('button');
+  btn.id = 'trainExit';
+  btn.type = 'button';
+  btn.hidden = true;
+  btn.textContent = 'Exit';
+  btn.setAttribute('aria-label', 'Exit training');
+  const bar = document.querySelector('.topbar');
+  if (bar) bar.insertBefore(btn, bar.firstChild);
+  btn.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!state || !state.practice) return;
+    if (trainingNeedsLeaveAsk(state)) showTrainLeave();
+    else exitTrainingHome();
+  });
+  return btn;
+}
+function syncTrainExit(room) {
+  const btn = ensureTrainExit();
+  const on = !!(room && room.practice && (room.practice.kind === 'intro' || room.practice.kind === 'free'));
+  document.body.classList.toggle('train-on', on);
+  btn.hidden = !on;
+  if (!on) hideTrainLeave();
+}
 function exitTrainingHome() {
   trainingHome = true;
+  hideTrainLeave();
+  document.body.classList.remove('train-on');
+  const exitBtn = document.getElementById('trainExit');
+  if (exitBtn) exitBtn.hidden = true;
   leftPracticeCode = (state && state.code) || leftPracticeCode;
   markTraining({ seen: true, done: true });
   pendingLessonKind = null;
@@ -3348,9 +3418,11 @@ function renderCoach(room) {
     document.body.classList.remove('train-gate', 'train-done');
     const barGone = document.getElementById('learnBar');
     if (barGone) barGone.hidden = true;
+    syncTrainExit(null);
     return;
   }
   const step = room.practice;
+  syncTrainExit(room);
   if (room.status === 'ended') {
     clearLessonChrome();
     return;
@@ -3427,7 +3499,7 @@ document.addEventListener('pointerup', () => {
 }, true);
 document.addEventListener('click', (ev) => {
   if (!document.body.classList.contains('train-gate')) return;
-  if (ev.target.closest('#coachPop') || ev.target.closest('.coach-live') || ev.target.closest('[data-close]')) return;
+  if (ev.target.closest('#coachPop') || ev.target.closest('.coach-live') || ev.target.closest('[data-close]') || ev.target.closest('#trainExit') || ev.target.closest('#trainLeaveSheet')) return;
   const tile = ev.target.closest('.bspace');
   if (state && state.practice && lessonTargetGone(state.practice)) {
     if (state.status !== 'playing') send('practice_skip', {});
