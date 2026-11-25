@@ -2707,27 +2707,70 @@ function wireSheetButtons(root, viewer) {
   }));
 }
 
-// Lesson 14: a paused game speaks. A named waiting card covers the board:
-// who is missing, how long the wait has run, the frozen turn clock value,
-// and the controls underneath visibly disabled instead of silently dead.
+// A dropped seat pauses the table. The card is a paper sticker: Big Daddy
+// holds the room, the missing token wears a wifi-wahala sticker, and a
+// ring counts the reconnect window. The fairness rule stays behind a tap.
 function renderPause(room) {
   if (window.__pauseShot) room = window.__pauseShot;
   const o = $('pauseOverlay');
   const show = !!(room.paused && room.status === 'playing' && room.mode !== 'pass');
   $('view-game').classList.toggle('is-paused', show);
-  if (!show) { o.classList.remove('show'); o.innerHTML = ''; return; }
-  const missing = room.players.filter((p) => !p.connected && !p.bankrupt).map((p) => p.name);
-  const who = (room.linkWait && room.linkWait.name) || missing.join(', ') || 'a player';
-  const left = room.linkWait && room.linkWait.until ? Math.max(0, Math.ceil((room.linkWait.until - Date.now()) / 1000)) : null;
-  const clockTxt = room.pauseClockMs != null
-    ? 'Turn clock and the room clock dey frozen. Dem go continue when ' + who + ' return.'
-    : 'Clocks no dey run while we dey wait.';
-  o.innerHTML = '<div class="pause-card"><h3 class="title">Big Daddy: hold the table</h3>' +
-    '<p class="lead" style="margin-top:8px;">Waiting for <b>' + esc(who) + '</b> to reconnect.' + (left != null ? ' ' + left + 's left on this drop.' : '') + '</p>' +
-    '<p class="caption" id="pauseElapsed">Network don blink. Nobody dey play their seat for them.</p>' +
-    '<p class="caption">' + esc(clockTxt) + '</p>' +
-    '<p class="caption">Your money dey held. A paid seat wey no return get play credit, not a bot.</p></div>';
+  if (window.KPBigDaddy) {
+    if (show && window.KPBigDaddy.hold) window.KPBigDaddy.hold();
+    else if (!show && window.KPBigDaddy.release) window.KPBigDaddy.release();
+  }
+  if (!show) { o.classList.remove('show'); o.innerHTML = ''; o.removeAttribute('data-pause-key'); return; }
+  const missing = room.players.filter((p) => !p.connected && !p.bankrupt && !p.resigned);
+  const gone = (room.linkWait && room.players.find((p) => p.id === room.linkWait.playerId)) || missing[0] || null;
+  const who = (room.linkWait && room.linkWait.name) || (gone && gone.name) || 'a player';
+  const key = who + '|' + (gone ? gone.token : '') + '|' + ((room.linkWait && room.linkWait.until) || '');
+  if (o.getAttribute('data-pause-key') === key && o.classList.contains('show')) {
+    paintPauseClock(room);
+    return;
+  }
+  o.setAttribute('data-pause-key', key);
+  const token = gone && window.tokenArt ? window.tokenArt(gone.token, 72) : '<span class="pause-letter">' + esc((who || '?').slice(0, 1)) + '</span>';
+  const build = ((document.querySelector('meta[name="kolopoly-build"]') || {}).content || '');
+  const daddySrc = '/mascot/daddy-clap.webp' + (build && build.indexOf('__KOLOPOLY') !== 0 ? '?v=' + build : '');
+  o.innerHTML = '<div class="pause-card pause-sticker" role="status">' +
+    '<div class="pause-stage">' +
+      '<img class="pause-daddy" alt="" width="256" height="320" decoding="async" src="' + daddySrc + '">' +
+      '<div class="pause-ring" id="pauseRing" role="timer">' +
+        '<svg viewBox="0 0 120 120" aria-hidden="true">' +
+          '<circle class="pause-ring-track" cx="60" cy="60" r="50"></circle>' +
+          '<circle class="pause-ring-fg" id="pauseRingFg" cx="60" cy="60" r="50"></circle>' +
+        '</svg>' +
+        '<div class="pause-ring-num" id="pauseRingNum">Hold</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="pause-seat">' +
+      '<div class="pause-token">' + token + '</div>' +
+      '<div class="pause-wahala"><span class="pause-wifi" aria-hidden="true"></span>Network don blink</div>' +
+    '</div>' +
+    '<h3 class="pause-headline">Big Daddy don hold am!</h3>' +
+    '<p class="pause-line">Waiting for <b>' + esc(who) + '</b>.</p>' +
+    '<p class="pause-line">We dey hold the whole table.</p>' +
+    '<details class="pause-how"><summary>How e work</summary>' +
+      '<p>Clocks dey frozen till ' + esc(who) + ' return. A paid seat wey no come back get play credit. No bot go play their game.</p>' +
+    '</details></div>';
   o.classList.add('show');
+  paintPauseClock(room);
+}
+function paintPauseClock(room) {
+  const num = $('pauseRingNum');
+  const fg = $('pauseRingFg');
+  if (!num || !room) return;
+  const until = room.linkWait && room.linkWait.until;
+  const total = Math.max(1000, (room.linkWait && room.linkWait.ms) || 150000);
+  const circ = 2 * Math.PI * 50;
+  if (!until) { num.textContent = 'Hold'; if (fg) fg.style.strokeDashoffset = '0'; return; }
+  const left = Math.max(0, until - Date.now());
+  const s = Math.ceil(left / 1000);
+  num.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  if (fg) {
+    fg.style.strokeDasharray = String(circ);
+    fg.style.strokeDashoffset = String(circ * (1 - Math.min(1, left / total)));
+  }
 }
 window.__kolopolyRenderPause = renderPause;
 
@@ -4533,11 +4576,7 @@ setInterval(() => {
   }
   // KP9: the match clock ticks inside the header room chip.
   if (state) updateRoomChip(state);
-  const pe = $('pauseElapsed');
-  if (pe && state && state.pausedSince) {
-    const s = Math.max(0, Math.floor((Date.now() - state.pausedSince) / 1000));
-    pe.textContent = 'Waiting don reach ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + '.';
-  }
+  if (state && state.paused) paintPauseClock(window.__pauseShot || state);
 }, 500);
 
 // KP14: UI taps are a faint tick, delegated on pointerdown so the tick

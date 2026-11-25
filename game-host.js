@@ -2949,7 +2949,7 @@ function armLinkHold(room, player) {
   if (windowMs < 5000) { finishLinkHold(room, player); return; }
   player.linkHold = { until: now() + windowMs, armed: now() };
   player.linkDrops = (player.linkDrops || 0) + 1;
-  room.linkWait = { playerId: player.id, name: player.humanName || player.name, until: player.linkHold.until };
+  room.linkWait = { playerId: player.id, name: player.humanName || player.name, until: player.linkHold.until, ms: windowMs };
   setMessage(room, 'Waiting for ' + room.linkWait.name + ' to reconnect.');
   updatePause(room);
 }

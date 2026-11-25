@@ -95,10 +95,37 @@
     const el = document.getElementById('bigDaddy');
     if (el) { el.hidden = true; if (el.classList) el.classList.remove('bd-show'); }
   }
+  function gamePaused() {
+    try {
+      const s = window.__kolopolyState && window.__kolopolyState();
+      return !!(s && s.paused && s.status === 'playing' && s.mode !== 'pass');
+    } catch (e) { return false; }
+  }
+  let held = false;
+  function hold() {
+    if (held) { hide(); return; }
+    held = true;
+    if (current) pending.unshift({ id: current, extra: {} });
+    hide();
+  }
+  function release() {
+    if (!held) return;
+    held = false;
+    if (gamePaused() || current) return;
+    const next = pending.shift();
+    if (next) show(next.id, Object.assign({ force: true }, next.extra || {}));
+  }
   function show(id, extra) {
     extra = extra || {};
     const spec = LINES[id];
     if (!spec || !enabled()) return false;
+    if (gamePaused() || held) {
+      if (current) pending.unshift({ id: current, extra: {} });
+      pending.push({ id, extra });
+      held = true;
+      hide();
+      return true;
+    }
     const now = extra.now || Date.now();
     if (!extra.force && (current || (lastAt && now - lastAt < 800))) {
       pending.push({ id, extra });
@@ -223,6 +250,8 @@
   window.KPBigDaddy = {
     show: show,
     hide: hide,
+    hold: hold,
+    release: release,
     allow: allow,
     enabled: enabled,
     setEnabled: setEnabled,
