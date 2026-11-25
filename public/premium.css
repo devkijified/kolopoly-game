@@ -789,9 +789,12 @@ body:has(#view-landing.active) #muteBtn.on {
 
 /* ---------- Wordmark and slogan ride on the scene, lower third ---------- */
 #view-landing .hero-type {
-  position: absolute; left: 0; right: 0; bottom: 42px; z-index: 2;
+  position: absolute; left: 0; right: 0; bottom: 78px; z-index: 2;
   padding: 0 18px; text-align: center; pointer-events: none;
 }
+#view-landing .hs-veh.danfo { bottom: 6px; }
+#view-landing .hs-veh.keke { bottom: 4px; }
+#view-landing .hs-veh.okada { bottom: 0; }
 #view-landing .hero-type::before {
   content: ""; position: absolute; left: 0; right: 0; top: -30px; bottom: -48px; z-index: -1;
   background: linear-gradient(180deg, rgba(12, 8, 3, 0), rgba(12, 8, 3, 0.50) 46%, rgba(12, 8, 3, 0.80));
