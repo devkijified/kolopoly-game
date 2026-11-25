@@ -36,7 +36,18 @@ function socket(port) {
   const box = { ws, state: null, error: null };
   ws.on('message', (raw) => {
     const msg = JSON.parse(raw.toString());
-    if (msg.type === 'state') box.state = msg.room;
+    if (msg.type === 'state') {
+      box.state = msg.room;
+      const prac = msg.room && msg.room.practice;
+      const line = prac && prac.line;
+      const id = prac && prac.step;
+      if (line && id && prac.kind === 'intro' && !box.seenLines) box.seenLines = {};
+      if (line && id && prac.kind === 'intro' && !box.seenLines[id]) {
+        box.seenLines[id] = line;
+        const n = line.trim().split(/\s+/).filter(Boolean).length;
+        if (n > 8 || /monopoly/i.test(line)) check('lesson line stays short', false, id + ' ' + line);
+      }
+    }
     if (msg.type === 'error') box.error = msg;
   });
   return new Promise((resolve) => ws.on('open', () => resolve(box)));
@@ -60,7 +71,7 @@ try {
   send(me, 'create_room', { name: 'Kiji', token: 'big-man', mode: 'online', practice: true, clientId: 'train-device-1111', settings: { gameMode: 'classic' } });
   await waitFor(me, (s) => s.practice && s.practice.step === 'hello' && s.status === 'playing', 'hello');
   check('the intro starts unpaid on the real board', !me.state.paid && me.state.practice.kind === 'intro' && me.state.practice.n === 1 && me.state.practice.of === 12);
-  check('Ada is seated and the lesson names the aim', me.state.players.some((p) => p.name === 'Ada' && p.bot) && /broke/.test(me.state.practice.line));
+  check('Ada is seated and the lesson names the aim', me.state.players.some((p) => p.name === 'Ada' && p.bot) && /wins/.test(me.state.practice.line));
   send(me, 'roll', {});
   await sleep(300);
   check('a roll before the roll lesson does not move the token', me.state.practice.step === 'hello' && me.state.players.find((p) => p.name === 'Kiji').position === 0);

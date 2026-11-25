@@ -157,6 +157,8 @@ const seenPositions = {};
 // stranger whose next intent fails with "Join a room first."
 let myToken = null;
 let hasSeat = false;
+let pendingLessonKind = null;
+let lessonIntent = null;
 let sessionLive = false;
 let rejoinPending = false;
 let connectedOnce = false;
@@ -165,7 +167,8 @@ function saveSeat() {
   try {
     if (myCode) {
       const fp = (state && myId != null) ? state.players.find((p) => p.id === myId) : null;
-      const seat = { code: myCode, playerId: myId, token: myToken, spectator, name: fp ? fp.name : rememberedName() };
+      const lessonKind = (state && state.practice && (state.practice.kind === 'free' ? 'free' : 'intro')) || pendingLessonKind;
+      const seat = { code: myCode, playerId: myId, token: myToken, spectator, name: fp ? fp.name : rememberedName(), practice: lessonKind || undefined };
       sessionStorage.setItem('kolopolySeat', JSON.stringify(seat));
       // A localStorage twin (with a timestamp) lets a closed tab reclaim the
       // same seat later; the server token still has to match.
@@ -914,7 +917,27 @@ $('toast').addEventListener('click', (e) => {
 });
 const alertQueue = [];
 let alertBusy = false;
+let alertEpoch = 0;
+let lessonDropAlerts = false;
+const LESSON_MONEY_STEPS = { bought: 1, adacheer: 1, paidcheer: 1, cardcheer: 1, salarycheer: 1 };
+function dismissLessonAlerts() {
+  alertEpoch += 1;
+  alertQueue.length = 0;
+  alertBusy = false;
+  const layer = document.getElementById('alerts');
+  if (layer) layer.querySelectorAll('.alert-card').forEach((el) => el.remove());
+}
+function syncLessonAlerts(room, prev) {
+  lessonDropAlerts = false;
+  const now = room && room.practice;
+  const before = prev && prev.practice;
+  if (!now || now.kind !== 'intro') return;
+  if (!before || before.kind !== 'intro' || before.step === now.step) return;
+  dismissLessonAlerts();
+  lessonDropAlerts = !LESSON_MONEY_STEPS[now.step];
+}
 function queueAlert(kind, amount, text, balanceAfter, voiceLine) {
+  if (lessonDropAlerts) return;
   alertQueue.push({ kind, amount, text, balanceAfter, voiceLine: voiceLine || null });
   if (alertQueue.length > 3) alertQueue.splice(0, alertQueue.length - 3);
   pumpAlerts();
@@ -958,7 +981,17 @@ function pumpAlerts() {
   requestAnimationFrame(countUp);
   if (a.voiceLine) setTimeout(() => speakCredit(a.voiceLine), durMs + 120);
   const hold = isCredit ? 3200 : 2600; // alerts dwell ~2.8s; credits a beat longer, OPay style
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); alertBusy = false; pumpAlerts(); }, 260); }, hold);
+  const epoch = alertEpoch;
+  setTimeout(() => {
+    if (epoch !== alertEpoch) return;
+    el.classList.add('out');
+    setTimeout(() => {
+      if (epoch !== alertEpoch) return;
+      el.remove();
+      alertBusy = false;
+      pumpAlerts();
+    }, 260);
+  }, hold);
 }
 function spray() {
   for (let k = 0; k < 14; k++) {
@@ -1093,6 +1126,7 @@ function connect() {
     const seatStale = seat && seat.name && rememberedName() && seat.name !== rememberedName();
     if (seat && seat.code && !inviteWins && !seatStale) {
       myCode = seat.code; myId = seat.playerId; myToken = seat.token; spectator = !!seat.spectator; hasSeat = true;
+      if (seat.practice === 'intro' || seat.practice === 'free') pendingLessonKind = seat.practice;
       rejoinPending = true;
       ws.send(JSON.stringify({ type: 'rejoin', code: seat.code, playerId: seat.playerId, token: seat.token, spectator: seat.spectator }));
     }
@@ -1118,18 +1152,36 @@ function connect() {
       sessionLive = true;
       rejoinPending = false;
       entrySent = true;
+      if (lessonIntent && lessonIntent.replace && msg.rejoined) {
+        const kind = lessonIntent.kind;
+        lessonIntent = null;
+        send('leave', {});
+        entrySent = false;
+        sessionLive = false;
+        hasSeat = false;
+        freshPractice(kind);
+        return;
+      }
+      lessonIntent = null;
       saveSeat();
       flushQueue();
       return;
     }
     if (msg.type === 'rejoin_failed') {
+      const kind = (lessonIntent && lessonIntent.kind) || pendingLessonKind;
+      lessonIntent = null;
+      pendingLessonKind = null;
+      rejoinPending = false;
+      clearSeat();
+      for (let i = sendQueue.length - 1; i >= 0; i--) if (ENTRY_TYPES.has(sendQueue[i].type)) sendQueue.splice(i, 1);
+      hideConnBanner();
+      // A lesson room is disposable. A missing one starts a new lesson
+      // with no "room don close" banner and no reload.
+      if (kind) { freshPractice(kind); return; }
       // The room is gone. A restart does this: in-memory tables die, the
       // new process answers rejoin_failed, and an instant reload used to
       // jump the page before the fresh-table banner could speak. The
       // banner counts down, names a dead room, and only then reloads.
-      rejoinPending = false;
-      clearSeat();
-      hideConnBanner();
       try { sessionStorage.setItem('kolopolyRoomGone', '1'); } catch (e) { }
       const throughBanner = () => {
         if (window.KPUpdate && typeof window.KPUpdate.arm === 'function') window.KPUpdate.arm({ note: 'room' });
@@ -1189,7 +1241,7 @@ function connect() {
     // Soft drop: never scream "disconnected" while the seat is still held.
     // The version check runs on the drop itself, so a restart that already
     // has the new build up can raise the banner before the reconnect.
-    if (hasSeat) showConnBanner('Link dey reconnect. Your seat and money dey held.');
+    if (hasSeat && !pendingLessonKind && !(state && state.practice)) showConnBanner('Link dey reconnect. Your seat and money dey held.');
     if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
     setTimeout(connect, 1800);
   };
@@ -1542,6 +1594,7 @@ async function verifyGateCode() {
   fetch('/api/competition').then((r) => r.json()).then(async (data) => {
     if (!data || !data.signInRequired) return;
     gateRequired = true;
+    if (window.__learnHolding) return;
     if (!authToken()) { showSigninScene(); return; }
     try {
       const res = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + authToken() } });
@@ -2154,6 +2207,7 @@ if (inviteCode) {
 function showView(id) {
   for (const v of ['view-signin', 'view-landing', 'view-lobby', 'view-game']) $(v).classList.toggle('active', v === id);
   document.body.classList.toggle('in-game', id === 'view-game');
+  if (id !== 'view-game' && window.KPLearn) window.KPLearn.hide(true);
   paintAccountChip();
   if (id === 'view-game' && window.KPShell) window.KPShell.refresh('enter');
 }
@@ -2174,7 +2228,28 @@ function sendAs(type, obj) {
 }
 function byId(id) { return state ? state.players.find((p) => p.id === id) : null; }
 
+function freshPractice(kind) {
+  const k = kind === 'free' ? 'free' : 'intro';
+  pendingLessonKind = k;
+  lessonIntent = null;
+  rejoinPending = false;
+  entrySent = false;
+  sessionLive = false;
+  try { sessionStorage.removeItem('kolopolyRoomGone'); } catch (e) { /* private */ }
+  hideConnBanner();
+  const named = ($('nameIn') && $('nameIn').value.trim()) || rememberedName() || 'Learner';
+  try { localStorage.setItem('kolopolyName', named); } catch (e) { /* private */ }
+  showView('view-game');
+  send('create_room', {
+    name: named, token: selectedToken, mode: 'online', practice: k === 'free' ? 'free' : true, clientId: CLIENT_ID,
+    settings: { gameMode: 'classic', timed: false, turnTimerSec: 0 }
+  });
+}
 function onState(room) {
+  if (room && room.practice && (room.practice.kind === 'intro' || room.practice.kind === 'free')) {
+    pendingLessonKind = room.practice.kind;
+    saveSeat();
+  }
   const prev = state;
   state = room;
   hideConnBanner();
@@ -2230,7 +2305,9 @@ function onState(room) {
     mp.title = full;
     mp.setAttribute('aria-label', full);
   } else mp.classList.add('hidden');
+  syncLessonAlerts(room, prev);
   processFeed(room, prev);
+  lessonDropAlerts = false;
   processPositions(room);
   funMoments(room, prev);
   showRoomEmote(room);
@@ -2817,10 +2894,10 @@ function placeGate(gate, el) {
     return;
   }
   const r = el.getBoundingClientRect();
-  const pad = 8;
+  const pad = 6;
   const shift = lessonShift();
-  gate.style.left = Math.max(0, r.left - pad + shift.x) + 'px';
-  gate.style.top = Math.max(0, r.top - pad + shift.y) + 'px';
+  gate.style.left = (r.left - pad + shift.x) + 'px';
+  gate.style.top = (r.top - pad + shift.y) + 'px';
   gate.style.width = (r.width + pad * 2) + 'px';
   gate.style.height = (r.height + pad * 2) + 'px';
   gate.style.background = 'transparent';
@@ -2832,8 +2909,13 @@ let lessonToken = 0;
 function lessonTarget(step) {
   if (!step) return null;
   if (step.target) {
-    const el = document.querySelector(step.target);
-    if (el) return el;
+    const all = document.querySelectorAll(step.target);
+    let fallback = null;
+    for (const el of all) {
+      if (!fallback) fallback = el;
+      if (lessonVisible(el)) return el;
+    }
+    if (fallback) return fallback;
   }
   if (step.action === 'tap' && !step.target) {
     const next = document.querySelector('#coachPop [data-act="next"]');
@@ -2885,6 +2967,164 @@ function lessonCloseStray(step) {
     }
   }
 }
+function lessonRectsHit(a, b, pad) {
+  const p = pad || 0;
+  return a.left < b.right + p && a.right > b.left - p && a.top < b.bottom + p && a.bottom > b.top - p;
+}
+function parkCoach(targetEl) {
+  const pop = document.getElementById('coachPop');
+  if (!pop || pop.hidden) return;
+  const topbar = document.querySelector('.topbar');
+  const topLimit = (topbar ? topbar.getBoundingClientRect().bottom : 48) + 10;
+  const done = document.body.classList.contains('train-done');
+  pop.classList.toggle('coach-dock', done);
+  pop.style.alignItems = '';
+  pop.style.background = '';
+  pop.style.width = 'auto';
+  if (done) {
+    const tray = document.querySelector('.hud-tray');
+    const trayTop = tray ? tray.getBoundingClientRect().top : window.innerHeight - 220;
+    const top = Math.max(window.innerHeight * 0.46, Math.min(trayTop - 4, window.innerHeight - 210));
+    pop.style.top = top + 'px';
+    pop.style.bottom = '0px';
+    pop.style.left = '0px';
+    pop.style.right = '0px';
+    pop.style.padding = '12px 10px calc(16px + env(safe-area-inset-bottom))';
+    pop.style.background = '#fff6e4';
+    pop.style.alignItems = 'flex-start';
+    return;
+  }
+  pop.style.padding = '';
+  pop.style.left = '8px';
+  pop.style.right = '8px';
+  const cardModal = document.querySelector('#cardScrim.show');
+  const r = targetEl && !pop.contains(targetEl) ? targetEl.getBoundingClientRect() : null;
+  if (cardModal && (!targetEl || !cardModal.contains(targetEl))) {
+    const modal = cardModal.querySelector('.modal-card');
+    const tray = document.querySelector('.hud-tray');
+    pop.style.left = '0px';
+    pop.style.right = '0px';
+    pop.style.bottom = '0px';
+    pop.style.top = 'auto';
+    pop.style.background = '#fff6e4';
+    pop.style.padding = '10px 10px calc(12px + env(safe-area-inset-bottom))';
+    const modalBottom = modal ? modal.getBoundingClientRect().bottom : 0;
+    const trayTop = tray ? tray.getBoundingClientRect().top : window.innerHeight - 180;
+    const h = pop.offsetHeight || 168;
+    let top = window.innerHeight - h;
+    if (top > trayTop - 2 && trayTop > modalBottom + 8) top = trayTop - 2;
+    if (modalBottom && top < modalBottom + 8) top = modalBottom + 8;
+    pop.style.top = Math.max(8, top) + 'px';
+    return;
+  }
+  const height = pop.offsetHeight || 108;
+  const cardAt = (top) => ({ left: 8, top: top, right: window.innerWidth - 8, bottom: top + height });
+  if (!r || !lessonRectsHit(cardAt(topLimit), r, 12)) pop.style.top = topLimit + 'px';
+  else pop.style.top = 'auto';
+  pop.style.bottom = pop.style.top === 'auto' ? '8px' : 'auto';
+  if (pop.style.top === 'auto' && r) {
+    const parked = pop.getBoundingClientRect();
+    if (lessonRectsHit(parked, r, 8)) {
+      pop.style.top = topLimit + 'px';
+      pop.style.bottom = 'auto';
+    }
+  }
+  const daddy = pop.querySelector('.coach-daddy');
+  const bar = topbar ? topbar.getBoundingClientRect().bottom + 6 : topLimit;
+  if (daddy && pop.style.top !== 'auto') {
+    const head = daddy.getBoundingClientRect().top;
+    if (head < bar) pop.style.top = ((parseFloat(pop.style.top) || topLimit) + (bar - head)) + 'px';
+  }
+}
+function placeLessonAlert(targetEl) {
+  const layer = document.getElementById('alerts');
+  if (!layer) return;
+  const training = document.body.classList.contains('train-gate') || document.body.classList.contains('train-done');
+  if (!training) {
+    layer.style.top = '';
+    layer.style.visibility = '';
+    return;
+  }
+  if (!layer.querySelector('.alert-card')) {
+    layer.style.visibility = '';
+    return;
+  }
+  const card = document.getElementById('coachPop');
+  const topbar = document.querySelector('.topbar');
+  const floor = (topbar ? topbar.getBoundingClientRect().bottom : 48) + 8;
+  const cardBox = card && !card.hidden ? card.getBoundingClientRect() : null;
+  let top = floor;
+  if (cardBox && cardBox.height > 24 && cardBox.top < window.innerHeight * 0.55) top = Math.ceil(cardBox.bottom + 8);
+  layer.style.top = top + 'px';
+  layer.style.visibility = 'visible';
+  const sheet = layer.getBoundingClientRect();
+  const target = targetEl ? targetEl.getBoundingClientRect() : null;
+  const hitsTarget = target && lessonRectsHit(sheet, target, 12);
+  const hitsCard = cardBox && lessonRectsHit(sheet, cardBox, 4);
+  if (!hitsTarget && !hitsCard) return;
+  if (hitsTarget && target) {
+    const above = target.top - 12 - sheet.height;
+    const clearOfCard = !cardBox || above >= cardBox.bottom + 4;
+    if (above > floor && clearOfCard) {
+      layer.style.top = above + 'px';
+      return;
+    }
+  }
+  if (hitsTarget) layer.style.visibility = 'hidden';
+}
+function placeFinger(el, big) {
+  const finger = document.getElementById('coachFinger');
+  if (!finger) return;
+  if (!el) { finger.hidden = true; return; }
+  const r = el.getBoundingClientRect();
+  const shift = lessonShift();
+  const size = big ? 40 : 26;
+  finger.hidden = false;
+  finger.classList.toggle('big', !!big);
+  const tip = document.getElementById('learnTip');
+  const tipBox = tip && !tip.hidden ? tip.getBoundingClientRect() : null;
+  const card = document.getElementById('coachPop');
+  const cardBox = card && !card.hidden ? card.getBoundingClientRect() : null;
+  const nav = document.getElementById('secondaryBar');
+  const navBox = nav ? nav.getBoundingClientRect() : null;
+  const spots = [
+    { left: r.right - size * 0.35, top: r.top - size - 2, flip: true },
+    { left: r.left - size * 0.65, top: r.top - size - 2, flip: true },
+    { left: r.right + 4, top: r.top + (r.height - size) / 2, flip: false },
+    { left: r.left - size - 4, top: r.top + (r.height - size) / 2, flip: false },
+    { left: r.left + r.width / 2 - size / 2, top: r.bottom + 4, flip: false }
+  ];
+  const siblings = el.parentElement ? [...el.parentElement.children].filter((node) => node !== el) : [];
+  const kiss = (box) => {
+    const overlapW = Math.max(0, Math.min(box.right, r.right) - Math.max(box.left, r.left));
+    const overlapH = Math.max(0, Math.min(box.bottom, r.bottom) - Math.max(box.top, r.top));
+    return overlapW <= 6 || overlapH <= 6;
+  };
+  const fits = (s) => {
+    const box = { left: s.left, top: s.top, right: s.left + size, bottom: s.top + size };
+    if (box.left < 4 || box.top < 4 || box.right > window.innerWidth - 4 || box.bottom > window.innerHeight - 4) return false;
+    if (!kiss(box)) return false;
+    if (tipBox && lessonRectsHit(box, tipBox, 1)) return false;
+    if (cardBox && lessonRectsHit(box, cardBox, 1)) return false;
+    if (navBox && navBox.height > 8 && lessonRectsHit(box, navBox, 0)) return false;
+    const notes = document.querySelectorAll('#deedSheet p, #deedSheet .kv, #deedSheet td');
+    for (const note of notes) {
+      const st = getComputedStyle(note);
+      if (st.visibility === 'hidden' || st.display === 'none') continue;
+      const b = note.getBoundingClientRect();
+      if (b.height > 8 && lessonRectsHit(box, b, 0)) return false;
+    }
+    if (siblings.some((node) => {
+      const b = node.getBoundingClientRect();
+      return b.width > 8 && b.height > 8 && lessonRectsHit(box, b, 0);
+    })) return false;
+    return true;
+  };
+  const spot = spots.find(fits) || { left: r.right - size * 0.4, top: r.top - size - 2, flip: true };
+  finger.classList.toggle('flip', !!spot.flip);
+  finger.style.left = (Math.max(4, Math.min(window.innerWidth - size - 4, spot.left)) + shift.x) + 'px';
+  finger.style.top = (Math.max(4, Math.min(window.innerHeight - size - 4, spot.top)) + shift.y) + 'px';
+}
 function lessonSpot(el, big) {
   const gate = document.getElementById('coachGate');
   const ring = document.getElementById('coachRing');
@@ -2894,22 +3134,29 @@ function lessonSpot(el, big) {
     placeGate(gate, null);
     ring.hidden = true;
     finger.hidden = true;
+    parkCoach(null);
+    placeLessonAlert(null);
     return;
   }
   placeGate(gate, el);
   const r = el.getBoundingClientRect();
   const shift = lessonShift();
-  const pad = 8;
+  const pad = 6;
   ring.hidden = false;
   ring.style.left = (r.left - pad + shift.x) + 'px';
   ring.style.top = (r.top - pad + shift.y) + 'px';
   ring.style.width = (r.width + pad * 2) + 'px';
   ring.style.height = (r.height + pad * 2) + 'px';
-  finger.hidden = false;
-  finger.classList.toggle('big', !!big);
-  finger.style.left = (r.right - 8 + shift.x) + 'px';
-  finger.style.top = (r.bottom - 6 + shift.y) + 'px';
+  parkCoach(el);
+  placeLessonAlert(el);
+  if (window.KPLearn && state) window.KPLearn.sync(state, myId);
+  placeFinger(el, big);
 }
+window.KPLessonChrome = function () {
+  if (!state || !state.practice || state.practice.kind === 'free' || state.practice.step === 'ready') return;
+  const el = lessonTarget(state.practice);
+  if (el) lessonSpot(el, lessonMisses >= 2);
+};
 function lessonArm(step) {
   const token = ++lessonToken;
   const started = performance.now();
@@ -2923,72 +3170,29 @@ function lessonArm(step) {
       document.querySelectorAll('.coach-live').forEach((node) => node.classList.remove('coach-live'));
       el.classList.add('coach-live');
       lessonSpot(el, lessonMisses >= 2);
+      lessonWait = window.setTimeout(() => {
+        if (token !== lessonToken || !state || !state.practice || state.practice.step !== step.step) return;
+        const again = lessonTarget(state.practice);
+        if (!again) return;
+        document.querySelectorAll('.coach-live').forEach((node) => node.classList.remove('coach-live'));
+        again.classList.add('coach-live');
+        lessonSpot(again, lessonMisses >= 2);
+      }, 340);
       return;
     }
-    if (performance.now() - started > 1500) {
+    if (performance.now() - started > 480) {
       send('practice_recover', {});
-      lessonWait = window.setTimeout(() => lessonArm(state.practice), 1500);
+      lessonWait = window.setTimeout(() => { if (state && state.practice) lessonArm(state.practice); }, 480);
       return;
     }
-    lessonWait = window.setTimeout(hunt, 120);
+    lessonWait = window.setTimeout(hunt, 60);
   };
   if (lessonWait) window.clearTimeout(lessonWait);
-  lessonWait = window.setTimeout(hunt, 0);
+  hunt();
 }
-function tokenBox(name) {
-  if (!state) return null;
-  const p = state.players.find((row) => row.name === name);
-  if (!p) return null;
-  return document.querySelector('.btoken[data-player="' + p.id + '"]');
-}
-function paintLessonFx(step) {
-  let fx = document.getElementById('coachFx');
-  if (!fx) {
-    fx = document.createElement('div');
-    fx.id = 'coachFx';
-    fx.innerHTML = '<div class="coach-arrow" id="coachArrow"></div><div class="coach-fly" id="coachFly">Ajegunle deed</div><div class="coach-tag" id="coachTag"></div>';
-    document.body.appendChild(fx);
-  }
-  const beats = { buy: ['wallet', 'bank', 'to the bank'], 'rent-in': ['ada', 'wallet', 'rent to you'], 'rent-out': ['wallet', 'ada', 'rent to Ada'], salary: ['bank', 'wallet', 'salary'] };
-  const beat = beats[step && step.fx];
-  fx.hidden = !beat;
-  const fly = document.getElementById('coachFly');
-  if (fly) fly.hidden = !step || step.fx !== 'buy';
-  if (!beat) return;
-  const cash = document.getElementById('hudCashBtn');
-  const bank = document.querySelector('.bcenter .logo') || document.getElementById('board');
-  const ada = tokenBox('Ada');
-  const pick = (key) => key === 'wallet' ? cash : key === 'bank' ? bank : ada;
-  const from = pick(beat[0]);
-  const to = pick(beat[1]);
-  const arrow = document.getElementById('coachArrow');
-  const tag = document.getElementById('coachTag');
-  if (!from || !to || !arrow) return;
-  const a = from.getBoundingClientRect();
-  const b = to.getBoundingClientRect();
-  const x1 = a.left + a.width / 2;
-  const y1 = a.top + a.height / 2;
-  const x2 = b.left + b.width / 2;
-  const y2 = b.top + b.height / 2;
-  arrow.style.left = x1 + 'px';
-  arrow.style.top = y1 + 'px';
-  arrow.style.width = Math.max(24, Math.hypot(x2 - x1, y2 - y1) - 18) + 'px';
-  arrow.style.transform = 'rotate(' + (Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI) + 'deg)';
-  if (tag) {
-    tag.textContent = beat[2];
-    tag.style.left = ((x1 + x2) / 2 - 40) + 'px';
-    tag.style.top = ((y1 + y2) / 2 - 28) + 'px';
-  }
-  if (step.fx === 'buy' && fly) {
-    const tile = document.querySelector('.bspace[data-space="4"]');
-    const start = tile ? tile.getBoundingClientRect() : a;
-    fly.style.left = start.left + 'px';
-    fly.style.top = start.top + 'px';
-    requestAnimationFrame(() => {
-      fly.style.left = (a.left + 8) + 'px';
-      fly.style.top = Math.max(8, a.top - 36) + 'px';
-    });
-  }
+function paintLessonFx() {
+  const fx = document.getElementById('coachFx');
+  if (fx) fx.hidden = true;
 }
 function renderCoach(room) {
   let pop = document.getElementById('coachPop');
@@ -3008,15 +3212,27 @@ function renderCoach(room) {
     document.body.appendChild(finger);
     ['daddy-stand', 'daddy-clap'].forEach((name) => { const img = new Image(); img.src = '/mascot/' + name + '.webp'; });
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => { if (state && state.practice) lessonSpot(lessonTarget(state.practice), lessonMisses >= 2); });
-      window.visualViewport.addEventListener('scroll', () => { if (state && state.practice) lessonSpot(lessonTarget(state.practice), lessonMisses >= 2); });
+      const spotAgain = () => { if (state && state.practice) lessonArm(state.practice); };
+      window.visualViewport.addEventListener('resize', spotAgain);
+      window.visualViewport.addEventListener('scroll', spotAgain);
     }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && state && state.practice) lessonArm(state.practice);
+    });
+    window.addEventListener('orientationchange', () => {
+      if (state && state.practice) window.setTimeout(() => lessonArm(state.practice), 40);
+    });
+    window.addEventListener('pageshow', () => {
+      if (state && state.practice) lessonArm(state.practice);
+    });
   }
   if (!pop) {
     pop = document.createElement('div');
     pop.id = 'coachPop';
-    pop.innerHTML = '<img class="coach-daddy" alt="" width="72" height="90">' +
-      '<div class="coach-bubble"><p class="coach-progress"></p><p class="coach-kicker">Training Ground</p><p class="coach-title"></p><p class="coach-line"></p><p class="coach-nudge" id="coachNudge"></p><div class="coach-actions"></div></div>';
+    pop.innerHTML = '<div class="coach-bubble">' +
+      '<div class="coach-row"><img class="coach-daddy" alt="" width="44" height="56">' +
+      '<div class="coach-copy"><p class="coach-progress"></p><p class="coach-kicker">Training Ground</p><p class="coach-title"></p></div></div>' +
+      '<p class="coach-line"></p><p class="coach-nudge" id="coachNudge"></p><div class="coach-actions"></div></div>';
     document.body.appendChild(pop);
     pop.addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
@@ -3025,14 +3241,15 @@ function renderCoach(room) {
       if (b.dataset.act === 'skip') send('practice_skip', {});
       if (b.dataset.act === 'back') send('practice_ack', { what: 'back' });
       if (b.dataset.act === 'replay') send('practice_ack', { what: 'replay' });
-      if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); location.reload(); }
-      if (b.dataset.act === 'free') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
+      if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
     });
   }
   if (!room || !room.practice) {
     pop.hidden = true;
     gate.hidden = true;
     document.body.classList.remove('train-gate', 'train-done');
+    const barGone = document.getElementById('learnBar');
+    if (barGone) barGone.hidden = true;
     return;
   }
   const step = room.practice;
@@ -3041,11 +3258,23 @@ function renderCoach(room) {
   gate.hidden = !locked;
   document.body.classList.toggle('train-gate', locked);
   pop.hidden = false;
-  const prog = pop.querySelector('.coach-progress');
-  if (prog) prog.textContent = (step.n || 1) + ' / ' + (step.of || 12);
+  let bar = document.getElementById('learnBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'learnBar';
+    bar.innerHTML = '<i></i>';
+    document.body.appendChild(bar);
+  }
+  const frac = step.of ? Math.max(0, Math.min(1, (step.n || 1) / step.of)) : 0;
+  bar.hidden = step.kind === 'free';
+  const fill = bar.querySelector('i');
+  if (fill) fill.style.width = Math.round(frac * 100) + '%';
   pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' || step.step === 'adacheer' || step.step === 'built' ? 'daddy-clap' : 'daddy-stand') + '.webp';
   pop.querySelector('.coach-title').textContent = step.title || '';
-  pop.querySelector('.coach-line').textContent = step.line || '';
+  const lineEl = pop.querySelector('.coach-line');
+  const bubbleOwns = !!(step.target && step.kind !== 'free' && step.step !== 'ready' && (!window.KPLearn || window.KPLearn.tipsOn()));
+  lineEl.hidden = bubbleOwns;
+  lineEl.textContent = bubbleOwns ? '' : (step.line || '');
   const same = pop.dataset.step === step.step && pop.dataset.replay === String(step.replay || 0);
   if (!same) {
     lessonMisses = 0;
@@ -3055,26 +3284,24 @@ function renderCoach(room) {
     if (nudge) nudge.textContent = '';
   }
   const actions = pop.querySelector('.coach-actions');
-  const live = step.target ? document.querySelector(step.target) : null;
-  const low = live && live.getBoundingClientRect().top > window.innerHeight * 0.42;
-  const parkTop = low || step.action === 'free';
-  pop.style.top = parkTop ? '12px' : 'auto';
-  pop.style.bottom = parkTop ? 'auto' : '16px';
   document.body.classList.toggle('train-done', step.step === 'ready');
   if (step.step === 'ready') {
-    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn small" data-act="real">Play a real game</button><button type="button" class="btn small ghost" data-act="free">Free practice</button>';
+    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn block" data-act="real">Play your first real game</button>';
     lessonSpot(null, false);
   } else if (step.kind === 'free') {
     actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Leave</button>';
+    parkCoach(null);
   } else {
-    const hear = step.action === 'tap' && step.step !== 'cash';
-    actions.innerHTML = (hear ? '<button type="button" class="btn small" data-act="next">I hear you</button>' : '') +
+    const hear = step.action === 'tap' && !step.target;
+    actions.innerHTML = (hear ? '<button type="button" class="btn block" data-act="next">Next</button>' : '') +
+      '<div class="coach-nav">' +
       '<button type="button" class="btn small ghost" data-act="back">Back</button>' +
       '<button type="button" class="btn small ghost" data-act="replay">Replay</button>' +
-      '<button type="button" class="btn small ghost" data-act="skip">Skip</button>';
+      '<button type="button" class="btn small ghost" data-act="skip">Skip</button></div>';
     lessonArm(step);
+    parkCoach(lessonTarget(step));
   }
-  paintLessonFx(step);
+  paintLessonFx();
 }
 
 document.addEventListener('pointerup', () => {
@@ -3095,29 +3322,29 @@ document.addEventListener('click', (ev) => {
 }, true);
 document.addEventListener('click', (ev) => {
   if (!state || !state.practice) return;
-  if (ev.target.closest('#hudCashBtn') && state.practice.action === 'tap' && state.practice.target === '#hudCashBtn') send('practice_ack', { what: 'next' });
-  if (ev.target.closest('#hudDeals') && state.practice.step === 'deals') send('practice_ack', { what: 'deals' });
+  const step = state.practice;
+  if (step.action === 'tap' && step.target && ev.target.closest(step.target)) send('practice_ack', { what: 'next' });
+  if (ev.target.closest('#hudDeals') && step.step === 'deals') send('practice_ack', { what: 'deals' });
 }, false);
 
 window.KPStartPractice = function (kind) {
+  const k = kind === 'free' ? 'free' : 'intro';
   const named = ($('nameIn') && $('nameIn').value.trim()) || rememberedName() || 'Learner';
   try { localStorage.setItem('kolopolyName', named); } catch (e) { /* private mode */ }
   markTraining({ seen: true });
   const sheet = document.getElementById('trainSheet');
   if (sheet) sheet.hidden = true;
+  const offer = document.getElementById('trainOffer');
+  if (offer) offer.hidden = true;
   showView('view-game');
-  if (state && state.code) {
-    const old = state;
-    send('leave', {});
-    if (old.practice && state && state.players) {
-      const me = state.players.find((p) => p.id === myId);
-      if (me) me.ws = null;
-    }
+  if (rejoinPending) {
+    lessonIntent = { kind: k, replace: true };
+    pendingLessonKind = k;
+    return;
   }
-  send('create_room', {
-    name: named, token: selectedToken, mode: 'online', practice: kind === 'free' ? 'free' : true, clientId: CLIENT_ID,
-    settings: { gameMode: 'classic', timed: false, turnTimerSec: 45 }
-  });
+  if (sessionLive && state && state.code) send('leave', {});
+  entrySent = false;
+  freshPractice(k);
 };
 function profileMoney(kobo) { return fmtN(Math.round((Number(kobo) || 0) / 100)); }
 function paintProfile(data) {
@@ -3194,6 +3421,38 @@ window.KPOpenTraining = function () {
   if (free) free.addEventListener('click', () => window.KPStartPractice('free'));
   sheet.querySelector('#trainClose').addEventListener('click', () => { sheet.hidden = true; });
 };
+function paintLearnOffer(offer, onSkip) {
+  offer.hidden = false;
+  offer.innerHTML = '<div class="train-card learn-offer"><p class="coach-kicker">First time?</p><h3>Learn the table</h3>' +
+    '<p>Big Daddy walks you through one short game. No sign-in. No money.</p>' +
+    '<button type="button" class="btn block learn-go" id="trainOfferYes">Learn in 2 minutes</button>' +
+    '<button type="button" class="learn-skip" id="trainOfferNo">I know how to play</button></div>';
+  offer.querySelector('#trainOfferYes').addEventListener('click', () => {
+    offer.hidden = true;
+    window.__learnHolding = true;
+    markTraining({ seen: true });
+    window.KPStartPractice('intro');
+  });
+  offer.querySelector('#trainOfferNo').addEventListener('click', () => {
+    offer.hidden = true;
+    window.__learnHolding = false;
+    markTraining({ seen: true });
+    if (onSkip) onSkip();
+    if (gateRequired && !authToken()) showSigninScene();
+  });
+}
+function showLearnOffer() {
+  const rec = trainingRecord();
+  if (rec.seen || rec.done || loadSeat()) return;
+  window.__learnHolding = true;
+  let offer = document.getElementById('trainOffer');
+  if (!offer) {
+    offer = document.createElement('div');
+    offer.id = 'trainOffer';
+    document.body.appendChild(offer);
+  }
+  paintLearnOffer(offer);
+}
 function gateTraining(run) {
   const rec = trainingRecord();
   if (rec.seen || rec.done) { run(); return; }
@@ -3203,14 +3462,11 @@ function gateTraining(run) {
     offer.id = 'trainOffer';
     document.body.appendChild(offer);
   }
-  offer.hidden = false;
-  offer.innerHTML = '<div class="train-card"><p class="coach-kicker">First time?</p><h3>Every game get a Training Ground</h3>' +
-    '<p>Big Daddy go show you the board before you play for real. You fit skip.</p>' +
-    '<button type="button" class="btn block" id="trainOfferYes">Enter Training Ground</button>' +
-    '<button type="button" class="btn block ghost" id="trainOfferNo">I go play</button></div>';
-  offer.querySelector('#trainOfferYes').addEventListener('click', () => { offer.hidden = true; markTraining({ seen: true }); window.KPStartPractice('intro'); });
-  offer.querySelector('#trainOfferNo').addEventListener('click', () => { offer.hidden = true; markTraining({ seen: true }); run(); });
+  window.__learnHolding = true;
+  paintLearnOffer(offer, run);
 }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showLearnOffer);
+else showLearnOffer();
 window.__kolopolyShowCard = showCardModal;
 
 // KP13 WS4: per-seat banner copy. The server sends a key + actor +
@@ -3313,6 +3569,7 @@ function renderGame(room) {
   renderTactical(room);
   renderPause(room);
   renderCoach(room);
+  if (window.KPLearn) window.KPLearn.onRoom(room, myId);
   maybeShowModals(room);
   // Pass and play banner on turn change
   if (room.mode === 'pass' && prevTurnPlayer !== null && prevTurnPlayer !== room.turnPlayerId && room.status === 'playing') {
@@ -3410,7 +3667,8 @@ function renderActionBar(room) {
   } else if (room.turnPlayerId !== me.id && room.mode !== 'pass') {
     // Lesson 5: management stays open. The hint lives in the players sheet,
     // not as a second paragraph under the board.
-    html = '';
+    const who = turn ? turn.name : 'them';
+    html = '<p class="wait-hint">Wait for ' + esc(who) + '\'s turn</p>';
   } else {
     // My action (online: me; pass: the turn player, acting through this phone)
     const actor = room.mode === 'pass' ? turn : me;

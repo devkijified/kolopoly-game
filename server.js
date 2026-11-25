@@ -38,6 +38,7 @@ const BUILD_FILES = [
   'public/update.js',
   'public/big-daddy.js',
   'public/tutorial.js',
+  'public/learn.js',
   'public/big-daddy.css',
   'public/rewards-ui.js',
   'public/rewards-ui.css',

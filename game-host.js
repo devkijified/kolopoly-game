@@ -682,31 +682,31 @@ function solventPlayers(room) { return room.players.filter((p) => !p.bankrupt); 
 function curPlayer(room) { return room.players.find((p) => p.id === room.turnPlayerId) || null; }
 
 const PRACTICE_STEPS = [
-  { id: 'hello', action: 'tap', mark: 1, title: 'The aim', line: 'Get rich. Own places. Make the other person go broke.', target: '' },
-  { id: 'cash', action: 'tap', mark: 2, title: 'Your money', line: 'Tap the big number. That is your cash.', target: '#hudCashBtn' },
-  { id: 'roll', action: 'roll', mark: 3, dice: [1, 3], title: 'Roll', line: 'Tap Roll. Watch your token walk.', target: '#abRoll' },
-  { id: 'walked', action: 'tap', mark: 3, title: 'You landed', line: 'Your token stopped on Ajegunle. Nobody owns it yet.', target: '.bspace[data-space="4"]' },
-  { id: 'buy', action: 'buy', mark: 4, title: 'Buy it', line: 'Tap Buy. Your money goes to the bank.', target: '#abBuy' },
-  { id: 'bought', action: 'tap', mark: 4, title: 'Yours', line: 'Cash dropped. The deed flew to your hand.', target: '#hudCashBtn', fx: 'buy' },
-  { id: 'endturn', action: 'end', mark: 5, title: 'Ada’s turn', line: 'Tap End. Ada will walk onto your place.', target: '#abEnd' },
-  { id: 'adaroll', action: 'ada', mark: 5, diceBot: [1, 3], title: 'Watch Ada', line: 'She is walking onto your Ajegunle.', target: '.bspace[data-space="4"]' },
-  { id: 'adacheer', action: 'tap', mark: 5, title: 'She paid you', line: 'Ada paid you rent. That is why you buy.', target: '#hudCashBtn', fx: 'rent-in' },
-  { id: 'payroll', action: 'roll', mark: 6, dice: [1, 3], title: 'Her place', line: 'Tap Roll. You will land on Ada’s place.', target: '#abRoll' },
-  { id: 'paidcheer', action: 'tap', mark: 6, title: 'You paid rent', line: 'Your money left and went to Ada.', target: '#hudCashBtn', fx: 'rent-out' },
-  { id: 'cardroll', action: 'roll', mark: 7, dice: [3, 6], card: ['wahala', 'w09'], title: 'A card', line: 'Tap Roll. A Wahala card is waiting.', target: '#abRoll' },
-  { id: 'cardcheer', action: 'tap', mark: 7, title: 'Read the card', line: 'This one takes money. Some cards pay you.', target: '', sheet: 'card' },
-  { id: 'jailroll', action: 'roll', mark: 8, dice: [1, 3], title: 'Off to jail', line: 'Tap Roll. This road leads to Kirikiri.', target: '#abRoll' },
-  { id: 'jail', action: 'jail', mark: 8, title: 'Jail', line: 'Pay bail, or roll a double. Tap Pay bail.', target: '#abJailPay' },
+  { id: 'hello', action: 'tap', mark: 1, title: 'The aim', line: 'Last one with money wins.', target: '' },
+  { id: 'cash', action: 'tap', mark: 2, title: 'Your money', line: 'Tap the number. That is cash.', target: '#hudCashBtn' },
+  { id: 'roll', action: 'roll', mark: 3, dice: [1, 3], title: 'Your turn', line: 'Tap Roll. It is your turn.', target: '#abRoll' },
+  { id: 'walked', action: 'tap', mark: 3, title: 'You landed', line: 'Ajegunle is free. Tap it.', target: '.bspace[data-space="4"]' },
+  { id: 'buy', action: 'buy', mark: 4, title: 'Buy it', line: 'Buy it, or send it to auction.', target: '#abBuy' },
+  { id: 'bought', action: 'tap', mark: 4, title: 'Yours', line: 'Cash dropped. The deed is yours.', target: '#hudCashBtn', fx: 'buy' },
+  { id: 'endturn', action: 'end', mark: 5, title: 'Ada’s turn', line: 'Tap End. Ada walks next.', target: '#abEnd' },
+  { id: 'adaroll', action: 'ada', mark: 5, diceBot: [1, 3], title: 'Waiting', line: 'Wait. It is Ada\'s turn.', target: '.bspace[data-space="4"]' },
+  { id: 'adacheer', action: 'tap', mark: 5, title: 'She paid you', line: 'Ada paid you rent.', target: '#hudCashBtn', fx: 'rent-in' },
+  { id: 'payroll', action: 'roll', mark: 6, dice: [1, 3], title: 'Her place', line: 'Tap Roll. You land on Ada.', target: '#abRoll' },
+  { id: 'paidcheer', action: 'tap', mark: 6, title: 'You paid rent', line: 'Your money went to Ada.', target: '#hudCashBtn', fx: 'rent-out' },
+  { id: 'cardroll', action: 'roll', mark: 7, dice: [3, 6], card: ['wahala', 'w09'], title: 'A card', line: 'Tap Roll. A card waits.', target: '#abRoll' },
+  { id: 'cardcheer', action: 'tap', mark: 7, title: 'Read the card', line: 'This card takes money.', target: '', sheet: 'card' },
+  { id: 'jailroll', action: 'roll', mark: 8, dice: [1, 3], title: 'Off to jail', line: 'Tap Roll. Kirikiri is ahead.', target: '#abRoll' },
+  { id: 'jail', action: 'jail', mark: 8, title: 'Jail', line: 'Tap Pay bail or roll double.', target: '#abJailPay' },
   { id: 'walk1', action: 'roll', mark: 9, dice: [5, 6], title: 'Keep walking', line: 'Tap Roll. START is ahead.', target: '#abRoll' },
-  { id: 'salary', action: 'roll', mark: 9, dice: [4, 6], title: 'Pass START', line: 'Tap Roll. Passing START pays your salary.', target: '#abRoll' },
-  { id: 'salarycheer', action: 'tap', mark: 9, title: 'Salary', line: 'You passed START. The bank paid you.', target: '#hudCashBtn', fx: 'salary' },
-  { id: 'buildtalk', action: 'tap', mark: 10, title: 'Your set', line: 'The bank completed your set. Now you can build.', target: '.bspace[data-space="4"]', grantSet: true },
-  { id: 'build', action: 'build', mark: 10, title: 'Build', line: 'Tap Build duplex. A house goes up on Ajegunle.', target: '[data-act="build-duplex"]', sheet: 'deed' },
-  { id: 'built', action: 'tap', mark: 10, title: 'Built', line: 'A duplex is up. Rent on Ajegunle is higher.', target: '.bspace[data-space="4"]' },
-  { id: 'deals', action: 'deals', mark: 11, title: 'Deals', line: 'Tap Deals to swap a place or raise cash.', target: '#hudDeals' },
-  { id: 'dealseen', action: 'tap', mark: 11, title: 'Swaps', line: 'This door is trades and raising money.', target: '', sheet: 'deals' },
-  { id: 'win', action: 'tap', mark: 12, title: 'How you win', line: 'Last one with money wins. Or the richest at the end.', target: '' },
-  { id: 'ready', action: 'stay', mark: 12, title: 'Trained!', line: 'You are trained. No real money moved.', target: '' }
+  { id: 'salary', action: 'roll', mark: 9, dice: [4, 6], title: 'Pass START', line: 'Tap Roll. START pays you.', target: '#abRoll' },
+  { id: 'salarycheer', action: 'tap', mark: 9, title: 'Salary', line: 'The bank paid your salary.', target: '#hudCashBtn', fx: 'salary' },
+  { id: 'buildtalk', action: 'tap', mark: 10, title: 'Your set', line: 'Your colour set is complete.', target: '.bspace[data-space="4"]', grantSet: true },
+  { id: 'build', action: 'build', mark: 10, title: 'Build', line: 'Tap Build duplex on Ajegunle.', target: '[data-act="build-duplex"]', sheet: 'deed' },
+  { id: 'built', action: 'tap', mark: 10, title: 'Built', line: 'A duplex is up. Rent jumps.', target: '.bspace[data-space="4"]' },
+  { id: 'deals', action: 'deals', mark: 11, title: 'Deals', line: 'Tap Deals to swap or raise.', target: '#hudDeals' },
+  { id: 'dealseen', action: 'tap', mark: 11, title: 'Swaps', line: 'Deals means swaps and cash.', target: '', sheet: 'deals' },
+  { id: 'win', action: 'tap', mark: 12, title: 'How you win', line: 'Last one with money wins.', target: '' },
+  { id: 'ready', action: 'stay', mark: 12, title: 'Trained!', line: 'You are trained. Play for real.', target: '' }
 ];
 function stepSpec(room) {
   return PRACTICE_STEPS.find((s) => s.id === room.practice.step) || PRACTICE_STEPS[PRACTICE_STEPS.length - 1];
@@ -3372,6 +3372,10 @@ function handleConnection(ws) {
         broadcast(room);
         return;
       }
+      if (msg.type === 'test_drop_room') {
+        dropRoom(room.code);
+        return;
+      }
       broadcast(room);
       return;
     }
@@ -3491,6 +3495,7 @@ function handleConnection(ws) {
           ada.position = 0;
           if (!free && room.props[8]) room.props[8].owner = ada.id;
         }
+        room.lightsOut = null;
         setDeadline(room);
         setMessage(room, free ? 'Free practice. No stake, nothing to collect.' : 'Training Ground. No stake, nothing to collect.');
       } else {

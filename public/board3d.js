@@ -1920,7 +1920,9 @@ class GameScene {
       if (state.dice && state.status === 'playing') {
         this.dice.forEach((d, k) => {
           d.visible = true;
+          const fastDice = state.practice && state.practice.kind === 'intro';
           this.diceAnim = this.diceAnim || { t: 0, dur: 0.9, from: [], to: [], pFrom: [], pTo: [] };
+          this.diceAnim.dur = fastDice ? 0.22 : 0.9;
           this.diceAnim.from[k] = d.quaternion.clone();
           this.diceAnim.to[k] = dieTargetQuat(state.dice[k], (Math.random() * 4) | 0);
           this.diceAnim.pFrom[k] = new THREE.Vector3(0.4 - k * 0.7, 2.6, 0.8);
