@@ -33,5 +33,20 @@ const view = await new Promise((resolve) => {
 check('a big rent offers a rematch', view.rematch && view.rematch.name === 'Ada' && view.rematch.amount === 150000, JSON.stringify(view.rematch));
 check('the head-to-head record is stored', (view.rivalries || []).some((r) => r.youPaid === 150000));
 
+function call(method, url, body) {
+  return new Promise((resolve) => {
+    const req = { method, url, headers: {} };
+    if (body) {
+      const raw = Buffer.from(JSON.stringify(body));
+      req.on = (ev, fn) => { if (ev === 'data') fn(raw); if (ev === 'end') fn(); };
+    }
+    const res = { writeHead() {}, end(text) { resolve(JSON.parse(text)); } };
+    ret.handle(req, res);
+  });
+}
+const claimed = await call('POST', '/api/events/claim', { clientId: 'payer-000111' });
+const owned = claimed.rewards && claimed.rewards.stickers.find((s) => s.id === home.sticker.id);
+check('the week claim lands the limited sticker', claimed.ok && owned && owned.count === 1 && owned.limited, JSON.stringify(claimed.ok && owned));
+
 console.log(fail ? fail + ' failed' : 'all ' + n + ' passed');
 process.exit(fail ? 1 : 0);

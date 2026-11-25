@@ -38,7 +38,11 @@
     okada: 'okada',
     kirikiri: 'kirikiri',
     'owambe-hall': 'owambe-hall',
-    'marina-lights': 'marina-lights'
+    'marina-lights': 'marina-lights',
+    'event-owambe': 'event-owambe',
+    'event-nepa': 'event-nepa',
+    'event-toll': 'event-toll',
+    'event-marina': 'event-marina'
   };
   function art(id) {
     const file = STICKER_FILE[id] || id;
@@ -77,14 +81,18 @@
     }
     const sets = rewards.sets || [];
     const stickers = rewards.stickers || [];
+    const tile = (s) =>
+      '<button type="button" class="sticker' + (s.count ? '' : ' missing') + (s.gold ? ' gold' : '') + '" data-sticker="' + s.id + '" data-count="' + s.count + '">' +
+      art(s.id) + (s.count ? '<span class="st-badge">' + s.count + '</span>' : '<span class="st-q">?</span>') +
+      '<span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span></button>';
+    const book = stickers.filter((s) => s.set !== 'limited');
+    const limited = stickers.filter((s) => s.set === 'limited');
     el.innerHTML = '<div class="album-card"><h2>Sticker album</h2>' +
       sets.map((s) => '<p class="album-set"><b>' + s.name + '</b> ' + s.have + '/' + s.size + (s.done ? ' · complete' : '') +
         (s.reward ? ' · reward: ' + s.reward : '') + '</p>').join('') +
-      '<div class="album-grid">' + stickers.map((s) =>
-        '<button type="button" class="sticker' + (s.count ? '' : ' missing') + (s.gold ? ' gold' : '') + '" data-sticker="' + s.id + '" data-count="' + s.count + '">' +
-        art(s.id) + (s.count ? '<span class="st-badge">' + s.count + '</span>' : '<span class="st-q">?</span>') +
-        '<span class="st-name">' + s.name + '</span><span class="st-stars">' + stars(s.stars, s.gold) + '</span></button>'
-      ).join('') + '</div>' +
+      '<div class="album-grid">' + book.map(tile).join('') + '</div>' +
+      '<h3 class="album-k">Limited</h3>' +
+      '<div class="album-grid album-limited">' + limited.map(tile).join('') + '</div>' +
       '<p class="album-note">A duplicate can go to a friend. Tap one you hold twice.</p>' +
       '<button type="button" class="btn ghost block" id="albumClose">Close</button></div>';
     el.querySelector('#albumClose').addEventListener('click', () => { el.remove(); });

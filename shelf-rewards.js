@@ -23,7 +23,11 @@ const STICKERS = [
   { id: 'okada', name: 'Okada', set: 'motors', city: 'lagos', stars: 1 },
   { id: 'kirikiri', name: 'Kirikiri', set: 'night', city: 'lagos', stars: 2 },
   { id: 'owambe-hall', name: 'Owambe Hall', set: 'night', city: 'lagos', stars: 1 },
-  { id: 'marina-lights', name: 'Marina Lights', set: 'night', city: 'lagos', stars: 3, gold: true }
+  { id: 'marina-lights', name: 'Marina Lights', set: 'night', city: 'lagos', stars: 3, gold: true },
+  { id: 'event-owambe', name: 'Owambe Week', set: 'limited', city: 'lagos', stars: 3, gold: true, limited: true, eventOnly: true },
+  { id: 'event-nepa', name: 'NEPA Blackout', set: 'limited', city: 'lagos', stars: 3, gold: true, limited: true, eventOnly: true },
+  { id: 'event-toll', name: 'Toll Holiday', set: 'limited', city: 'lagos', stars: 3, gold: true, limited: true, eventOnly: true },
+  { id: 'event-marina', name: 'Marina Night', set: 'limited', city: 'lagos', stars: 3, gold: true, limited: true, eventOnly: true }
 ];
 const SETS = {
   bridges: { name: 'Bridges', city: 'lagos', reward: { kind: 'card', card: 'dash' }, cosmetic: 'frame-bridge' },
@@ -127,13 +131,17 @@ function grantPack(p, n) {
   r.packs += add;
   return r.packs;
 }
+function packStickers() {
+  return STICKERS.filter((s) => !s.eventOnly);
+}
 function drawSticker(rnd) {
   const roll = rnd();
+  const book = packStickers();
   let pool;
-  if (roll < 0.08) pool = STICKERS.filter((s) => s.gold);
-  else if (roll < 0.30) pool = STICKERS.filter((s) => s.stars === 2);
-  else pool = STICKERS.filter((s) => s.stars === 1);
-  if (!pool.length) pool = STICKERS;
+  if (roll < 0.08) pool = book.filter((s) => s.gold);
+  else if (roll < 0.30) pool = book.filter((s) => s.stars === 2);
+  else pool = book.filter((s) => s.stars === 1);
+  if (!pool.length) pool = book;
   return pool[Math.floor(rnd() * pool.length) % pool.length];
 }
 function grantLook(r, id) {
@@ -207,8 +215,9 @@ function spinWheel(p, day, seed, cityId) {
     prize.card = id;
     prize.line = CARDS[id].name + ' don enter your hand.';
   } else if (seg.kind === 'sticker') {
-    const pool = stickersIn(cityId).filter((s) => s.gold);
-    const any = pool.length ? pool : stickersIn(cityId);
+    const book = stickersIn(cityId).filter((s) => !s.eventOnly);
+    const pool = book.filter((s) => s.gold);
+    const any = pool.length ? pool : book;
     if (!any.length) {
       r.packs += 1;
       prize.kind = 'pack';
@@ -335,7 +344,7 @@ function publicRewards(p) {
     sets,
     cosmetics: r.cosmetics.slice(),
     equipped: Object.assign({}, r.equipped),
-    stickers: STICKERS.map((s) => ({ id: s.id, name: s.name, set: s.set, city: s.city || null, stars: s.stars, gold: !!s.gold, count: r.album[s.id] || 0 }))
+    stickers: STICKERS.map((s) => ({ id: s.id, name: s.name, set: s.set, city: s.city || null, stars: s.stars, gold: !!s.gold, limited: !!s.limited, count: r.album[s.id] || 0 }))
   };
 }
 // Free and private free tables only. One card per player per match.

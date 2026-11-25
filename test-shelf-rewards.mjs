@@ -1,4 +1,4 @@
-import { migrateGoods, openPack, grantPack, ensureRewards, judgePlay, completeSets, spinWheel, homeCity, STICKERS, SETS } from './shelf-rewards.js';
+import { migrateGoods, openPack, grantPack, ensureRewards, judgePlay, completeSets, spinWheel, homeCity, publicRewards, STICKERS, SETS } from './shelf-rewards.js';
 import { linesFor, byId } from './emotes.js';
 
 let n = 0, fail = 0;
@@ -49,6 +49,17 @@ const homeLines = linesFor(homeCity()).map((l) => l.id);
 check('the home city hears its own lines', homeLines.includes('jam') && homeLines.includes('shine'));
 check('an unknown talk is refused', byId('nope') == null && byId('jam').city === homeCity());
 check('a finished set names its cosmetic', done[0].cosmeticName === 'Bridge Name Frame', JSON.stringify(done[0]));
+
+const week = publicRewards(collector).stickers.filter((s) => s.set === 'limited');
+check('the album lists four gold week stickers', week.length === 4 && week.every((s) => s.gold && s.limited && s.city === 'lagos' && s.count === 0), JSON.stringify(week.map((s) => s.id)));
+let leaked = false;
+for (let i = 0; i < 30; i++) {
+  const p = { inventory: { cowries: 0, kola: 0, yams: 0, cloth: 0 } };
+  grantPack(p, 1);
+  const pulled = openPack(p, 'week-guard-' + i);
+  if ((pulled.stickers || []).some((s) => s.set === 'limited' || String(s.id).indexOf('event-') === 0)) leaked = true;
+}
+check('a pack never drops a week sticker', leaked === false);
 
 console.log(fail ? fail + ' failed' : 'all ' + n + ' passed');
 process.exit(fail ? 1 : 0);

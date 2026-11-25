@@ -810,17 +810,20 @@
     if (!ev) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     el.classList.remove('hidden');
     const art = '/events/' + encodeURIComponent(ev.id) + '.webp?v=__KOLOPOLY_BUILD__';
+    const sticker = '/stickers/' + encodeURIComponent(ev.sticker.id) + '.webp?v=__KOLOPOLY_BUILD__';
     const left = daysLeft(ev.ends);
     el.innerHTML =
       '<img class="event-art" alt="" width="960" height="540" decoding="async" src="' + art + '">' +
-      '<div class="event-copy">' +
-        '<span class="count-chip">' + left + '</span>' +
-        '<h3>' + ev.name + '</h3>' +
-        '<p>' + ev.blurb + '</p>' +
-      '</div>' +
-      '<div class="event-sticker" title="' + ev.sticker.name + '">' +
-        '<img alt="" width="960" height="540" decoding="async" src="' + art + '">' +
-        '<span>' + ev.sticker.name + '</span>' +
+      '<div class="event-face">' +
+        '<div class="event-copy">' +
+          '<span class="count-chip">' + left + '</span>' +
+          '<h3>' + ev.name + '</h3>' +
+          '<p>' + ev.blurb + '</p>' +
+        '</div>' +
+        '<div class="event-sticker" title="' + ev.sticker.name + '">' +
+          '<img alt="" width="512" height="512" decoding="async" src="' + sticker + '">' +
+          '<span>Week sticker</span>' +
+        '</div>' +
       '</div>' +
       '<button type="button" class="btn gold" id="eventClaim">Collect</button>';
     const b = $('eventClaim');
