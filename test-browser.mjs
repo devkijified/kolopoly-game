@@ -1878,8 +1878,8 @@ try {
     window.KPShell.consider(h, window.innerWidth, 'orient');
     return { before, during, after, h, rotated };
   });
-  check('a toolbar-sized dip during an alert does not shrink the shell', shell.during === shell.before && shell.before === (shell.h + 'px'), JSON.stringify(shell));
-  check('the same dip after the alert still does not snap the shell', shell.after === shell.before, JSON.stringify(shell));
+  check('a toolbar-sized dip shrinks the shell so Roll stays visible', shell.during === (shell.h - 96) + 'px', JSON.stringify(shell));
+  check('the shell stays on the visible height after the alert', shell.after === (shell.h - 96) + 'px', JSON.stringify(shell));
   check('a real rotation still retargets the shell', shell.rotated === shell.h - 420, JSON.stringify(shell));
   await typeName(UI, 'Tife');
   await UI.click('#gameModeRow [data-gmode="inflation"]');

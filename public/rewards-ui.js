@@ -144,7 +144,19 @@
       if (view && view.rewards) paintShelf(view.rewards);
     } catch (e) { /* the shelf can wait */ }
   }
-  window.KPRewards = { paintShelf, reveal, refresh, openPack };
+  async function openAlbum() {
+    if (!lastRewards) {
+      const id = clientId();
+      if (!id) return;
+      try {
+        const res = await fetch('/api/retention?clientId=' + encodeURIComponent(id) + (auth() ? '&authToken=' + encodeURIComponent(auth()) : ''));
+        const view = await res.json();
+        if (view && view.rewards) lastRewards = view.rewards;
+      } catch (e) { return; }
+    }
+    if (lastRewards) showAlbum(lastRewards);
+  }
+  window.KPRewards = { paintShelf, reveal, refresh, openPack, openAlbum };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(refresh, 400));
   else setTimeout(refresh, 400);
 })();
