@@ -1253,22 +1253,28 @@ body:has(#view-landing.active) #muteBtn.on {
 }
 #cardModal.card-reveal .card-hint { margin: 8px 0 0; font-size: 13px; font-weight: 800; color: #8a5a00; }
 #coachPop {
-  position: fixed; left: 10px; right: 10px; bottom: 168px; z-index: 70;
-  display: flex; align-items: flex-end; gap: 8px; pointer-events: none;
+  position: fixed; left: 8px; right: 8px; top: calc(var(--topbar-h) + 10px); z-index: 190;
+  display: block; pointer-events: none;
+  max-width: calc(100vw - 16px); box-sizing: border-box;
 }
 #coachPop[hidden] { display: none; }
-#coachPop .coach-daddy { width: 72px; height: 90px; object-fit: contain; flex: none; filter: drop-shadow(2px 4px 0 rgba(26,20,12,.3)); }
+#coachPop .coach-row { display: flex; align-items: center; gap: 8px; }
+#coachPop .coach-daddy { width: 44px; height: 56px; object-fit: contain; flex: none; filter: drop-shadow(1px 2px 0 rgba(26,20,12,.28)); }
+#coachPop .coach-copy { min-width: 0; }
 #coachPop .coach-bubble {
   pointer-events: auto; flex: 1; min-width: 0;
   background: #fff6e4; color: #1a140c; border: 3px solid #1a140c; border-radius: 16px;
   box-shadow: 4px 5px 0 #1a140c; padding: 8px 10px 10px;
 }
-#coachPop .coach-title { margin: 0; font-size: 13px; font-weight: 900; letter-spacing: 0.4px; color: #8a5a00; }
+#coachPop .coach-title { margin: 0; font-size: 15px; font-weight: 900; letter-spacing: 0.2px; color: #8a5a00; }
 #coachPop .coach-line { margin: 2px 0 8px; font-size: 15px; line-height: 1.3; font-weight: 750; color: #1a140c; }
-.coach-live { outline: 3px solid #ffc857 !important; box-shadow: 0 0 0 5px rgba(255, 200, 87, 0.45) !important; position: relative; z-index: 45; }
+#coachPop .coach-line[hidden] { display: none; }
+#coachPop.coach-dock { left: 0; right: 0; bottom: 0; max-width: none; align-items: flex-start; background: #fff6e4; }
+#coachPop.coach-dock .coach-bubble { box-shadow: 4px 5px 0 #1a140c; }
+body.train-gate .msgbar.tip-covered { visibility: hidden; }
+.coach-live { position: relative; z-index: 172; }
 @media (prefers-reduced-motion: reduce) {
   #cardModal.card-reveal { animation: none; }
-  .coach-live { outline: 3px solid #ffc857 !important; }
 }
 .train-sticker {
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -1300,7 +1306,9 @@ body:has(#view-landing.active) #muteBtn.on {
   background: #1a140c; color: #ffc857; border-radius: 999px;
   font-weight: 900; letter-spacing: 1px; font-size: 13px;
 }
-#coachPop .coach-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#coachPop .coach-actions { display: flex; flex-direction: column; gap: 6px; }
+#coachPop .coach-nav { display: flex; flex-wrap: nowrap; gap: 6px; }
+#coachPop .coach-nav .btn { flex: 1 1 0; min-width: 0; min-height: 36px; padding: 6px 4px; font-size: 12px; letter-spacing: 0.03em; }
 #coachPop .btn { min-height: 40px; }
 body.train-gate #coachGate {
   position: fixed; z-index: 160; pointer-events: none; border-radius: 18px;
@@ -1313,37 +1321,33 @@ body.train-gate #coachGate {
 #coachRing[hidden] { display: none; }
 #coachRing.shake { animation: coachshake 0.35s linear; }
 #coachFinger {
-  position: fixed; z-index: 186; pointer-events: none; font-size: 28px; line-height: 1;
-  filter: drop-shadow(0 2px 0 #1a140c); animation: coachtap 1s ease-in-out infinite;
+  position: fixed; z-index: 186; pointer-events: none; font-size: 22px; line-height: 1;
+  filter: drop-shadow(0 1px 0 #1a140c); animation: coachtap 1s ease-in-out infinite;
 }
 #coachFinger[hidden] { display: none; }
-#coachFinger.big { font-size: 44px; }
-@keyframes coachpulse { 50% { box-shadow: 0 0 0 12px rgba(255, 200, 87, 0.15); } }
-@keyframes coachtap { 50% { transform: translateY(6px); } }
+#coachFinger.big { font-size: 30px; }
+#coachFinger.flip { animation-name: coachtapflip; }
+@keyframes coachpulse { 50% { box-shadow: 0 0 0 10px rgba(255, 200, 87, 0.12); } }
+@keyframes coachtap { 50% { transform: translateY(4px); } }
+@keyframes coachtapflip { 50% { transform: rotate(180deg) translateY(4px); } 0%, 100% { transform: rotate(180deg); } }
 @keyframes coachshake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 @media (prefers-reduced-motion: reduce) {
   #coachRing, #coachFinger { animation: none; }
 }
 #coachGate[hidden] { display: none; }
+body.train-gate .topbar, body.train-done .topbar { z-index: 220; }
 body.train-gate .coach-live {
-  position: relative; z-index: 140 !important; pointer-events: auto;
-  outline: 3px solid #ffc857 !important;
-  box-shadow: 0 0 0 6px rgba(255, 200, 87, 0.55) !important;
+  position: relative; z-index: 172 !important; pointer-events: auto;
+  outline: none !important; box-shadow: none !important;
 }
+body.train-gate #alerts, body.train-done #alerts { z-index: 168; }
 body.train-gate #coachPop, body.train-done #coachPop { z-index: 190; }
 body.train-gate .toast, body.train-done .toast { display: none; }
 body.train-gate #deedScrim.show, body.train-gate #cardScrim.show, body.train-gate #hudScrim.show { z-index: 175; }
 body.train-gate .bspace.coach-path { box-shadow: inset 0 0 0 3px #ffc857; }
 #coachFx { position: fixed; inset: 0; z-index: 170; pointer-events: none; }
 #coachFx[hidden] { display: none; }
-.coach-arrow {
-  position: fixed; height: 8px; transform-origin: 0 50%; border-radius: 8px;
-  background: #ffc857; box-shadow: 0 2px 0 #1a140c;
-}
-.coach-arrow:after {
-  content: ''; position: absolute; right: -4px; top: -6px;
-  border: 10px solid transparent; border-left: 16px solid #ffc857;
-}
+.coach-arrow, .coach-arrow:after, .coach-fly, .coach-tag { display: none !important; }
 .coach-fly {
   position: fixed; width: 96px; padding: 6px 8px; background: #fff6e4; color: #1a140c;
   border: 3px solid #1a140c; border-radius: 10px; font-size: 12px; font-weight: 900;
@@ -1355,8 +1359,8 @@ body.train-gate .bspace.coach-path { box-shadow: inset 0 0 0 3px #ffc857; }
   padding: 3px 8px; border-radius: 999px;
 }
 #learnBar {
-  position: fixed; top: 0; left: 0; right: 0; height: 14px; z-index: 210;
-  background: rgba(26, 20, 12, 0.55); pointer-events: none;
+  position: fixed; top: var(--topbar-h); left: 0; right: 0; height: 4px; z-index: 215;
+  background: rgba(26, 20, 12, 0.45); pointer-events: none;
 }
 #learnBar[hidden] { display: none; }
 #learnBar i { display: block; height: 100%; width: 0; background: #ffc857; }
@@ -1394,17 +1398,17 @@ body.train-gate .bspace.coach-path { box-shadow: inset 0 0 0 3px #ffc857; }
 .how-dot.on { background: #1a140c; }
 .how-actions { display: flex; flex-direction: column; gap: 8px; }
 #learnTip {
-  position: fixed; z-index: 200; display: flex; align-items: center; gap: 6px;
-  max-width: 220px; pointer-events: none;
-  background: #fff6e4; color: #1a140c; border: 3px solid #1a140c; border-radius: 14px;
-  box-shadow: 3px 3px 0 #1a140c; padding: 4px 6px;
+  position: fixed; z-index: 200; display: block;
+  max-width: min(210px, calc(100vw - 16px)); pointer-events: none;
+  background: #fff6e4; color: #1a140c; border: 3px solid #1a140c; border-radius: 12px;
+  box-shadow: 3px 3px 0 #1a140c; padding: 6px 8px;
 }
 #learnTip[hidden] { display: none; }
-#learnTip img { width: 42px; height: 54px; object-fit: contain; }
 #learnTip p { margin: 0; font-size: 14px; font-weight: 800; line-height: 1.25; }
-#learnTip button { pointer-events: auto; border: 0; background: transparent; font-size: 18px; font-weight: 900; min-width: 28px; min-height: 28px; }
+.coach-progress:empty { display: none; }
 .coach-progress { margin: 0; font-size: 12px; font-weight: 900; letter-spacing: 0.8px; color: #8a5a00; }
-.coach-nudge { margin: 4px 0 0; min-height: 18px; font-size: 13px; font-weight: 800; color: #9a2e24; }
+.coach-nudge:empty { display: none; }
+.coach-nudge { margin: 4px 0 0; font-size: 13px; font-weight: 800; color: #9a2e24; }
 .prof-card h4 { margin: 12px 0 4px; font-size: 14px; letter-spacing: 0.4px; color: #8a5a00; }
 .prof-balance { margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #1a140c; }
 .prof-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid rgba(26,20,12,.12); color: #1a140c; font-size: 14px; }

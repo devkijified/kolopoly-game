@@ -140,6 +140,8 @@
   }
   function hideTip(remove) {
     const tip = document.getElementById('learnTip');
+    const msg = document.querySelector('.msgbar');
+    if (msg) msg.classList.remove('tip-covered');
     if (!tip) return;
     if (remove) tip.remove();
     else tip.hidden = true;
@@ -147,6 +149,70 @@
   function trainingLesson(room) {
     const step = room && room.practice;
     return !!(step && step.kind === 'intro' && step.step && step.step !== 'ready' && step.action !== 'stay' && step.action !== 'free');
+  }
+  function overlaps(a, b, pad) {
+    const p = pad || 0;
+    return a.left < b.right + p && a.right > b.left - p && a.top < b.bottom + p && a.bottom > b.top - p;
+  }
+  function blockedBoxes(target) {
+    const boxes = [];
+    if (target) boxes.push(target.getBoundingClientRect());
+    const ring = document.getElementById('coachRing');
+    if (ring && !ring.hidden) boxes.push(ring.getBoundingClientRect());
+    const card = document.getElementById('coachPop');
+    if (card && !card.hidden) boxes.push(card.getBoundingClientRect());
+    const topbar = document.querySelector('.topbar');
+    if (topbar) boxes.push(topbar.getBoundingClientRect());
+    return boxes;
+  }
+  function placeBubble(tip, el) {
+    const r = el.getBoundingClientRect();
+    const blocked = blockedBoxes(el);
+    tip.hidden = false;
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    const gap = 10;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const raw = [
+      { left: r.left + r.width / 2 - tw / 2, top: r.top - th - gap },
+      { left: r.left + r.width / 2 - tw / 2, top: r.bottom + gap },
+      { left: r.right + gap, top: r.top + (r.height - th) / 2 },
+      { left: r.left - tw - gap, top: r.top + (r.height - th) / 2 }
+    ];
+    const spots = raw.map((s) => ({
+      left: Math.max(8, Math.min(vw - tw - 8, s.left)),
+      top: Math.max(8, Math.min(vh - th - 8, s.top))
+    }));
+    const clear = spots.find((s) => {
+      const box = { left: s.left, top: s.top, right: s.left + tw, bottom: s.top + th };
+      return !blocked.some((b) => overlaps(box, b, 4));
+    });
+    let spot = clear || spots[0];
+    const boxAt = (s) => ({ left: s.left, top: s.top, right: s.left + tw, bottom: s.top + th });
+    if (overlaps(boxAt(spot), r, 0)) {
+      const above = r.top - th - gap;
+      const below = r.bottom + gap;
+      if (above >= 8) spot = { left: Math.max(8, Math.min(vw - tw - 8, spot.left)), top: above };
+      else if (below + th <= vh - 8) spot = { left: Math.max(8, Math.min(vw - tw - 8, spot.left)), top: below };
+    }
+    if (overlaps(boxAt(spot), r, 0)) {
+      const push = boxAt(spot).bottom - r.top + gap;
+      if (spot.top - push >= 8) spot = { left: spot.left, top: spot.top - push };
+    }
+    tip.style.left = spot.left + 'px';
+    tip.style.top = spot.top + 'px';
+    const msg = document.querySelector('.msgbar');
+    if (msg) msg.classList.toggle('tip-covered', overlaps(boxAt(spot), msg.getBoundingClientRect(), 0));
+  }
+  function ensureTip() {
+    let tip = document.getElementById('learnTip');
+    if (tip) return tip;
+    tip = document.createElement('div');
+    tip.id = 'learnTip';
+    tip.innerHTML = '<p></p>';
+    document.body.appendChild(tip);
+    return tip;
   }
   function show(id, owner) {
     const spec = TIPS[id];
@@ -156,41 +222,47 @@
     const box = el && el.getBoundingClientRect();
     const inTable = el && el.closest('#view-game');
     if (!el || !inTable || box.width < 8 || box.height < 8) { hideTip(true); return false; }
-    let tip = document.getElementById('learnTip');
-    if (!tip) {
-      tip = document.createElement('div');
-      tip.id = 'learnTip';
-      tip.innerHTML = '<img alt="" width="42" height="54"><p></p><button type="button" aria-label="Dismiss tip">×</button>';
-      document.body.appendChild(tip);
-      tip.querySelector('button').addEventListener('click', () => { tip.hidden = true; });
-    }
-    tip.hidden = false;
+    const tip = ensureTip();
     tip.dataset.tip = id;
-    tip.querySelector('img').src = '/mascot/daddy-stand.webp';
     tip.querySelector('p').textContent = spec.line;
-    const r = el.getBoundingClientRect();
-    const vv = window.visualViewport;
-    const shift = vv ? (vv.offsetTop || 0) : 0;
-    const below = r.top < 90;
-    tip.style.top = (below ? r.bottom + 8 : Math.max(8, r.top - 58)) + shift + 'px';
-    tip.style.left = Math.max(8, Math.min(window.innerWidth - 228, r.left)) + 'px';
+    placeBubble(tip, el);
     if (owner) mark(id, owner);
     return true;
   }
-
-  const STEP_TIP = {
-    roll: 'roll', payroll: 'roll', cardroll: 'roll', jailroll: 'roll', walk1: 'roll', salary: 'roll',
-    buy: 'buy',
-    adacheer: 'rent', paidcheer: 'rent',
-    salarycheer: 'salary',
-    jail: 'jail',
-    adaroll: 'wait'
-  };
+  function place() {
+    const room = roomNow();
+    const tip = document.getElementById('learnTip');
+    if (!tip || tip.hidden || !trainingLesson(room)) return;
+    const el = document.querySelector(room.practice.target || '');
+    if (!el) return;
+    placeBubble(tip, el);
+  }
+  function aimed(sel) {
+    const all = document.querySelectorAll(sel);
+    for (const el of all) if (el.classList.contains('coach-live')) return el;
+    for (const el of all) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 8 && r.height > 8) return el;
+    }
+    return all[0] || null;
+  }
+  function sync(room, meId) {
+    if (!inGame() || !trainingLesson(room) || !tipsOn()) { hideTip(true); return; }
+    const step = room.practice;
+    if (!step.target || !step.line) { hideTip(true); return; }
+    const el = aimed(step.target);
+    const box = el && el.getBoundingClientRect();
+    const inTable = el && (el.closest('#view-game') || el.closest('.sheet') || el.closest('.modal-card') || el.closest('#coachPop'));
+    if (!el || !inTable || box.width < 8 || box.height < 8) { hideTip(true); return; }
+    const tip = ensureTip();
+    tip.dataset.tip = step.step;
+    tip.querySelector('p').textContent = step.line;
+    placeBubble(tip, el);
+    if (meId) mark(step.step, who(room, meId));
+  }
   function onRoom(room, meId) {
-    if (!inGame() || !trainingLesson(room)) { hideTip(true); return; }
-    const id = STEP_TIP[room.practice.step];
-    if (!id) { hideTip(true); return; }
-    show(id, who(room, meId));
+    sync(room, meId);
+    if (window.KPLessonChrome) window.KPLessonChrome();
   }
 
   function boot() {
@@ -208,5 +280,5 @@
   else boot();
 
   window.KPHowTo = { open: open, close: close };
-  window.KPLearn = { onRoom: onRoom, show: show, hide: hideTip, tipsOn: tipsOn, setTips: setTips, seen: seen };
+  window.KPLearn = { onRoom: onRoom, sync: sync, show: show, hide: hideTip, place: place, tipsOn: tipsOn, setTips: setTips, seen: seen };
 })();
