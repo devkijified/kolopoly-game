@@ -580,7 +580,7 @@
     const mode = $('money-mode');
     if (mode) {
       mode.textContent = (data.paystack && data.paystack.enabled ? 'Paystack live. ' : 'Paystack not set up on this host. ') +
-        'Payouts: ' + (data.payoutMode === 'auto' ? 'automatic' : 'sent from this desk') + '. ' +
+        'Payouts: ' + (data.payoutMode === 'auto' ? 'automatic through Paystack' : 'the player claims, then this desk marks paid by hand') + '. ' +
         (data.durable ? 'Records mirrored to Supabase.' : 'Records only on this server disk: a redeploy on a free plan loses them.');
     }
     const list = $('money-payouts');
@@ -595,14 +595,14 @@
         (p.bank ? ' · ' + p.bank.bankName + ' ' + p.bank.accountName + ' ****' + p.bank.last4 : '') +
         (p.transferRef ? ' · ref ' + p.transferRef : p.paymentRef ? ' · payment ' + p.paymentRef : '')));
       if (p.note) main.appendChild(el('div', 'fine', p.note));
-      if (p.lastError && !/^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status)) main.appendChild(el('div', 'fine bad', p.lastError));
+      if (p.lastError && !/^(paid|paid-manual|refunded|refunded-manual|claimed)$/.test(p.status)) main.appendChild(el('div', 'fine bad', p.lastError));
       row.appendChild(main);
       const side = el('div', 'money-side');
-      side.appendChild(el('span', 'money-chip', p.status));
+      side.appendChild(el('span', 'money-chip', p.status === 'claimed' ? 'claimed / awaiting house' : p.status));
       const acts = [];
-      if (p.status === 'ready' || p.status === 'failed') acts.push(['send', p.kind === 'prize' ? 'Send' : 'Refund']);
+      if (data.payoutMode === 'auto' && (p.status === 'ready' || p.status === 'failed')) acts.push(['send', p.kind === 'prize' ? 'Send' : 'Refund']);
       if (p.status === 'review') acts.push(['approve', 'Approve']);
-      if (!/^(paid|paid-manual|refunded|refunded-manual|sending|refund-pending)$/.test(p.status)) acts.push(['mark', 'Mark paid']);
+      if (!/^(paid|paid-manual|refunded|refunded-manual|sending|refund-pending)$/.test(p.status)) acts.push(['mark', 'Mark paid (manual)']);
       for (const a of acts) {
         const b = el('button', a[0] === 'send' ? 'gold auto' : 'auto', a[1]);
         b.type = 'button';

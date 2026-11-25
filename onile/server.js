@@ -239,7 +239,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (pathname === '/api/config' && req.method === 'GET') {
-    json(res, 200, { ok: true, housePercent: HOUSE, payments: !!paystack.enabled, payouts: !!paystack.enabled });
+    json(res, 200, { ok: true, housePercent: HOUSE, payments: !!paystack.enabled, payouts: !!paystack.enabled, payoutMode: process.env.KP_PAYOUT_MODE === 'auto' ? 'auto' : 'manual' });
     return;
   }
   if (pathname === '/api/me' && req.method === 'GET') {
@@ -464,6 +464,17 @@ const server = http.createServer((req, res) => {
       try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
       const out = await payouts.setBank({ accountId: player.id }, body || {});
       json(res, out.ok ? 200 : (out.status || 400), out.ok ? { ok: true, bank: out.bank } : { ok: false, error: out.error, message: out.message });
+    })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
+    return;
+  }
+  if (pathname === '/api/payouts/collect' && req.method === 'POST') {
+    (async () => {
+      const player = currentPlayer(req);
+      if (!player) { json(res, 401, { ok: false, error: 'auth', message: 'Sign in first.' }); return; }
+      let body;
+      try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
+      const out = await payouts.collect(player.id, body || {});
+      json(res, out.ok ? 200 : (out.status || 400), out);
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }

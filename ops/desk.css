@@ -413,6 +413,7 @@ button.gold.auto { width: auto; margin-top: 0; padding: 0 22px; }
 .money-chip { font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
 .money-row.s-paid .money-chip, .money-row.s-refunded .money-chip, .money-row.s-paid-manual .money-chip, .money-row.s-refunded-manual .money-chip { color: #1d7a3e; }
 .money-row.s-failed .money-chip, .money-row.s-review .money-chip, .money-row.s-otp .money-chip, .money-row.s-awaiting-bank .money-chip { color: #b3401f; }
+.money-row.s-claimed .money-chip, .money-row.s-ready .money-chip { color: #b36a1f; }
 .fine.bad { color: #b3401f; }
 
 .legacy { display: none; }

@@ -1778,6 +1778,7 @@ window.addEventListener('pageshow', (ev) => {
 // the last four digits ever come back to this phone.
 // ---------------------------------------------------------------------------
 const HOUSE_HOLD_WORDS = ['Queued — house sends it soon', 'warn'];
+const CLAIMED_WORDS = ['Claimed — house sends it to your bank soon', 'warn'];
 const PAYOUT_WORDS = {
   'awaiting-bank': ['Add your bank', 'warn'],
   ready: ['On the way', 'go'],
@@ -1792,8 +1793,11 @@ const PAYOUT_WORDS = {
   'refunded-manual': ['Refunded', 'ok'],
   test: ['Test mode, no money', 'muted']
 };
-function payoutWords(p) {
+function payoutWords(p, mode) {
+  if (p && (p.claimed || p.status === 'claimed')) return CLAIMED_WORDS;
   if (p && p.houseHold) return HOUSE_HOLD_WORDS;
+  const useMode = mode || (walletSummary && walletSummary.payoutMode) || 'manual';
+  if (useMode !== 'auto' && p && (p.status === 'ready' || p.status === 'failed')) return ['Ready to claim', 'go'];
   return PAYOUT_WORDS[p && p.status] || [p && p.status || '', 'muted'];
 }
 let payoutBanks = null;
@@ -1804,7 +1808,7 @@ function walletOwedKobo(data) {
 }
 function paintWalletNote() {
   const owed = walletSummary ? walletOwedKobo(walletSummary) : 0;
-  const queued = walletSummary ? (walletSummary.payouts || []).filter((r) => r.status === 'ready' || r.status === 'sending' || r.status === 'awaiting-bank' || r.status === 'review').length : 0;
+  const queued = walletSummary ? (walletSummary.payouts || []).filter((r) => r.status === 'ready' || r.status === 'claimed' || r.status === 'sending' || r.status === 'awaiting-bank' || r.status === 'review').length : 0;
   const paidN = walletSummary ? (walletSummary.payouts || []).filter((r) => r.status === 'paid' || r.status === 'paid-manual').length : 0;
   let line = '';
   if (!authToken()) line = 'Sign in, then open Wallet, to see money the house owes you.';
@@ -1823,7 +1827,7 @@ async function collectPrize(room, btn) {
   collectBusy = true;
   btn.disabled = true;
   const note = $('endWalletNote');
-  btn.textContent = 'Sending…';
+  btn.textContent = 'Claiming…';
   const finish = (label, message, reopenBank) => {
     btn.textContent = label;
     btn.disabled = false;
@@ -1846,6 +1850,10 @@ async function collectPrize(room, btn) {
     const data = await res.json().catch(() => null);
     if (!data) { finish('Try again', 'The house did not answer. Your prize is still queued.'); return; }
     if (data.error === 'bank') { finish('Add your bank', data.message || 'Add your bank, then collect again.'); return; }
+    if (data.claimed || data.status === 'claimed' || (data.payout && (data.payout.claimed || data.payout.status === 'claimed'))) {
+      finish(CLAIMED_WORDS[0], data.message || CLAIMED_WORDS[0]);
+      return;
+    }
     if (data.houseHold || (data.payout && data.payout.houseHold)) {
       finish(HOUSE_HOLD_WORDS[0], data.message || HOUSE_HOLD_WORDS[0]);
       return;
@@ -3126,7 +3134,8 @@ function paintProfile(data) {
   const credit = (data && data.credit) || [];
   const rows = payouts.map((p) => {
     const word = payoutWords(p)[0];
-    const collect = p.kind === 'prize' && !p.houseHold && (p.status === 'ready' || p.status === 'failed')
+    const canClaim = p.kind === 'prize' && !p.houseHold && !p.claimed && p.status !== 'claimed' && (p.status === 'ready' || p.status === 'failed');
+    const collect = canClaim
       ? '<button type="button" class="btn small" data-collect="' + esc(p.roomCode || '') + '" data-key="' + esc(p.gameKey || '') + '">Collect</button>' : '';
     return '<div class="prof-row"><b>' + esc(p.kind || 'payout') + ' · ' + fmtN(p.amount || 0) + '</b><span>' + esc(word) + '</span>' + collect + '</div>';
   }).join('') || '<p class="caption">No prizes yet.</p>';

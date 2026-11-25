@@ -160,9 +160,12 @@ function payoutBlock(c) {
       'paid-manual': 'Paid by hand.',
       otp: 'Paystack still needs a confirmation on the house account.',
       failed: 'The send did not land. The house can try the same payout again. It will not create a second one.',
-      review: 'The house is checking this before it is sent.'
+      review: 'The house is checking this before it is sent.',
+      claimed: 'Claimed — house sends it to your bank soon'
     };
-    line = p.houseHold ? 'Queued — house sends it soon' : (labels[p.status] || line);
+    if (p.claimed || p.status === 'claimed') line = labels.claimed;
+    else if (p.houseHold) line = 'Queued — house sends it soon';
+    else line = labels[p.status] || line;
   }
   var bank = c.bank ? '<p class="fine">Saved account: ' + esc(c.bank.bankName) + ' · ' + esc(c.bank.accountName) + ' · ••••' + esc(c.bank.last4) + '</p>' : '';
   var form = '';
@@ -170,6 +173,8 @@ function payoutBlock(c) {
     form = '<form data-act="bank"><label for="bankCode">Bank</label><select id="bankCode" name="bankCode" required><option value="">Loading banks…</option></select>' +
       '<label for="accountNumber">Account number</label><input id="accountNumber" name="accountNumber" inputmode="numeric" maxlength="10" required placeholder="10 digits">' +
       '<div class="actions"><button type="submit" class="green">Save this account</button></div></form>';
+  } else if (p && !p.claimed && p.status !== 'claimed' && (p.status === 'ready' || p.status === 'failed')) {
+    form = '<form data-act="collect" data-code="' + esc(c.code || '') + '"><div class="actions"><button type="submit" class="green">Collect</button></div></form>';
   }
   return '<section class="card"><strong>Your payout</strong><p class="fine">' + esc(line) + '</p>' + bank + form + '</section>';
 }
@@ -281,14 +286,22 @@ function viewAdmin(data) {
       '</div></form></article>';
   }).join('');
   var payouts = (data.payouts || []).map(function (p) {
-    var bank = p.bank ? esc(p.bank.bankName) + ' ••••' + esc(p.bank.last4) : 'No bank yet';
+    var bank = p.bank ? esc(p.bank.bankName) + ' · ' + esc(p.bank.accountName || '') + ' · ••••' + esc(p.bank.last4) : 'No bank yet';
+    var settled = /^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status);
+    var status = p.status === 'claimed' ? 'claimed / awaiting house' : p.status;
+    var acts = '';
+    if (data.payoutMode === 'auto' && (p.status === 'ready' || p.status === 'failed')) {
+      acts += '<button type="button" data-act="send" data-id="' + esc(p.id) + '">Send</button>';
+    }
+    if (!settled && p.status !== 'sending' && p.status !== 'refund-pending') {
+      acts += '<button type="button" class="secondary" data-act="manual" data-id="' + esc(p.id) + '">Mark paid (manual)</button>';
+    }
     return '<article class="card"><strong>' + esc(p.kind) + ' · ' + naira(p.amountKobo) + '</strong>' +
-      '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || '') + ' · ' + esc(p.status) + '<br>' + bank + '</p>' +
-      '<div class="row" style="margin-top:8px"><button type="button" data-act="send" data-id="' + esc(p.id) + '">Send</button>' +
-      '<button type="button" class="secondary" data-act="manual" data-id="' + esc(p.id) + '">Mark paid by hand</button></div></article>';
+      '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || '') + ' · ' + esc(status) + '<br>' + bank + '</p>' +
+      (acts ? '<div class="row" style="margin-top:8px">' + acts + '</div>' : '') + '</article>';
   }).join('');
   return shell(
-    '<div class="desk-head"><strong>HOUSE DESK</strong><p>Payouts are ' + esc(data.payoutMode) + '. Sending a row twice does not pay twice.</p></div>' +
+    '<div class="desk-head"><strong>HOUSE DESK</strong><p>Payouts are ' + esc(data.payoutMode) + '. The player claims, then the desk marks paid by hand. A row is never paid twice.</p></div>' +
     '<h1 class="display">Disputes</h1><div class="list">' + (disputes || '<section class="card">No disputes. The pot is quiet.</section>') + '</div>' +
     '<h2 style="margin:18px 0 8px;font-family:Aeonik Pro,Figtree,sans-serif">Payouts</h2><div class="list">' + (payouts || '<section class="card">No payout rows.</section>') + '</div>' +
     '<div class="actions"><button type="button" class="ghost" data-act="lock">Lock the desk</button></div>'
@@ -464,6 +477,14 @@ document.addEventListener('submit', function (e) {
   if (act === 'bank') {
     api('/api/bank', { method: 'POST', body: data }).then(function (res) {
       flash(res.ok ? 'Account saved. Only the bank, the name, and the last four digits stay here.' : (res.message || 'Could not save that account.'));
+      load();
+    });
+    return;
+  }
+  if (act === 'collect') {
+    var code = form.getAttribute('data-code') || route().code;
+    api('/api/payouts/collect', { method: 'POST', body: { roomCode: code } }).then(function (res) {
+      flash(res.ok ? (res.message || 'Claimed — house sends it to your bank soon') : (res.message || 'Could not claim that prize.'));
       load();
     });
     return;

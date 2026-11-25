@@ -240,7 +240,7 @@ const payouts = createPayouts({
   paystack, payments
 });
 prizeLedger.setOnAdd((entry) => payouts.fromLedger(entry));
-console.log('Payouts run in ' + (process.env.KP_PAYOUT_MODE === 'auto' ? 'auto' : 'manual') + ' mode' + (process.env.KP_PAYOUT_MODE === 'auto' ? ': ready prizes and refunds send by themselves.' : ': the ops desk sends each prize and refund.'));
+console.log('Payouts run in ' + (process.env.KP_PAYOUT_MODE === 'auto' ? 'auto' : 'manual') + ' mode' + (process.env.KP_PAYOUT_MODE === 'auto' ? ': ready prizes and refunds send by themselves.' : ': the winner claims, then the ops desk marks paid by hand.'));
 const payProvider = paystack.enabled && (process.env.KP_PAYMENTS === 'paystack' || !TEST)
   ? createRedirectProvider()
   : TEST ? createTestProvider({ delayMs: 10 }) : createOffProvider();

@@ -5,15 +5,18 @@
 // lands here as one payout row, keyed so the same debt can only ever be
 // one row: a prize by its game, a refund by the Paystack reference it
 // goes back through. Rows move:
-//   prize:  awaiting-bank -> ready -> sending -> paid
+//   prize:  awaiting-bank -> ready -> claimed -> paid-manual
 //                          review (AFK-held winner, no account) -> ready
-//                          sending -> failed (safe to send again) | otp
+//                          (auto only) ready -> sending -> paid
+//                          (auto only) sending -> failed (safe to send again) | otp
 //   refund: ready -> sending -> refund-pending -> refunded | failed
 //   any open row -> paid-manual / refunded-manual (the desk paid by hand)
 //   test mode rows stay 'test': no real money exists behind them.
-// Money only moves from send(), which the desk calls (KP_PAYOUT_MODE
-// manual, the default) or the queue calls by itself once a row is ready
-// (KP_PAYOUT_MODE auto). A row flips to sending and is saved BEFORE the
+// In KP_PAYOUT_MODE=manual (the default), Collect never calls send() or
+// Paystack. It records the winner's claim and saved bank, and the row
+// sits in the desk queue as claimed until the house marks it paid by
+// hand. send() and automatic Paystack transfers run only when
+// KP_PAYOUT_MODE=auto. A row flips to sending and is saved BEFORE the
 // Paystack call, and each prize transfer carries a reference derived
 // from the row id, so a crash, a retry or a double tap can never pay a
 // prize twice: Paystack refuses a second transfer with the same
@@ -27,7 +30,7 @@ const crypto = require('crypto');
 const path = require('path');
 function nodeFs() { return require('fs'); }
 
-const OPEN = new Set(['awaiting-bank', 'ready', 'review', 'failed', 'otp']);
+const OPEN = new Set(['awaiting-bank', 'ready', 'claimed', 'review', 'failed', 'otp']);
 const DONE = new Set(['paid', 'paid-manual', 'refunded', 'refunded-manual']);
 
 // House-side Paystack blocks: the winner's Collect must not keep calling
@@ -35,6 +38,7 @@ const DONE = new Set(['paid', 'paid-manual', 'refunded', 'refunded-manual']);
 // row stays failed and keeps the real lastError.
 const HOUSE_HOLD_RE = /third party payouts as a starter business|cannot initiate (third party )?payouts?|transfers? (are )?(not |dis)?enabled|insufficient (balance|funds)/i;
 const HOUSE_HOLD_MESSAGE = 'Queued — house sends it soon';
+const CLAIMED_MESSAGE = 'Claimed — house sends it to your bank soon';
 function isHouseHoldError(err) {
   return !!(err && HOUSE_HOLD_RE.test(String(err)));
 }
@@ -174,7 +178,8 @@ function createPayouts(opts) {
       id: p.id, kind: p.kind, roomCode: p.roomCode, gameKey: p.gameKey || null,
       amount: p.amountKobo / 100, amountKobo: p.amountKobo,
       status: p.status, testMode: p.testMode, createdAt: p.createdAt, updatedAt: p.updatedAt, why: p.why,
-      houseHold: isHouseHold(p)
+      houseHold: auto ? isHouseHold(p) : false,
+      claimed: p.status === 'claimed'
     };
   }
   function mine(accountId) {
@@ -182,6 +187,7 @@ function createPayouts(opts) {
       ok: true,
       bank: maskBank(doc.banks[accountId]),
       payoutsReady: !!paystack.enabled,
+      payoutMode: auto ? 'auto' : 'manual',
       payouts: doc.payouts.filter((p) => p.accountId && p.accountId === accountId).map(publicRow).reverse()
     };
   }
@@ -328,8 +334,26 @@ function createPayouts(opts) {
   }
   function list() { return doc.payouts.slice(); }
   const collecting = new Set();
-  // The winner's own collect. One row, one transfer reference. A second
-  // tap while it is sending or already paid does not start another transfer.
+  // The winner's own collect. In manual mode this only records the
+  // claim and the saved bank; it never calls send() or Paystack. In
+  // auto mode it pays through send(), once per row. A second tap
+  // while it is claimed, sending, or already paid does not start
+  // another transfer.
+  function claim(p, accountId, already) {
+    const bank = maskBank(doc.banks[accountId]);
+    if (p.status !== 'claimed') {
+      p.claimedAt = Date.now();
+      p.claimedBank = bank;
+      p.lastError = null;
+      setStatus(p, 'claimed', { via: 'winner' });
+      save();
+      log('prize ' + p.id + ' claimed by winner; awaiting house.');
+    }
+    return {
+      ok: true, already: !!already, status: p.status, claimed: true,
+      payout: publicRow(p), message: CLAIMED_MESSAGE
+    };
+  }
   async function collect(accountId, body) {
     if (!accountId) return { ok: false, status: 401, error: 'auth', message: 'Sign in first.' };
     const roomCode = String((body && body.roomCode) || '').toUpperCase();
@@ -343,13 +367,15 @@ function createPayouts(opts) {
     }
     if (p.testMode || p.status === 'test') return { ok: false, status: 400, error: 'test', message: 'Test mode: no real money to send.' };
     if (p.status === 'review') return { ok: false, status: 409, error: 'review', message: 'The house is checking this game before paying.' };
-    if (isHouseHold(p)) {
+    if (p.status === 'claimed') return claim(p, accountId, true);
+    if (auto && isHouseHold(p)) {
       return { ok: true, already: true, status: p.status, houseHold: true, payout: publicRow(p), message: HOUSE_HOLD_MESSAGE };
     }
     if (!doc.banks[accountId] || p.status === 'awaiting-bank') {
       if (p.status !== 'awaiting-bank') { setStatus(p, 'awaiting-bank', { via: 'collect' }); save(); }
       return { ok: false, status: 409, error: 'bank', message: 'Add your bank, then collect again. The prize stays queued.' };
     }
+    if (!auto) return claim(p, accountId, false);
     if (collecting.has(p.id)) return { ok: true, already: true, status: 'sending', payout: publicRow(p), message: 'Already sending. It will not be sent twice.' };
     collecting.add(p.id);
     try {
@@ -380,4 +406,4 @@ function createPayouts(opts) {
   return { fromLedger, setBank, mine, collect, send, approve, markManual, onWebhook, sweep, view, list, openRows, hydrate, get, OPEN, DONE };
 }
 
-module.exports = { createPayouts, isHouseHoldError, HOUSE_HOLD_MESSAGE };
+module.exports = { createPayouts, isHouseHoldError, HOUSE_HOLD_MESSAGE, CLAIMED_MESSAGE };
