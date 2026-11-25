@@ -403,8 +403,24 @@
     </div>
   </section>
 
-  <div class="event-banner hidden" id="eventBanner"></div>
-  <div class="event-banner hidden" id="rematchBanner"></div>
+  <div class="daily-rail" id="dailyRail" aria-label="Today">
+    <button class="daily-card claim-card hidden" id="claimBtn" type="button">
+      <img src="/mascot/daddy-clap.webp?v=__KOLOPOLY_BUILD__" alt="" width="256" height="256" decoding="async">
+      <span class="daily-copy">
+        <span class="daily-kicker">TODAY</span>
+        <span class="daily-title">Claim your drop</span>
+      </span>
+    </button>
+    <button class="daily-card spin-card" id="spinBtn" type="button">
+      <img src="/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__" alt="" width="256" height="320" decoding="async">
+      <span class="daily-copy">
+        <span class="daily-kicker">TODAY</span>
+        <span class="daily-title">Big Daddy spin</span>
+      </span>
+    </button>
+    <div class="daily-card event-card hidden" id="eventBanner"></div>
+    <div class="daily-card payback-card hidden" id="rematchBanner"></div>
+  </div>
   <div class="market-drop" id="marketCard">
     <div class="shelf-head">
       <span class="shelf-kicker" id="marketTitle">Shelf</span>
@@ -413,8 +429,6 @@
     <div class="market-shelf" id="marketShelf" aria-live="polite"></div>
     <p class="shelf-tip" id="marketLine"></p>
     <p class="shelf-tip" id="marketLanded"></p>
-    <button class="btn block" type="button" id="claimBtn">Claim</button>
-    <button class="btn gold block mt8" type="button" id="spinBtn">Big Daddy spin</button>
     <button class="btn ghost block mt8 hidden" type="button" id="shelfClose">Close</button>
   </div>
 

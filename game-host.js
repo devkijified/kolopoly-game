@@ -1079,7 +1079,8 @@ function finishRent(room, player, owner, i, rent, printedRent, phaseMult, resume
   if (rent >= 100000 && retention && retention.noteRivalry) {
     retention.noteRivalry({
       payer: shelfIdOf(player), owner: shelfIdOf(owner),
-      payerName: player.name, ownerName: owner.name, amount: rent
+      payerName: player.name, ownerName: owner.name, amount: rent,
+      ownerToken: owner.token || ''
     });
     room.payback = { fromId: player.id, toId: owner.id, toName: owner.name, amount: rent, at: now() };
   }
@@ -1657,9 +1658,11 @@ function endGame(room, winner, why) {
     const winShelf = shelfOfId(room, win.playerId);
     for (const row of room.endTable.slice(1)) {
       if (row.bot || win.bot) continue;
+      const winPlayer = room.players.find((pl) => pl.id === win.playerId);
       retention.noteMatch({
         winner: winShelf, loser: shelfOfId(room, row.playerId),
-        winnerName: win.name, loserName: row.name
+        winnerName: win.name, loserName: row.name,
+        winnerToken: winPlayer && winPlayer.token || ''
       });
     }
   }

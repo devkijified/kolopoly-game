@@ -106,7 +106,7 @@
       btn.disabled = false;
       btn.classList.remove('hidden');
       btn.classList.add('claim-live');
-      btn.textContent = 'Claim';
+      setDailyTitle(btn, 'Claim your drop');
       setLine('');
     } else {
       btn.classList.remove('claim-live');
@@ -126,8 +126,9 @@
   }
 
   // The landing carries ONE compact shelf strip fed by the v2 view:
-  // kolo pieces, streak, a held ticket, postcards. The full shelf
-  // (v1 goods, claims, whispers) opens unchanged from the strip.
+  // kolo pieces, streak, and a held ticket. The old "Postcards 0/12"
+  // cell was the board-card album, not the sticker book, so it left
+  // the strip. The sticker album lives on the cash sheet.
   let v2view = null;
   let lastView = null;
   async function refreshV2() {
@@ -149,12 +150,10 @@
     if (!v2view || (card && card.classList.contains('market-open'))) { strip.classList.add('hidden'); return; }
     const kolo = v2view.kolo || { pieces: 0, piecesNeeded: 7, ticket: null };
     const streak = v2view.streak || { week: 0 };
-    const album = v2view.album || { owned: 0, size: 12 };
     let cells =
       '<span class="strip-cell"><span class="strip-k">Kolo</span><span class="strip-v">' + (kolo.pieces || 0) + '/' + (kolo.piecesNeeded || 7) + '</span></span>' +
       '<span class="strip-cell"><span class="strip-k">Streak</span><span class="strip-v">' + (streak.week || 0) + 'd</span></span>';
     if (kolo.ticket) cells += '<span class="strip-cell"><span class="strip-k">Ticket</span><span class="strip-v">Lagos ₦200</span></span>';
-    cells += '<span class="strip-cell"><span class="strip-k">Postcards</span><span class="strip-v">' + (album.owned || 0) + '/' + (album.size || 12) + '</span></span>';
     if (lastView && lastView.canClaim) cells += '<span class="strip-claim">Claim</span>';
     strip.innerHTML = cells;
     strip.classList.remove('hidden');
@@ -481,7 +480,11 @@
     // card is showing (the welcome card for a remembered player, the
     // join card otherwise), above the token rail.
     const home = !welcome.classList.contains('hidden') ? welcome : join;
-    if (home.parentNode) home.parentNode.insertBefore(market, home.nextSibling);
+    const rail = $('dailyRail');
+    if (home.parentNode) {
+      if (rail) home.parentNode.insertBefore(rail, home.nextSibling);
+      home.parentNode.insertBefore(market, rail ? rail.nextSibling : home.nextSibling);
+    }
     paintStrip();
   }
 
@@ -787,17 +790,42 @@
   else detectAndroidInstall();
   paintInstallButton();
 
+  function setDailyTitle(btn, text) {
+    if (!btn) return;
+    const title = btn.querySelector('.daily-title');
+    if (title) title.textContent = text;
+    else btn.textContent = text;
+  }
+  function daysLeft(ends) {
+    const end = Date.parse(String(ends || '') + 'T23:59:59Z');
+    if (!end) return '';
+    const days = Math.max(0, Math.ceil((end - Date.now()) / 86400000));
+    if (days <= 1) return '1 day left';
+    return days + ' days left';
+  }
   function paintEvent(view) {
     const el = $('eventBanner');
     if (!el) return;
     const ev = view && view.event;
     if (!ev) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     el.classList.remove('hidden');
-    el.innerHTML = '<p class="event-kicker">THIS WEEK</p><h3>' + ev.name + '</h3><p>' + ev.blurb + '</p>' +
-      '<p class="caption">Ends ' + ev.ends + '</p>' +
-      '<button type="button" class="btn gold block" id="eventClaim">Collect ' + ev.sticker.name + '</button>';
+    const art = '/events/' + encodeURIComponent(ev.id) + '.webp?v=__KOLOPOLY_BUILD__';
+    const left = daysLeft(ev.ends);
+    el.innerHTML =
+      '<img class="event-art" alt="" width="960" height="540" decoding="async" src="' + art + '">' +
+      '<div class="event-copy">' +
+        '<span class="count-chip">' + left + '</span>' +
+        '<h3>' + ev.name + '</h3>' +
+        '<p>' + ev.blurb + '</p>' +
+      '</div>' +
+      '<div class="event-sticker" title="' + ev.sticker.name + '">' +
+        '<img alt="" width="960" height="540" decoding="async" src="' + art + '">' +
+        '<span>' + ev.sticker.name + '</span>' +
+      '</div>' +
+      '<button type="button" class="btn gold" id="eventClaim">Collect</button>';
     const b = $('eventClaim');
-    if (b) b.addEventListener('click', async () => {
+    if (b) b.addEventListener('click', async (evClick) => {
+      evClick.stopPropagation();
       let out = null;
       try { out = await post('/api/events/claim', {}); } catch (e) { out = null; }
       setLine(out && out.ok ? (ev.sticker.name + ' don enter your album.') : ((out && out.message) || 'That sticker no land.'));
@@ -810,66 +838,154 @@
     const row = view && view.rematch;
     if (!row) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     el.classList.remove('hidden');
-    el.innerHTML = '<p class="event-kicker">BIG DADDY</p><h3>Pay them back</h3><p>' + (row.name || 'Your person') + ' collect from you. Challenge am again.</p>';
+    const rawName = row.name || 'Your person';
+    const name = String(rawName).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const letter = rawName.trim().charAt(0).toUpperCase() || '?';
+    const token = (row.token && window.tokenArt) ? window.tokenArt(row.token, 48) : ('<span class="payback-letter">' + letter + '</span>');
+    const wins = row.wins || 0;
+    const losses = row.losses || 0;
+    el.innerHTML =
+      '<img class="payback-daddy" alt="" width="256" height="320" decoding="async" src="/mascot/daddy-money.webp?v=__KOLOPOLY_BUILD__">' +
+      '<div class="payback-body">' +
+        '<p class="event-kicker">PAY THEM BACK</p>' +
+        '<div class="payback-who"><span class="payback-token">' + token + '</span><strong>' + name + '</strong></div>' +
+        '<p class="payback-score"><span>' + wins + '</span><em>you</em><span>' + losses + '</span><em>them</em></p>' +
+        '<button type="button" class="btn gold" id="rematchGo">Rematch</button>' +
+      '</div>';
+    const go = $('rematchGo');
+    if (go) go.addEventListener('click', () => {
+      const welcome = $('welcomeCard');
+      const quick = welcome && !welcome.classList.contains('hidden') ? $('welcomeQuick') : $('quickBtn');
+      if (quick) quick.click();
+    });
   }
   function paintSpin(view) {
     const b = $('spinBtn');
     if (!b) return;
     const ready = !!(view && view.spin && view.spin.canSpin);
     b.disabled = !ready;
-    b.textContent = ready ? 'Big Daddy spin' : 'Spin don finish today';
+    setDailyTitle(b, ready ? 'Big Daddy spin' : 'Spin don finish today');
   }
-  async function openSpin() {
-    const b = $('spinBtn');
-    if (b) b.disabled = true;
-    let out = null;
-    try { out = await post('/api/rewards/spin', {}); } catch (e) { out = null; }
-    if (!out || !out.segments) {
-      if (b) b.disabled = false;
-      setLine('The wheel no answer. Try again.');
-      return;
-    }
-    if (!out.ok) {
-      paintSpin({ spin: out.spin });
-      setLine('You don spin today. The next one opens at dawn.');
-      return;
-    }
-    let stage = $('spinStage');
-    if (!stage) {
-      stage = document.createElement('div');
-      stage.id = 'spinStage';
-      stage.className = 'spin-scrim';
-      document.body.appendChild(stage);
-    }
-    const segs = out.segments;
+  const SPIN_ART = {
+    pack: '/mascot/daddy-clap.webp?v=__KOLOPOLY_BUILD__',
+    card: '/cards/double.webp?v=__KOLOPOLY_BUILD__',
+    sticker: '/stickers/eko-atlantic.webp?v=__KOLOPOLY_BUILD__',
+    look: '/mascot/daddy-deed.webp?v=__KOLOPOLY_BUILD__',
+    wink: '/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__'
+  };
+  function wheelFace(segs) {
     const colors = ['#9c2b3a', '#1f7a45', '#e8a317', '#2f6f8f', '#c4552a'];
-    const slice = 360 / segs.length;
+    const slice = 360 / Math.max(1, segs.length);
     const stops = segs.map((s, i) => colors[i % colors.length] + ' ' + (i * slice) + 'deg ' + ((i + 1) * slice) + 'deg').join(', ');
-    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const turns = reduce ? 0 : 4;
-    const landing = turns * 360 + (360 - (out.index * slice) - slice / 2);
-    stage.innerHTML = '<div class="spin-card"><p class="pack-kicker">BIG DADDY</p><h2>Spin am</h2>' +
-      '<div class="spin-pointer" aria-hidden="true"></div>' +
-      '<div class="spin-wheel" id="spinWheel" style="background:conic-gradient(' + stops + ');transform:rotate(0deg)"></div>' +
-      '<p class="spin-result" id="spinResult">The wheel dey turn…</p>' +
+    const icons = segs.map((s, i) => {
+      const ang = ((i + 0.5) * slice - 90) * Math.PI / 180;
+      const x = 50 + Math.cos(ang) * 33;
+      const y = 50 + Math.sin(ang) * 33;
+      const src = SPIN_ART[s.id] || SPIN_ART.pack;
+      return '<img class="wheel-prize" alt="" style="left:' + x.toFixed(1) + '%;top:' + y.toFixed(1) + '%" src="' + src + '">';
+    }).join('');
+    return '<div class="spin-wheel" id="spinWheel" style="background:conic-gradient(' + stops + ')">' + icons + '</div>';
+  }
+  function spinMarkup(segs) {
+    const face = wheelFace(segs);
+    let bulbs = '';
+    for (let i = 0; i < 12; i++) bulbs += '<i style="transform:rotate(' + (i * 30) + 'deg) translateY(-104px)"></i>';
+    return '<div class="spin-card"><p class="pack-kicker">BIG DADDY</p><h2>Spin am</h2>' +
+      '<div class="wheel-row">' +
+        '<img class="wheel-daddy" alt="" width="256" height="320" decoding="async" src="/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__">' +
+        '<div class="rim">' +
+          '<div class="bulbs" aria-hidden="true">' + bulbs + '</div>' +
+          '<div class="spin-pointer" aria-hidden="true"></div>' +
+          face +
+          '<button type="button" class="spin-hub" id="spinGo">SPIN</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="spin-result" id="spinResult"><p>One spin. The wheel go decide.</p></div>' +
       '<button type="button" class="btn ghost block" id="spinClose">Close</button></div>';
+  }
+  function burstConfetti(stage) {
+    const box = document.createElement('div');
+    box.className = 'confetti';
+    const colors = ['#ffc857', '#f4ecdc', '#e23d3d', '#3ecf8e', '#7eb6ff'];
+    for (let i = 0; i < 18; i++) {
+      const bit = document.createElement('i');
+      bit.style.left = (8 + Math.random() * 84) + '%';
+      bit.style.background = colors[i % colors.length];
+      bit.style.animationDelay = (Math.random() * 0.25) + 's';
+      box.appendChild(bit);
+    }
+    stage.appendChild(box);
+    setTimeout(() => { if (box.parentNode) box.remove(); }, 1600);
+  }
+  function tickWheel() {
+    const gaps = [70, 85, 100, 120, 150, 190, 240, 310, 400, 520, 680];
+    let at = 80;
+    gaps.forEach((gap) => {
+      at += gap;
+      setTimeout(() => { if (window.KPPreviewSfx) window.KPPreviewSfx('auctionTick'); }, at);
+    });
+  }
+  function openSpin() {
+    let stage = $('spinStage');
+    if (stage) stage.remove();
+    stage = document.createElement('div');
+    stage.id = 'spinStage';
+    stage.className = 'spin-scrim';
+    const preview = [
+      { id: 'pack', label: 'A fresh pack' },
+      { id: 'card', label: 'A power card' },
+      { id: 'sticker', label: 'A rare sticker' },
+      { id: 'look', label: 'A new look' },
+      { id: 'wink', label: 'Big Daddy wink' }
+    ];
+    stage.innerHTML = spinMarkup(preview);
+    document.body.appendChild(stage);
     stage.querySelector('#spinClose').addEventListener('click', () => stage.remove());
-    const wheel = stage.querySelector('#spinWheel');
-    const labels = '<div class="spin-labels">' + segs.map((s) => '<span>' + s.label + '</span>').join('') + '</div>';
-    wheel.insertAdjacentHTML('afterend', labels);
-    if (window.KPPreviewSfx) window.KPPreviewSfx('auctionTick');
-    requestAnimationFrame(() => { wheel.style.transform = 'rotate(' + landing + 'deg)'; });
-    const finish = () => {
-      const prize = out.prize || {};
-      const result = stage.querySelector('#spinResult');
-      if (result) result.textContent = prize.line || prize.label || 'Something don land.';
-      if (out.rewards && window.KPRewards) window.KPRewards.paintShelf(out.rewards);
-      paintSpin({ spin: out.spin });
-      if (window.KPBigDaddy) window.KPBigDaddy.show('drop', { force: true, line: prize.line || 'Spin don land!' });
-      if (window.KPPreviewSfx) window.KPPreviewSfx('cheer');
-    };
-    if (reduce) finish();
-    else setTimeout(finish, 2500);
+    const go = stage.querySelector('#spinGo');
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      let out = null;
+      try { out = await post('/api/rewards/spin', {}); } catch (e) { out = null; }
+      if (!out || !out.segments) {
+        go.disabled = false;
+        const result = stage.querySelector('#spinResult');
+        if (result) result.innerHTML = '<p>The wheel no answer. Try again.</p>';
+        return;
+      }
+      if (!out.ok) {
+        paintSpin({ spin: out.spin });
+        const result = stage.querySelector('#spinResult');
+        if (result) result.innerHTML = '<p>You don spin today. The next one opens at dawn.</p>';
+        return;
+      }
+      const segs = out.segments;
+      const slice = 360 / segs.length;
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const turns = reduce ? 0 : 5;
+      const landing = turns * 360 + (360 - (out.index * slice) - slice / 2);
+      const wheel = stage.querySelector('#spinWheel');
+      wheel.outerHTML = wheelFace(segs);
+      const live = stage.querySelector('#spinWheel');
+      const finish = () => {
+        const prize = out.prize || {};
+        const src = SPIN_ART[prize.id] || SPIN_ART.pack;
+        const result = stage.querySelector('#spinResult');
+        if (result) {
+          result.innerHTML = '<article class="prize-card"><img alt="" src="' + src + '"><h3>' +
+            (prize.label || 'Something don land') + '</h3><p>' + (prize.line || '') + '</p></article>';
+        }
+        go.textContent = 'Nice';
+        burstConfetti(stage);
+        if (out.rewards && window.KPRewards) window.KPRewards.paintShelf(out.rewards);
+        paintSpin({ spin: out.spin });
+        if (window.KPBigDaddy) window.KPBigDaddy.show('drop', { force: true, line: prize.line || 'Spin don land!' });
+        if (window.KPPreviewSfx) window.KPPreviewSfx('cheer');
+      };
+      if (reduce) { finish(); return; }
+      tickWheel();
+      requestAnimationFrame(() => { live.style.transform = 'rotate(' + landing + 'deg)'; });
+      setTimeout(finish, 3400);
+    });
   }
   const spinBtn = $('spinBtn');
   if (spinBtn) spinBtn.addEventListener('click', () => openSpin());
@@ -901,6 +1017,7 @@
       const go = $('endInstallGo');
       if (go) go.addEventListener('click', () => showInstallSheet('end'));
     },
-    refresh
+    refresh,
+    paintRematch
   };
 })();
