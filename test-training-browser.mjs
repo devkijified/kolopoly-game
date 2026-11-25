@@ -39,6 +39,8 @@ async function boot(page) {
   await page.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'domcontentloaded' });
+  const skipLearn = page.locator('#trainOfferNo');
+  if (await skipLearn.count() && await skipLearn.isVisible()) await skipLearn.click();
   await page.evaluate(() => {
     window.__sheetOpened = false;
     document.addEventListener('click', () => {
@@ -72,13 +74,18 @@ async function act(page, id) {
     }, sel, { timeout: 6000 });
     await page.click(sel);
   };
-  if (id === 'cash') return clickLive('#hudCashBtn');
+  if (id === 'cash' || id === 'bought' || id === 'adacheer' || id === 'paidcheer' || id === 'salarycheer') return clickLive('#hudCashBtn');
   if (id === 'roll' || id === 'payroll' || id === 'cardroll' || id === 'jailroll' || id === 'walk1' || id === 'salary') return clickLive('#abRoll');
   if (id === 'buy') return clickLive('#abBuy');
   if (id === 'endturn') return clickLive('#abEnd');
   if (id === 'jail') return clickLive('#abJailPay');
   if (id === 'build') return clickLive('[data-act="build-duplex"]');
   if (id === 'deals') return clickLive('#hudDeals');
+  if (id === 'walked' || id === 'buildtalk' || id === 'built') {
+    await page.waitForFunction(() => document.querySelector('.bspace[data-space="4"]').classList.contains('coach-live'));
+    await page.evaluate(() => document.querySelector('.bspace[data-space="4"]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    return;
+  }
   await page.click('#coachPop [data-act="next"]');
 }
 

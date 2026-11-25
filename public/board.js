@@ -471,7 +471,8 @@ const KPBoard = {
         inner.classList.add('hop');
       }
       beat2d('hop', { playerId: p.id });
-      if (cur !== to) setTimeout(step, 230);
+      const hop = state.practice && state.practice.kind === 'intro' ? 70 : 230;
+      if (cur !== to) setTimeout(step, hop);
       else { this.animating = false; beat2d('land', { playerId: p.id, space: to }); if (this.lastState) this.renderTokens(this.lastState); }
     };
     setTimeout(step, 60);

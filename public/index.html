@@ -291,6 +291,9 @@
         </button>
       </div>
       <button class="btn play-go block" id="welcomeQuick">Quick play</button>
+      <button class="train-sticker" id="welcomeHowBtn" type="button">
+        <span><b>How to play</b><small>Nine short cards. Swipe through.</small></span>
+      </button>
       <button class="train-sticker" id="welcomeTrainBtn" type="button">
         <img src="/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__" alt="" width="48" height="64">
         <span><b>Training Ground</b><small>Learn the table. No money.</small></span>
@@ -334,6 +337,9 @@
 
     <div class="play-actions">
       <button class="btn play-go block" id="quickBtn">Quick play</button>
+      <button class="train-sticker" id="howBtn" type="button">
+        <span><b>How to play</b><small>Nine short cards. Swipe through.</small></span>
+      </button>
       <button class="train-sticker" id="trainBtn" type="button">
         <img src="/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__" alt="" width="48" height="64">
         <span><b>Training Ground</b><small>Learn the table. No money.</small></span>
@@ -407,6 +413,7 @@
         <div class="toggle-row"><div class="grow"><div class="t">Nepo / Lapo Chaos seats</div><div class="caption">Off by default, never for quick play. One seat starts rich with a free deed, one seat starts poor with first rent forgiven.</div></div><label class="switch"><input type="checkbox" id="optChaos"><span class="track"></span></label></div>
         <div class="toggle-row"><div class="grow"><div class="t">Voice alert for payments received</div><div class="caption">On by default. When money land for a player, their phone announces am out loud: Payment received, plus the exact amount. Every player fit switch voice off for their own phone.</div></div><label class="switch"><input type="checkbox" id="optVoice" checked><span class="track"></span></label></div>
         <div class="toggle-row"><div class="grow"><div class="t">Big Daddy pop-ups</div><div class="caption">On by default. Big Daddy slides in for a big rent, the pot, Kirikiri, a new salary. He never blocks your turn. This phone only.</div></div><label class="switch"><input type="checkbox" id="optBigDaddy" checked><span class="track"></span></label></div>
+        <div class="toggle-row"><div class="grow"><div class="t">First-time tips</div><div class="caption">On by default. A one-line tip the first time you roll, buy, pay rent, draw a card, visit Kirikiri, complete a colour, or run low on cash. It never blocks your turn.</div></div><label class="switch"><input type="checkbox" id="optLearnTips" checked><span class="track"></span></label></div>
         <label for="optTimer">Turn decision timer</label>
         <select class="textin" id="optTimer">
           <option value="60" selected>60 seconds (default)</option>
@@ -497,6 +504,9 @@
       <button class="btn block" id="startBtn">Start game</button>
       <p class="caption center mt8" id="lobbyHint"></p>
     </div>
+    <button class="train-sticker" id="lobbyHowBtn" type="button">
+      <span><b>How to play</b><small>Nine short cards. Swipe through.</small></span>
+    </button>
     <button class="train-sticker" id="lobbyTrainBtn" type="button">
       <img src="/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__" alt="" width="48" height="64">
       <span><b>Training Ground</b><small>Replay the lesson, or practice free.</small></span>
@@ -526,6 +536,7 @@
         <button type="button" class="hud-ico" id="hudPlayers" aria-label="Players at the table"></button>
         <button type="button" class="hud-cash" id="hudCashBtn" aria-label="Your cash"><span id="hudCashAmt">₦0</span></button>
         <button type="button" class="hud-ico" id="hudDeals" aria-label="Deals"></button>
+        <button type="button" class="hud-ico" id="hudHelp" aria-label="How to play">?</button>
         <button type="button" class="hud-ico" id="viewToggle" aria-label="Show my token on the board" aria-pressed="false"></button>
       </div>
       <div class="msgbar"><span class="msg-cue" id="msgCue" style="display:none"></span><span id="msgText">Welcome to Kolopoly.</span></div>
@@ -611,6 +622,7 @@
 </section>
 <script src="/big-daddy.js?v=__KOLOPOLY_BUILD__"></script>
 <script src="/tutorial.js?v=__KOLOPOLY_BUILD__"></script>
+<script src="/learn.js?v=__KOLOPOLY_BUILD__"></script>
 <script src="/rewards-ui.js?v=__KOLOPOLY_BUILD__"></script>
 <script src="/retention.js?v=__KOLOPOLY_BUILD__"></script>
 <script src="/update.js?v=__KOLOPOLY_BUILD__"></script>

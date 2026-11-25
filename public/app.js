@@ -1542,6 +1542,7 @@ async function verifyGateCode() {
   fetch('/api/competition').then((r) => r.json()).then(async (data) => {
     if (!data || !data.signInRequired) return;
     gateRequired = true;
+    if (window.__learnHolding) return;
     if (!authToken()) { showSigninScene(); return; }
     try {
       const res = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + authToken() } });
@@ -2925,15 +2926,15 @@ function lessonArm(step) {
       lessonSpot(el, lessonMisses >= 2);
       return;
     }
-    if (performance.now() - started > 1500) {
+    if (performance.now() - started > 480) {
       send('practice_recover', {});
-      lessonWait = window.setTimeout(() => lessonArm(state.practice), 1500);
+      lessonWait = window.setTimeout(() => { if (state && state.practice) lessonArm(state.practice); }, 480);
       return;
     }
-    lessonWait = window.setTimeout(hunt, 120);
+    lessonWait = window.setTimeout(hunt, 60);
   };
   if (lessonWait) window.clearTimeout(lessonWait);
-  lessonWait = window.setTimeout(hunt, 0);
+  hunt();
 }
 function tokenBox(name) {
   if (!state) return null;
@@ -3008,9 +3009,19 @@ function renderCoach(room) {
     document.body.appendChild(finger);
     ['daddy-stand', 'daddy-clap'].forEach((name) => { const img = new Image(); img.src = '/mascot/' + name + '.webp'; });
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => { if (state && state.practice) lessonSpot(lessonTarget(state.practice), lessonMisses >= 2); });
-      window.visualViewport.addEventListener('scroll', () => { if (state && state.practice) lessonSpot(lessonTarget(state.practice), lessonMisses >= 2); });
+      const spotAgain = () => { if (state && state.practice) lessonArm(state.practice); };
+      window.visualViewport.addEventListener('resize', spotAgain);
+      window.visualViewport.addEventListener('scroll', spotAgain);
     }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && state && state.practice) lessonArm(state.practice);
+    });
+    window.addEventListener('orientationchange', () => {
+      if (state && state.practice) window.setTimeout(() => lessonArm(state.practice), 40);
+    });
+    window.addEventListener('pageshow', () => {
+      if (state && state.practice) lessonArm(state.practice);
+    });
   }
   if (!pop) {
     pop = document.createElement('div');
@@ -3025,14 +3036,15 @@ function renderCoach(room) {
       if (b.dataset.act === 'skip') send('practice_skip', {});
       if (b.dataset.act === 'back') send('practice_ack', { what: 'back' });
       if (b.dataset.act === 'replay') send('practice_ack', { what: 'replay' });
-      if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); location.reload(); }
-      if (b.dataset.act === 'free') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
+      if (b.dataset.act === 'real') { markTraining({ seen: true, done: true }); window.KPStartPractice('free'); }
     });
   }
   if (!room || !room.practice) {
     pop.hidden = true;
     gate.hidden = true;
     document.body.classList.remove('train-gate', 'train-done');
+    const barGone = document.getElementById('learnBar');
+    if (barGone) barGone.hidden = true;
     return;
   }
   const step = room.practice;
@@ -3041,8 +3053,17 @@ function renderCoach(room) {
   gate.hidden = !locked;
   document.body.classList.toggle('train-gate', locked);
   pop.hidden = false;
-  const prog = pop.querySelector('.coach-progress');
-  if (prog) prog.textContent = (step.n || 1) + ' / ' + (step.of || 12);
+  let bar = document.getElementById('learnBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'learnBar';
+    bar.innerHTML = '<i></i>';
+    document.body.appendChild(bar);
+  }
+  const frac = step.of ? Math.max(0, Math.min(1, (step.n || 1) / step.of)) : 0;
+  bar.hidden = step.kind === 'free';
+  const fill = bar.querySelector('i');
+  if (fill) fill.style.width = Math.round(frac * 100) + '%';
   pop.querySelector('.coach-daddy').src = '/mascot/' + (step.step === 'ready' || step.step === 'adacheer' || step.step === 'built' ? 'daddy-clap' : 'daddy-stand') + '.webp';
   pop.querySelector('.coach-title').textContent = step.title || '';
   pop.querySelector('.coach-line').textContent = step.line || '';
@@ -3062,13 +3083,13 @@ function renderCoach(room) {
   pop.style.bottom = parkTop ? 'auto' : '16px';
   document.body.classList.toggle('train-done', step.step === 'ready');
   if (step.step === 'ready') {
-    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn small" data-act="real">Play a real game</button><button type="button" class="btn small ghost" data-act="free">Free practice</button>';
+    actions.innerHTML = '<div class="train-badge">TRAINED</div><button type="button" class="btn block" data-act="real">Play your first real game</button>';
     lessonSpot(null, false);
   } else if (step.kind === 'free') {
     actions.innerHTML = '<button type="button" class="btn small ghost" data-act="skip">Leave</button>';
   } else {
-    const hear = step.action === 'tap' && step.step !== 'cash';
-    actions.innerHTML = (hear ? '<button type="button" class="btn small" data-act="next">I hear you</button>' : '') +
+    const hear = step.action === 'tap' && !step.target;
+    actions.innerHTML = (hear ? '<button type="button" class="btn small" data-act="next">Next</button>' : '') +
       '<button type="button" class="btn small ghost" data-act="back">Back</button>' +
       '<button type="button" class="btn small ghost" data-act="replay">Replay</button>' +
       '<button type="button" class="btn small ghost" data-act="skip">Skip</button>';
@@ -3095,8 +3116,9 @@ document.addEventListener('click', (ev) => {
 }, true);
 document.addEventListener('click', (ev) => {
   if (!state || !state.practice) return;
-  if (ev.target.closest('#hudCashBtn') && state.practice.action === 'tap' && state.practice.target === '#hudCashBtn') send('practice_ack', { what: 'next' });
-  if (ev.target.closest('#hudDeals') && state.practice.step === 'deals') send('practice_ack', { what: 'deals' });
+  const step = state.practice;
+  if (step.action === 'tap' && step.target && ev.target.closest(step.target)) send('practice_ack', { what: 'next' });
+  if (ev.target.closest('#hudDeals') && step.step === 'deals') send('practice_ack', { what: 'deals' });
 }, false);
 
 window.KPStartPractice = function (kind) {
@@ -3194,6 +3216,38 @@ window.KPOpenTraining = function () {
   if (free) free.addEventListener('click', () => window.KPStartPractice('free'));
   sheet.querySelector('#trainClose').addEventListener('click', () => { sheet.hidden = true; });
 };
+function paintLearnOffer(offer, onSkip) {
+  offer.hidden = false;
+  offer.innerHTML = '<div class="train-card learn-offer"><p class="coach-kicker">First time?</p><h3>Learn the table</h3>' +
+    '<p>Big Daddy walks you through one short game. No sign-in. No money.</p>' +
+    '<button type="button" class="btn block learn-go" id="trainOfferYes">Learn in 2 minutes</button>' +
+    '<button type="button" class="learn-skip" id="trainOfferNo">I know how to play</button></div>';
+  offer.querySelector('#trainOfferYes').addEventListener('click', () => {
+    offer.hidden = true;
+    window.__learnHolding = true;
+    markTraining({ seen: true });
+    window.KPStartPractice('intro');
+  });
+  offer.querySelector('#trainOfferNo').addEventListener('click', () => {
+    offer.hidden = true;
+    window.__learnHolding = false;
+    markTraining({ seen: true });
+    if (onSkip) onSkip();
+    if (gateRequired && !authToken()) showSigninScene();
+  });
+}
+function showLearnOffer() {
+  const rec = trainingRecord();
+  if (rec.seen || rec.done || loadSeat()) return;
+  window.__learnHolding = true;
+  let offer = document.getElementById('trainOffer');
+  if (!offer) {
+    offer = document.createElement('div');
+    offer.id = 'trainOffer';
+    document.body.appendChild(offer);
+  }
+  paintLearnOffer(offer);
+}
 function gateTraining(run) {
   const rec = trainingRecord();
   if (rec.seen || rec.done) { run(); return; }
@@ -3203,14 +3257,11 @@ function gateTraining(run) {
     offer.id = 'trainOffer';
     document.body.appendChild(offer);
   }
-  offer.hidden = false;
-  offer.innerHTML = '<div class="train-card"><p class="coach-kicker">First time?</p><h3>Every game get a Training Ground</h3>' +
-    '<p>Big Daddy go show you the board before you play for real. You fit skip.</p>' +
-    '<button type="button" class="btn block" id="trainOfferYes">Enter Training Ground</button>' +
-    '<button type="button" class="btn block ghost" id="trainOfferNo">I go play</button></div>';
-  offer.querySelector('#trainOfferYes').addEventListener('click', () => { offer.hidden = true; markTraining({ seen: true }); window.KPStartPractice('intro'); });
-  offer.querySelector('#trainOfferNo').addEventListener('click', () => { offer.hidden = true; markTraining({ seen: true }); run(); });
+  window.__learnHolding = true;
+  paintLearnOffer(offer, run);
 }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showLearnOffer);
+else showLearnOffer();
 window.__kolopolyShowCard = showCardModal;
 
 // KP13 WS4: per-seat banner copy. The server sends a key + actor +
@@ -3313,6 +3364,7 @@ function renderGame(room) {
   renderTactical(room);
   renderPause(room);
   renderCoach(room);
+  if (window.KPLearn) window.KPLearn.onRoom(room, myId);
   maybeShowModals(room);
   // Pass and play banner on turn change
   if (room.mode === 'pass' && prevTurnPlayer !== null && prevTurnPlayer !== room.turnPlayerId && room.status === 'playing') {
@@ -3410,7 +3462,8 @@ function renderActionBar(room) {
   } else if (room.turnPlayerId !== me.id && room.mode !== 'pass') {
     // Lesson 5: management stays open. The hint lives in the players sheet,
     // not as a second paragraph under the board.
-    html = '';
+    const who = turn ? turn.name : 'them';
+    html = '<p class="wait-hint">Wait for ' + esc(who) + '\'s turn</p>';
   } else {
     // My action (online: me; pass: the turn player, acting through this phone)
     const actor = room.mode === 'pass' ? turn : me;
