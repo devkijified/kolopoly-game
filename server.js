@@ -676,6 +676,17 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, payouts.mine(acct.accountId));
     return;
   }
+  if (cleanUrl === '/api/payouts/collect' && req.method === 'POST') {
+    (async () => {
+      const acct = auth.verifyToken(bearerOf(req));
+      if (!acct) { sendJson(res, 401, { ok: false, error: 'auth', message: SIGNIN_HTTP_MESSAGE }); return; }
+      let body;
+      try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, error: 'body', message: 'That request no clear. Try again.' }); return; }
+      const out = await payouts.collect(acct.accountId, body || {});
+      sendJson(res, out.ok ? 200 : (out.status || 400), out);
+    })().catch(() => { if (!res.headersSent) sendJson(res, 500, { ok: false, error: 'collect', message: 'The house could not send it. Try again.' }); });
+    return;
+  }
   // The Paystack webhook. The signature is checked over the raw body
   // before anything is parsed; unsigned or wrongly signed deliveries
   // are refused and settle nothing. Duplicates are safe: the funnel

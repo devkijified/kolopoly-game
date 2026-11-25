@@ -1806,6 +1806,42 @@ function paintWalletNote() {
   const end = $('endWalletNote');
   if (end) end.textContent = line;
 }
+let collectBusy = false;
+async function collectPrize(room, btn) {
+  if (!btn || collectBusy) return;
+  collectBusy = true;
+  btn.disabled = true;
+  const note = $('endWalletNote');
+  btn.textContent = 'Sending…';
+  const finish = (label, message, reopenBank) => {
+    btn.textContent = label;
+    btn.disabled = false;
+    collectBusy = false;
+    if (note && message) note.textContent = message;
+    if (reopenBank) openWinnings(true);
+    kickWallet();
+  };
+  if (!authToken()) {
+    finish('Sign in to collect', 'Sign in with your email, add your bank, then collect. The prize stays queued.');
+    openWinnings(false);
+    return;
+  }
+  try {
+    const res = await fetch('/api/payouts/collect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken() },
+      body: JSON.stringify({ roomCode: room.code || '', gameKey: (room.prize && room.prize.gameKey) || room.paidGameKey || '' })
+    });
+    const data = await res.json().catch(() => null);
+    if (!data) { finish('Try again', 'The house did not answer. Your prize is still queued.'); return; }
+    if (data.error === 'bank') { finish('Add your bank', data.message || 'Add your bank, then collect again.'); return; }
+    if (data.ok && (data.status === 'paid' || data.status === 'paid-manual')) { finish(data.already ? 'Already paid' : 'Paid to your bank', data.message || 'Paid to your bank.'); return; }
+    if (data.ok) { finish(data.already ? 'Already on the way' : 'On the way', data.message || 'On the way to your bank. It will not be sent twice.'); return; }
+    finish('Collect failed', data.message || 'The house could not send it. Try again.');
+  } catch (e) {
+    finish('Try again', 'The house did not answer. Your prize is still queued.');
+  }
+}
 function kickWallet() {
   if (!authToken()) { paintWalletNote(); return; }
   if (Date.now() - walletAskedAt < 12000 && walletSummary) { paintWalletNote(); return; }
@@ -4288,7 +4324,7 @@ function renderEnd(room) {
     '<button class="btn ghost mt8 end-leave" id="endLeave">Leave</button></div>';
   o.classList.add('show');
   const collect = $('endCollect');
-  if (collect) collect.addEventListener('click', () => openWinnings(false));
+  if (collect) collect.addEventListener('click', () => collectPrize(room, collect));
   const endWallet = $('endWallet');
   if (endWallet) endWallet.addEventListener('click', () => openWinnings(false));
   paintWalletNote();
