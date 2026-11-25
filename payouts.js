@@ -313,8 +313,51 @@ function createPayouts(opts) {
     return { ok: true, mode: auto ? 'auto' : 'manual', payoutsReady: !!paystack.enabled, totals, payouts: rows };
   }
   function list() { return doc.payouts.slice(); }
+  const collecting = new Set();
+  // The winner's own collect. One row, one transfer reference. A second
+  // tap while it is sending or already paid does not start another transfer.
+  async function collect(accountId, body) {
+    if (!accountId) return { ok: false, status: 401, error: 'auth', message: 'Sign in first.' };
+    const roomCode = String((body && body.roomCode) || '').toUpperCase();
+    const gameKey = String((body && body.gameKey) || '');
+    const mineRows = doc.payouts.filter((p) => p.kind === 'prize' && p.accountId === accountId && (!roomCode || String(p.roomCode).toUpperCase() === roomCode) && (!gameKey || p.gameKey === gameKey));
+    const open = mineRows.filter((p) => !DONE.has(p.status));
+    const p = (open.length ? open : mineRows).slice(-1)[0];
+    if (!p) return { ok: false, status: 404, error: 'missing', message: 'No prize is queued for this table.' };
+    if (DONE.has(p.status) || p.status === 'sending' || p.status === 'otp') {
+      return { ok: true, already: true, status: p.status, payout: publicRow(p), message: p.status === 'paid' || p.status === 'paid-manual' ? 'Already paid to your bank.' : 'Already on the way. It will not be sent twice.' };
+    }
+    if (p.testMode || p.status === 'test') return { ok: false, status: 400, error: 'test', message: 'Test mode: no real money to send.' };
+    if (p.status === 'review') return { ok: false, status: 409, error: 'review', message: 'The house is checking this game before paying.' };
+    if (!doc.banks[accountId] || p.status === 'awaiting-bank') {
+      if (p.status !== 'awaiting-bank') { setStatus(p, 'awaiting-bank', { via: 'collect' }); save(); }
+      return { ok: false, status: 409, error: 'bank', message: 'Add your bank, then collect again. The prize stays queued.' };
+    }
+    if (collecting.has(p.id)) return { ok: true, already: true, status: 'sending', payout: publicRow(p), message: 'Already sending. It will not be sent twice.' };
+    collecting.add(p.id);
+    try {
+      const out = await send(p.id, 'winner');
+      const row = get(p.id);
+      const paid = row && (row.status === 'paid' || row.status === 'paid-manual');
+      const moving = row && (row.status === 'sending' || row.status === 'otp');
+      return {
+        ok: !!(out && out.ok) || paid || moving,
+        already: false,
+        status: row ? row.status : out.status,
+        payout: row ? publicRow(row) : null,
+        message: paid ? 'Paid to your bank.' : (out && out.message) || (moving ? 'On the way to your bank.' : 'The house could not send it.')
+      };
+    } finally {
+      collecting.delete(p.id);
+    }
+  }
+  function openRows() {
+    return doc.payouts.filter((p) => !p.testMode && !DONE.has(p.status) && p.status !== 'test').map((p) => ({
+      roomCode: p.roomCode, kind: p.kind, amount: p.amountKobo / 100, status: p.status
+    }));
+  }
 
-  return { fromLedger, setBank, mine, send, approve, markManual, onWebhook, sweep, view, list, hydrate, get, OPEN, DONE };
+  return { fromLedger, setBank, mine, collect, send, approve, markManual, onWebhook, sweep, view, list, openRows, hydrate, get, OPEN, DONE };
 }
 
 module.exports = { createPayouts };

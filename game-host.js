@@ -173,6 +173,7 @@ function createGameHost(deps) {
       players: sp.seats, pot: sp.potKobo / 100, winner: sp.winnerKobo / 100, house: sp.houseKobo / 100,
       potKobo: sp.potKobo, winnerKobo: sp.winnerKobo, houseKobo: sp.houseKobo, share: sp.share,
       winnerId: winner.id, winnerName: winner.humanName || winner.name, winnerAccountId: winner.accountId || null,
+      gameKey: room.paidGameKey || null,
       review, testMode: !!room.paidTestMode
     };
     try {
