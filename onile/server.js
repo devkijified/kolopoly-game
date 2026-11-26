@@ -530,29 +530,75 @@ const server = http.createServer((req, res) => {
     json(res, 200, { ok: true }, { 'Set-Cookie': 'onile_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
     return;
   }
+  function payoutCard(p) {
+    return {
+      id: p.id, kind: p.kind, roomCode: p.roomCode, amountKobo: p.amountKobo,
+      status: p.status, name: p.name, note: p.note || null, bank: p.bank || null,
+      updatedAt: p.updatedAt, createdAt: p.createdAt
+    };
+  }
+  function paymentCard(rec) {
+    return {
+      reference: rec.reference, code: rec.roomCode, amountKobo: rec.amountKobo,
+      status: rec.status, createdAt: rec.createdAt, email: rec.email || null, accountId: rec.accountId || null
+    };
+  }
+  const PAYOUT_DONE = new Set(['paid', 'paid-manual', 'refunded', 'refunded-manual']);
   if (pathname === '/api/admin/queue' && req.method === 'GET') {
     if (!adminToken()) { json(res, 503, { ok: false, error: 'locked', message: 'Admin locked until KP_ADMIN_TOKEN is set' }); return; }
     if (!adminOk(req)) { json(res, 401, { ok: false, error: 'auth', message: 'Open the desk first.' }); return; }
-    const disputes = escrow.disputes();
-    for (const row of disputes) escrow.drain(row.code, payouts);
+    const overview = escrow.overview();
+    for (const row of overview.challenges) {
+      if (row.bucket === 'disputes' || row.bucket === 'settled') escrow.drain(row.code, payouts);
+    }
+    const fresh = escrow.overview();
     const money = payouts.view();
+    const payoutRows = money.payouts.map(payoutCard);
+    let payoutsPending = 0;
+    let payoutsPendingKobo = 0;
+    let payoutsPaidKobo = 0;
+    for (const row of payoutRows) {
+      if (PAYOUT_DONE.has(row.status) || row.status === 'test') {
+        if (row.status !== 'test') payoutsPaidKobo += row.amountKobo || 0;
+      } else {
+        payoutsPending += 1;
+        payoutsPendingKobo += row.amountKobo || 0;
+      }
+    }
     json(res, 200, {
       ok: true,
       housePercent: HOUSE,
       payoutMode: money.mode,
-      disputes: escrow.disputes(),
-      payouts: money.payouts.map((p) => ({
-        id: p.id,
-        kind: p.kind,
-        roomCode: p.roomCode,
-        amountKobo: p.amountKobo,
-        status: p.status,
-        name: p.name,
-        note: p.note || null,
-        bank: p.bank || null,
-        updatedAt: p.updatedAt
-      }))
+      stats: Object.assign({}, fresh.stats, { payoutsPending, payoutsPendingKobo, payoutsPaidKobo }),
+      challenges: fresh.challenges,
+      users: fresh.users,
+      payments: payments.list().map(paymentCard).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+      payouts: payoutRows
     });
+    return;
+  }
+  if (pathname === '/api/admin/cancel' && req.method === 'POST') {
+    (async () => {
+      if (!adminOk(req)) { json(res, 401, { ok: false, error: 'auth', message: 'Open the desk first.' }); return; }
+      let body;
+      try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body' }); return; }
+      const result = escrow.cancel({ code: body.code, admin: true, playerId: 'admin' });
+      if (!result.ok) { json(res, result.error === 'unknown' ? 404 : 400, { ok: false, error: result.error, message: result.message }); return; }
+      escrow.drain(normCode(body.code), payouts);
+      json(res, 200, { ok: true, challenge: escrow.adminView(escrow.get(body.code)) });
+    })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
+    return;
+  }
+  if (pathname === '/api/admin/decide' && req.method === 'POST') {
+    (async () => {
+      if (!adminOk(req)) { json(res, 401, { ok: false, error: 'auth', message: 'Open the desk first.' }); return; }
+      let body;
+      try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body' }); return; }
+      const result = escrow.decide({ code: body.code, winnerId: body.winnerId, note: body.note, actor: 'admin' });
+      if (!result.ok) { json(res, result.error === 'unknown' ? 404 : 400, { ok: false, error: result.error, message: result.message }); return; }
+      escrow.drain(normCode(body.code), payouts);
+      json(res, 200, { ok: true, challenge: escrow.adminView(escrow.get(body.code)) });
+    })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }
   if (pathname === '/api/admin/resolve' && req.method === 'POST') {

@@ -227,6 +227,42 @@ button:disabled { opacity: 0.6; }
 .desk-head strong { font-family: 'Aeonik Pro', 'Figtree', sans-serif; font-size: 22px; letter-spacing: 0.04em; }
 .who { font-size: 13px; font-weight: 700; color: var(--ink-soft); margin-top: 8px; }
 .split { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.stat {
+  background: var(--paper); border: 3px solid var(--ink); border-radius: 14px;
+  box-shadow: 3px 3px 0 var(--ink); padding: 10px 12px; min-width: 0;
+}
+.stat span { display: block; font-size: 12px; font-weight: 800; color: var(--ink-soft); }
+.stat b { display: block; margin-top: 4px; font-size: 18px; overflow-wrap: anywhere; }
+.desk-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.desk-tab {
+  min-height: 44px; width: auto; padding: 8px 14px; border-radius: 999px;
+  background: var(--paper); box-shadow: 3px 3px 0 var(--ink); font-size: 14px;
+}
+.desk-tab.on { background: var(--gold); }
+button.desk-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  background: var(--paper); text-align: left; font-weight: 650; min-height: 0;
+}
+.desk-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.desk-card b { font-size: 18px; }
+.sheet-back { position: fixed; inset: 0; background: rgba(27, 20, 15, 0.46); z-index: 50; }
+.confirm-back { position: fixed; inset: 0; background: rgba(27, 20, 15, 0.46); z-index: 80; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; max-height: 88dvh; overflow: auto;
+  background: var(--cream); border-top: 3px solid var(--ink); padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+}
+.sheet h2 { font-family: 'Aeonik Pro', 'Figtree', sans-serif; font-size: 26px; margin: 8px 0; }
+.sheet-close { width: auto; min-height: 40px; padding: 6px 12px; box-shadow: 3px 3px 0 var(--ink); }
+.timeline { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.timeline li { background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; }
+.timeline strong { display: block; text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; }
+.timeline em { display: block; margin-top: 4px; color: var(--ink-soft); font-style: normal; font-size: 12px; }
+.confirm-card {
+  position: fixed; left: 16px; right: 16px; top: 50%; transform: translateY(-50%); z-index: 90;
+  background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 6px 6px 0 var(--ink); padding: 16px;
+}
+.confirm-card h2 { font-family: 'Aeonik Pro', 'Figtree', sans-serif; font-size: 24px; margin-bottom: 8px; }
 @media (min-width: 800px) {
   body { background-size: 16px 16px; }
 }

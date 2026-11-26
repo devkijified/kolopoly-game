@@ -265,46 +265,120 @@ function viewSignin() {
   );
 }
 
+var desk = { tab: 'open', code: null, confirm: null };
+var DESK_TABS = [
+  ['open', 'Open'], ['live', 'Live'], ['disputes', 'Disputes'], ['settled', 'Settled'],
+  ['payouts', 'Payouts'], ['payments', 'Payments'], ['users', 'Users']
+];
+var STATUS_LABEL = {
+  open: 'Open', joined: 'Waiting', held: 'Live', reported: 'Reports in', disputed: 'Dispute',
+  agreed: 'Settled', resolved: 'Settled', refunded: 'Refunded', cancelled: 'Cancelled', expired: 'Closed'
+};
+function lagos(ms) {
+  if (!ms) return '';
+  try {
+    return new Date(ms).toLocaleString('en-NG', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return ''; }
+}
+function seatLine(players) {
+  return (players || []).map(function (p) { return esc(p.name) + (p.paid ? ' paid' : ' unpaid'); }).join(' · ');
+}
+function challengeCard(c) {
+  return '<button type="button" class="desk-card" data-act="open-detail" data-code="' + esc(c.code) + '">' +
+    '<span class="desk-card-top"><strong>' + esc(c.code) + '</strong><span class="chip">' + esc(STATUS_LABEL[c.status] || c.status) + '</span></span>' +
+    '<b>' + esc(c.title) + '</b>' +
+    '<span class="fine">Stake ' + naira(c.stakeKobo) + ' · Pot held ' + naira(c.heldNowKobo || 0) + '</span>' +
+    '<span class="fine">' + (seatLine(c.players) || 'No seats yet') + '</span>' +
+    '<span class="fine">' + esc(lagos(c.createdAt)) + ' Lagos</span></button>';
+}
+function detailSheet(data, c) {
+  if (!c) return '';
+  var timeline = (c.timeline || []).map(function (item) {
+    var ref = item.ref ? '<br>Paystack ' + esc(item.ref) : '';
+    var money = item.amountKobo ? ' · ' + naira(item.amountKobo) : '';
+    return '<li><strong>' + esc(item.kind) + '</strong><span>' + esc(item.text || '') + money + ref + '</span><em>' + esc(lagos(item.at)) + '</em></li>';
+  }).join('');
+  var said = (c.statements || []).map(function (s) {
+    return '<p class="fine">' + esc(s.name) + ' said ' + esc(s.winner) + ' won.</p>';
+  }).join('');
+  var actions = ['<button type="button" data-act="copy" data-code="' + esc(c.code) + '">Copy challenge link</button>'];
+  if (c.bucket === 'open') actions.push('<button type="button" class="red" data-act="ask" data-kind="cancel" data-code="' + esc(c.code) + '">Cancel and refund</button>');
+  if (c.bucket === 'live' || c.bucket === 'disputes') {
+    (c.players || []).filter(function (p) { return p.paid; }).forEach(function (p) {
+      actions.push('<button type="button" class="green" data-act="ask" data-kind="winner" data-code="' + esc(c.code) + '" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '">Pay ' + esc(p.name) + '</button>');
+    });
+  }
+  if (c.bucket === 'disputes') actions.push('<button type="button" class="red" data-act="ask" data-kind="refund" data-code="' + esc(c.code) + '">Refund everyone</button>');
+  (data.payouts || []).filter(function (p) { return p.roomCode === c.code; }).forEach(function (p) {
+    var done = /^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status);
+    if (!done) actions.push('<button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button>');
+  });
+  return '<div class="sheet-back" data-act="close-sheet"></div><section class="sheet" role="dialog" aria-label="Challenge detail">' +
+    '<div class="desk-card-top"><strong>' + esc(c.code) + '</strong><button type="button" class="secondary sheet-close" data-act="close-sheet">Close</button></div>' +
+    '<h2>' + esc(c.title) + '</h2><p class="fine">' + esc(c.activity) + ' · ' + esc(STATUS_LABEL[c.status] || c.status) + '</p>' +
+    said + '<ol class="timeline">' + (timeline || '<li><span>No events yet.</span></li>') + '</ol><div class="actions">' + actions.join('') + '</div></section>';
+}
+function confirmBox() {
+  var ask = desk.confirm;
+  if (!ask) return '';
+  return '<div class="confirm-back" data-act="confirm-no"></div><section class="confirm-card" role="alertdialog" aria-label="Confirm">' +
+    '<h2>' + esc(ask.title) + '</h2><p>' + esc(ask.body) + '</p>' +
+    '<div class="actions"><button type="button" class="red" data-act="confirm-yes">Confirm</button>' +
+    '<button type="button" class="secondary" data-act="confirm-no">Go back</button></div></section>';
+}
 function viewAdmin(data) {
   if (!data) {
     return shell(
-      '<div class="desk-head"><strong>HOUSE DESK</strong><p>Disputes and payouts. Same key as the Kolopoly ops desk.</p></div>' +
+      '<div class="desk-head"><strong>HOUSE DESK</strong><p>Same key as the Kolopoly ops desk.</p></div>' +
       '<form class="card" data-act="unlock"><label for="token">Desk key</label><input id="token" name="token" type="password" autocomplete="current-password" required>' +
       '<div class="actions"><button type="submit">Open the desk</button></div></form>'
     );
   }
-  var disputes = (data.disputes || []).map(function (c) {
-    var said = (c.statements || []).map(function (s) { return esc(s.name) + ' said ' + esc(s.winner) + ' won'; }).join('. ');
-    return '<article class="card"><p class="kicker">' + esc(c.code) + '</p><h2>' + esc(c.title) + '</h2>' +
-      '<p class="fine">' + esc(c.activity) + ' · pot ' + naira(c.potKobo) + ' · ' + esc(c.disputeReason || 'dispute') + '</p>' +
-      '<p class="fine">' + (said || 'No reports.') + '</p>' +
-      '<form data-act="resolve" data-code="' + esc(c.code) + '"><div class="split">' +
-      (c.players || []).map(function (p) {
-        return '<button type="submit" name="action" value="winner" data-id="' + esc(p.id) + '" class="green">Pay ' + esc(p.name) + '</button>';
-      }).join('') +
-      '<button type="submit" name="action" value="refund" class="red">Refund everyone</button>' +
-      '</div></form></article>';
+  var stats = data.stats || {};
+  var tabs = DESK_TABS.map(function (pair) {
+    return '<button type="button" class="desk-tab' + (desk.tab === pair[0] ? ' on' : '') + '" data-act="desk-tab" data-tab="' + pair[0] + '">' + pair[1] + '</button>';
   }).join('');
-  var payouts = (data.payouts || []).map(function (p) {
-    var bank = p.bank ? esc(p.bank.bankName) + ' · ' + esc(p.bank.accountName || '') + ' · ••••' + esc(p.bank.last4) : 'No bank yet';
-    var settled = /^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status);
-    var status = p.status === 'claimed' ? 'claimed / awaiting house' : p.status;
-    var acts = '';
-    if (data.payoutMode === 'auto' && (p.status === 'ready' || p.status === 'failed')) {
-      acts += '<button type="button" data-act="send" data-id="' + esc(p.id) + '">Send</button>';
-    }
-    if (!settled && p.status !== 'sending' && p.status !== 'refund-pending') {
-      acts += '<button type="button" class="secondary" data-act="manual" data-id="' + esc(p.id) + '">Mark paid (manual)</button>';
-    }
-    return '<article class="card"><strong>' + esc(p.kind) + ' · ' + naira(p.amountKobo) + '</strong>' +
-      '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || '') + ' · ' + esc(status) + '<br>' + bank + '</p>' +
-      (acts ? '<div class="row" style="margin-top:8px">' + acts + '</div>' : '') + '</article>';
-  }).join('');
+  var list = '';
+  if (desk.tab === 'payouts') {
+    list = (data.payouts || []).map(function (p) {
+      var bank = p.bank ? esc(p.bank.bankName) + ' · ••••' + esc(p.bank.last4) : 'No bank yet';
+      return '<article class="card"><strong>' + esc(p.kind) + ' · ' + naira(p.amountKobo) + '</strong>' +
+        '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || '') + ' · ' + esc(p.status) + '<br>' + bank + '</p>' +
+        '<p class="fine">' + esc(lagos(p.createdAt || p.updatedAt)) + ' Lagos</p>' +
+        '<div class="actions"><button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button></div></article>';
+    }).join('') || '<section class="card">No payout rows.</section>';
+  } else if (desk.tab === 'payments') {
+    list = (data.payments || []).map(function (p) {
+      return '<article class="card"><strong>' + esc(p.code || 'Payment') + ' · ' + naira(p.amountKobo) + '</strong>' +
+        '<p class="fine">' + esc(p.status) + (p.email ? ' · ' + esc(p.email) : '') + '</p>' +
+        '<p class="fine">Paystack ' + esc(p.reference) + '</p><p class="fine">' + esc(lagos(p.createdAt)) + ' Lagos</p></article>';
+    }).join('') || '<section class="card">No payments yet.</section>';
+  } else if (desk.tab === 'users') {
+    list = (data.users || []).map(function (u) {
+      return '<article class="card"><strong>' + esc(u.name) + '</strong><p class="fine">' + esc(u.email) + '</p>' +
+        '<p class="fine">' + esc(u.challenges) + ' challenge' + (u.challenges === 1 ? '' : 's') + '</p></article>';
+    }).join('') || '<section class="card">No players yet.</section>';
+  } else {
+    list = (data.challenges || []).filter(function (c) { return c.bucket === desk.tab; }).map(challengeCard).join('') ||
+      '<section class="card">Nothing in this list.</section>';
+  }
+  var openRow = (data.challenges || []).filter(function (c) { return c.code === desk.code; })[0];
   return shell(
-    '<div class="desk-head"><strong>HOUSE DESK</strong><p>Payouts are ' + esc(data.payoutMode) + '. The player claims, then the desk marks paid by hand. A row is never paid twice.</p></div>' +
-    '<h1 class="display">Disputes</h1><div class="list">' + (disputes || '<section class="card">No disputes. The pot is quiet.</section>') + '</div>' +
-    '<h2 style="margin:18px 0 8px;font-family:Aeonik Pro,Figtree,sans-serif">Payouts</h2><div class="list">' + (payouts || '<section class="card">No payout rows.</section>') + '</div>' +
-    '<div class="actions"><button type="button" class="ghost" data-act="lock">Lock the desk</button></div>'
+    '<div class="desk-head"><strong>HOUSE DESK</strong><p>Every challenge. Held funds refresh on their own.</p></div>' +
+    '<div class="stats">' +
+      '<div class="stat"><span>Open challenges</span><b>' + esc(stats.open || 0) + '</b></div>' +
+      '<div class="stat"><span>Held in escrow</span><b>' + naira(stats.heldKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>Paid in today</span><b>' + naira(stats.paidTodayKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>Paid in, 7 days</span><b>' + naira(stats.paidWeekKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>Settled</span><b>' + esc(stats.settled || 0) + '</b></div>' +
+      '<div class="stat"><span>Disputes waiting</span><b>' + esc(stats.disputes || 0) + '</b></div>' +
+      '<div class="stat"><span>Payouts pending</span><b>' + esc(stats.payoutsPending || 0) + '</b></div>' +
+      '<div class="stat"><span>Payouts paid</span><b>' + naira(stats.payoutsPaidKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>House cut earned</span><b>' + naira(stats.houseKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>Users</span><b>' + esc(stats.users || 0) + '</b></div>' +
+    '</div><div class="desk-tabs">' + tabs + '</div><div class="list">' + list + '</div>' +
+    '<div class="actions"><button type="button" class="ghost" data-act="lock">Lock the desk</button></div>' +
+    detailSheet(data, openRow) + confirmBox()
   );
 }
 
@@ -385,20 +459,39 @@ document.addEventListener('click', function (e) {
     else { flash(link); draw(); }
     return;
   }
-  var send = e.target.closest('[data-act="send"]');
-  if (send) {
-    api('/api/admin/payouts/send', { method: 'POST', body: { id: send.getAttribute('data-id') } }).then(function (data) {
-      flash(data.ok ? 'Send started. A second tap will not pay again.' : (data.message || 'Could not send.'));
-      load();
-    });
+  var tab = e.target.closest('[data-act="desk-tab"]');
+  if (tab) { desk.tab = tab.getAttribute('data-tab'); desk.confirm = null; draw(); return; }
+  var opened = e.target.closest('[data-act="open-detail"]');
+  if (opened) { desk.code = opened.getAttribute('data-code'); draw(); return; }
+  if (e.target.closest('[data-act="close-sheet"]')) { desk.code = null; desk.confirm = null; draw(); return; }
+  var ask = e.target.closest('[data-act="ask"]');
+  if (ask) {
+    var kind = ask.getAttribute('data-kind');
+    var who = ask.getAttribute('data-name') || 'this player';
+    var titles = { cancel: 'Cancel and refund?', winner: 'Pay ' + who + '?', refund: 'Refund everyone?', manual: 'Mark this payout paid?' };
+    var bodies = {
+      cancel: 'Anyone who already paid is refunded. This cannot be taken back from the desk.',
+      winner: who + ' receives the pot minus the house cut. It is queued once.',
+      refund: 'Every paid stake goes back. No winner is paid.',
+      manual: 'Record that this payout was sent by hand. It will not be sent again.'
+    };
+    desk.confirm = { kind: kind, code: ask.getAttribute('data-code'), id: ask.getAttribute('data-id'), title: titles[kind], body: bodies[kind] };
+    draw();
     return;
   }
-  var manual = e.target.closest('[data-act="manual"]');
-  if (manual) {
-    api('/api/admin/payouts/manual', { method: 'POST', body: { id: manual.getAttribute('data-id'), note: 'paid by hand' } }).then(function (data) {
-      flash(data.ok ? 'Marked paid by hand.' : (data.message || 'Could not mark it.'));
+  if (e.target.closest('[data-act="confirm-no"]')) { desk.confirm = null; draw(); return; }
+  if (e.target.closest('[data-act="confirm-yes"]')) {
+    var job = desk.confirm;
+    desk.confirm = null;
+    if (!job) return;
+    var done = function (res, okText) {
+      flash(res.ok ? okText : (res.message || 'The desk could not do that.'));
       load();
-    });
+    };
+    if (job.kind === 'cancel') api('/api/admin/cancel', { method: 'POST', body: { code: job.code } }).then(function (res) { done(res, 'Cancelled. Paid stakes are refunded.'); });
+    else if (job.kind === 'winner') api('/api/admin/decide', { method: 'POST', body: { code: job.code, winnerId: job.id } }).then(function (res) { done(res, 'Winner queued. It will not be paid twice.'); });
+    else if (job.kind === 'refund') api('/api/admin/resolve', { method: 'POST', body: { code: job.code, action: 'refund' } }).then(function (res) { done(res, 'Everyone who paid is refunded.'); });
+    else if (job.kind === 'manual') api('/api/admin/payouts/manual', { method: 'POST', body: { id: job.id, note: 'paid by hand' } }).then(function (res) { done(res, 'Marked paid by hand.'); });
     return;
   }
   if (e.target.closest('[data-act="lock"]')) {
@@ -530,6 +623,14 @@ window.addEventListener('popstate', function () { flash(''); load(); });
 
 var params = new URLSearchParams(location.search);
 var back = params.get('reference') || params.get('trxref');
+setInterval(function () {
+  if (route().name !== 'admin' || !page.admin || desk.confirm) return;
+  api('/api/admin/queue').then(function (data) {
+    if (!data.ok || route().name !== 'admin') return;
+    page.admin = data;
+    draw();
+  });
+}, 25000);
 load().then(function () {
   if (!back) return;
   flash('Checking that payment with Paystack…');
