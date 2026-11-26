@@ -40,13 +40,14 @@ function go(href) {
 }
 function flash(msg) { state.flash = msg || ''; }
 
-function shell(inner) {
+function shell(inner, opts) {
+  opts = opts || {};
   var signed = state.me && state.me.name;
-  var me = signed ? '<div class="who">Signed in as ' + esc(state.me.name) + '</div>' : '';
+  var me = (!opts.desk && signed) ? '<div class="who">Signed in as ' + esc(state.me.name) + '</div>' : '';
   var note = state.flash ? '<div class="flash" role="status">' + esc(state.flash) + '</div>' : '';
-  var nav = signed
-    ? '<a class="navlink" href="/mine" data-nav>Mine</a>'
-    : '<a class="navlink" href="/signin" data-nav>Sign in</a>';
+  var nav = opts.desk
+    ? (opts.locked ? '<span class="navlink desk-id">House desk</span>' : '<button type="button" class="navlink desk-lock" data-act="lock">Lock</button>')
+    : (signed ? '<a class="navlink" href="/mine" data-nav>Mine</a>' : '<a class="navlink" href="/signin" data-nav>Sign in</a>');
   return '<div class="wrap">' +
     '<header class="topbar"><a class="brand" href="/" data-nav><span class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9.5 10 3l7 6.5V17a1 1 0 0 1-1 1h-4.2v-5H8.2V18H4a1 1 0 0 1-1-1V9.5z" fill="#1b140f"/></svg></span>ONILE</a>' +
     nav + '</header>' +
@@ -280,23 +281,59 @@ function lagos(ms) {
     return new Date(ms).toLocaleString('en-NG', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   } catch (e) { return ''; }
 }
-function seatLine(players) {
-  return (players || []).map(function (p) { return esc(p.name) + (p.paid ? ' paid' : ' unpaid'); }).join(' · ');
+function lagosClock(ms) {
+  try {
+    return new Date(ms || Date.now()).toLocaleTimeString('en-NG', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return ''; }
+}
+var PAYOUT_KIND = { prize: 'Prize payout', refund: 'Refund', 'refund-due': 'Refund' };
+var PAYOUT_STATUS = {
+  'awaiting-bank': 'Waiting for bank details', ready: 'Ready to send', sending: 'Sending',
+  paid: 'Paid', 'paid-manual': 'Paid by hand', otp: 'Needs a code', failed: 'Did not send',
+  review: 'In review', claimed: 'Claimed', 'refund-pending': 'Refund in progress',
+  refunded: 'Refunded', 'refunded-manual': 'Refunded by hand', test: 'Test'
+};
+var PAYMENT_STATUS = { paid: 'Paid', pending: 'Pending', failed: 'Failed', refunded: 'Refunded', success: 'Paid' };
+var EVENT_LABEL = {
+  created: 'Opened', joined: 'Joined', paid: 'Stake paid', payment: 'Payment', held: 'Funds held',
+  reported: 'Result named', disputed: 'Dispute', settled: 'Settled', cancelled: 'Cancelled',
+  expired: 'Closed', resolved: 'Decided', 'refund-queued': 'Refund queued'
+};
+function human(map, key) { return map[key] || 'Update'; }
+function seatChips(players) {
+  return '<span class="seat-chips">' + (players || []).map(function (p) {
+    return '<span class="who-chip">' + esc(p.name) + ' <span class="chip ' + (p.paid ? 'ok' : 'muted') + '">' + (p.paid ? 'Paid' : 'Unpaid') + '</span></span>';
+  }).join('') + '</span>';
+}
+function resultLine(c) {
+  if (c.bucket === 'settled') {
+    if (c.status === 'refunded' || c.status === 'cancelled') return 'Refunded';
+    if (c.status === 'expired') return 'Closed';
+    if (c.winnerName) return 'Winner: ' + esc(c.winnerName) + ' · Paid out ' + naira(c.prizeKobo);
+    return 'Settled';
+  }
+  return 'Stake ' + naira(c.stakeKobo) + ' · Pot held ' + naira(c.heldNowKobo || 0);
 }
 function challengeCard(c) {
   return '<button type="button" class="desk-card" data-act="open-detail" data-code="' + esc(c.code) + '">' +
-    '<span class="desk-card-top"><strong>' + esc(c.code) + '</strong><span class="chip">' + esc(STATUS_LABEL[c.status] || c.status) + '</span></span>' +
+    '<span class="desk-card-top"><strong>' + esc(c.code) + '</strong><span class="chip">' + esc(STATUS_LABEL[c.status] || 'Open') + '</span></span>' +
     '<b>' + esc(c.title) + '</b>' +
-    '<span class="fine">Stake ' + naira(c.stakeKobo) + ' · Pot held ' + naira(c.heldNowKobo || 0) + '</span>' +
-    '<span class="fine">' + (seatLine(c.players) || 'No seats yet') + '</span>' +
+    '<span class="fine">' + resultLine(c) + '</span>' +
+    seatChips(c.players) +
     '<span class="fine">' + esc(lagos(c.createdAt)) + ' Lagos</span></button>';
 }
 function detailSheet(data, c) {
   if (!c) return '';
+  var people = (c.players || []).map(function (p) {
+    return '<div class="person"><div><strong>' + esc(p.name) + '</strong><span class="fine">' + (p.paid ? naira(c.stakeKobo) : 'No stake yet') + '</span></div><span class="chip ' + (p.paid ? 'ok' : 'muted') + '">' + (p.paid ? 'Paid' : 'Unpaid') + '</span></div>';
+  }).join('');
   var timeline = (c.timeline || []).map(function (item) {
-    var ref = item.ref ? '<br>Paystack ' + esc(item.ref) : '';
+    var text = item.text || '';
+    var ref = item.ref || '';
+    if (!ref && item.kind === 'paid' && text && text.indexOf(' ') < 0) { ref = text; text = ''; }
+    var refHtml = ref ? '<span class="ref">Ref ' + esc(ref) + '</span>' : '';
     var money = item.amountKobo ? ' · ' + naira(item.amountKobo) : '';
-    return '<li><strong>' + esc(item.kind) + '</strong><span>' + esc(item.text || '') + money + ref + '</span><em>' + esc(lagos(item.at)) + '</em></li>';
+    return '<li><strong>' + esc(human(EVENT_LABEL, item.kind)) + '</strong><span>' + esc(text) + money + '</span>' + refHtml + '<em>' + esc(lagos(item.at)) + '</em></li>';
   }).join('');
   var said = (c.statements || []).map(function (s) {
     return '<p class="fine">' + esc(s.name) + ' said ' + esc(s.winner) + ' won.</p>';
@@ -315,7 +352,8 @@ function detailSheet(data, c) {
   });
   return '<div class="sheet-back" data-act="close-sheet"></div><section class="sheet" role="dialog" aria-label="Challenge detail">' +
     '<div class="desk-card-top"><strong>' + esc(c.code) + '</strong><button type="button" class="secondary sheet-close" data-act="close-sheet">Close</button></div>' +
-    '<h2>' + esc(c.title) + '</h2><p class="fine">' + esc(c.activity) + ' · ' + esc(STATUS_LABEL[c.status] || c.status) + '</p>' +
+    '<h2>' + esc(c.title) + '</h2><p class="fine">' + esc(c.activity) + ' · ' + esc(STATUS_LABEL[c.status] || 'Open') + '</p>' +
+    '<div class="stack">' + people + '</div>' +
     said + '<ol class="timeline">' + (timeline || '<li><span>No events yet.</span></li>') + '</ol><div class="actions">' + actions.join('') + '</div></section>';
 }
 function confirmBox() {
@@ -323,35 +361,42 @@ function confirmBox() {
   if (!ask) return '';
   return '<div class="confirm-back" data-act="confirm-no"></div><section class="confirm-card" role="alertdialog" aria-label="Confirm">' +
     '<h2>' + esc(ask.title) + '</h2><p>' + esc(ask.body) + '</p>' +
-    '<div class="actions"><button type="button" class="red" data-act="confirm-yes">Confirm</button>' +
+    '<div class="actions"><button type="button" class="danger" data-act="confirm-yes">Confirm</button>' +
     '<button type="button" class="secondary" data-act="confirm-no">Go back</button></div></section>';
 }
 function viewAdmin(data) {
   if (!data) {
     return shell(
-      '<div class="desk-head"><strong>HOUSE DESK</strong><p>Same key as the Kolopoly ops desk.</p></div>' +
+      '<p class="desk-updated">House desk</p>' +
       '<form class="card" data-act="unlock"><label for="token">Desk key</label><input id="token" name="token" type="password" autocomplete="current-password" required>' +
-      '<div class="actions"><button type="submit">Open the desk</button></div></form>'
+      '<div class="actions"><button type="submit">Open the desk</button></div></form>',
+      { desk: true, locked: true }
     );
   }
   var stats = data.stats || {};
+  function tally(tab) {
+    if (tab === 'payouts') return (data.payouts || []).length;
+    if (tab === 'payments') return (data.payments || []).length;
+    if (tab === 'users') return (data.users || []).length;
+    return (data.challenges || []).filter(function (c) { return c.bucket === tab; }).length;
+  }
   var tabs = DESK_TABS.map(function (pair) {
-    return '<button type="button" class="desk-tab' + (desk.tab === pair[0] ? ' on' : '') + '" data-act="desk-tab" data-tab="' + pair[0] + '">' + pair[1] + '</button>';
+    return '<button type="button" class="desk-tab' + (desk.tab === pair[0] ? ' on' : '') + '" data-act="desk-tab" data-tab="' + pair[0] + '">' + pair[1] + ' ' + tally(pair[0]) + '</button>';
   }).join('');
   var list = '';
   if (desk.tab === 'payouts') {
     list = (data.payouts || []).map(function (p) {
       var bank = p.bank ? esc(p.bank.bankName) + ' · ••••' + esc(p.bank.last4) : 'No bank yet';
-      return '<article class="card"><strong>' + esc(p.kind) + ' · ' + naira(p.amountKobo) + '</strong>' +
-        '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || '') + ' · ' + esc(p.status) + '<br>' + bank + '</p>' +
+      return '<article class="card"><span class="desk-card-top"><strong>' + esc(human(PAYOUT_KIND, p.kind)) + ' · ' + naira(p.amountKobo) + '</strong><span class="chip">' + esc(human(PAYOUT_STATUS, p.status)) + '</span></span>' +
+        '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || 'Player') + '<br>' + bank + '</p>' +
         '<p class="fine">' + esc(lagos(p.createdAt || p.updatedAt)) + ' Lagos</p>' +
         '<div class="actions"><button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button></div></article>';
     }).join('') || '<section class="card">No payout rows.</section>';
   } else if (desk.tab === 'payments') {
     list = (data.payments || []).map(function (p) {
-      return '<article class="card"><strong>' + esc(p.code || 'Payment') + ' · ' + naira(p.amountKobo) + '</strong>' +
-        '<p class="fine">' + esc(p.status) + (p.email ? ' · ' + esc(p.email) : '') + '</p>' +
-        '<p class="fine">Paystack ' + esc(p.reference) + '</p><p class="fine">' + esc(lagos(p.createdAt)) + ' Lagos</p></article>';
+      return '<article class="card"><span class="desk-card-top"><strong>' + esc(p.code || 'Payment') + ' · ' + naira(p.amountKobo) + '</strong><span class="chip ok">' + esc(human(PAYMENT_STATUS, p.status)) + '</span></span>' +
+        (p.email ? '<p class="fine">' + esc(p.email) + '</p>' : '') +
+        '<p class="ref">Ref ' + esc(p.reference) + '</p><p class="fine">' + esc(lagos(p.createdAt)) + ' Lagos</p></article>';
     }).join('') || '<section class="card">No payments yet.</section>';
   } else if (desk.tab === 'users') {
     list = (data.users || []).map(function (u) {
@@ -363,23 +408,26 @@ function viewAdmin(data) {
       '<section class="card">Nothing in this list.</section>';
   }
   var openRow = (data.challenges || []).filter(function (c) { return c.code === desk.code; })[0];
+  var updated = lagosClock(desk.refreshedAt || Date.now());
   return shell(
-    '<div class="desk-head"><strong>HOUSE DESK</strong><p>Every challenge. Held funds refresh on their own.</p></div>' +
-    '<div class="stats">' +
-      '<div class="stat"><span>Open challenges</span><b>' + esc(stats.open || 0) + '</b></div>' +
-      '<div class="stat"><span>Held in escrow</span><b>' + naira(stats.heldKobo || 0) + '</b></div>' +
+    '<p class="desk-updated">Updated ' + esc(updated) + ' Lagos</p>' +
+    '<div class="hero">' +
+      '<div class="stat hero-held"><span>Held in escrow</span><b>' + naira(stats.heldKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>Open</span><b>' + esc(stats.open || 0) + '</b></div>' +
+      '<div class="stat"><span>Disputes waiting</span><b>' + esc(stats.disputes || 0) + '</b></div>' +
+    '</div>' +
+    '<details class="more-stats"><summary>More stats</summary><div class="stats tight">' +
       '<div class="stat"><span>Paid in today</span><b>' + naira(stats.paidTodayKobo || 0) + '</b></div>' +
       '<div class="stat"><span>Paid in, 7 days</span><b>' + naira(stats.paidWeekKobo || 0) + '</b></div>' +
       '<div class="stat"><span>Settled</span><b>' + esc(stats.settled || 0) + '</b></div>' +
-      '<div class="stat"><span>Disputes waiting</span><b>' + esc(stats.disputes || 0) + '</b></div>' +
       '<div class="stat"><span>Payouts pending</span><b>' + esc(stats.payoutsPending || 0) + '</b></div>' +
       '<div class="stat"><span>Payouts paid</span><b>' + naira(stats.payoutsPaidKobo || 0) + '</b></div>' +
-      '<div class="stat"><span>House cut earned</span><b>' + naira(stats.houseKobo || 0) + '</b></div>' +
+      '<div class="stat"><span>House cut</span><b>' + naira(stats.houseKobo || 0) + '</b></div>' +
       '<div class="stat"><span>Users</span><b>' + esc(stats.users || 0) + '</b></div>' +
-    '</div><div class="desk-tabs">' + tabs + '</div><div class="list">' + list + '</div>' +
-    '<div class="actions"><button type="button" class="ghost" data-act="lock">Lock the desk</button></div>' +
-    detailSheet(data, openRow) + confirmBox()
-  );
+    '</div></details>' +
+    '<div class="desk-tabs">' + tabs + '</div><div class="list">' + list + '</div>',
+    { desk: true }
+  ) + detailSheet(data, openRow) + confirmBox();
 }
 
 var page = { name: 'home', code: '', challenge: null, mine: [], admin: undefined };
@@ -437,7 +485,10 @@ function load() {
       return api('/api/challenges/mine').then(function (data) { page.mine = data.challenges || []; });
     }
     if (r.name === 'admin') {
-      return api('/api/admin/queue').then(function (data) { page.admin = data.ok ? data : null; });
+      return api('/api/admin/queue').then(function (data) {
+        page.admin = data.ok ? data : null;
+        if (data.ok) desk.refreshedAt = Date.now();
+      });
     }
   }).then(draw);
 }
@@ -628,6 +679,7 @@ setInterval(function () {
   api('/api/admin/queue').then(function (data) {
     if (!data.ok || route().name !== 'admin') return;
     page.admin = data;
+    desk.refreshedAt = Date.now();
     draw();
   });
 }, 25000);
