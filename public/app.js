@@ -938,6 +938,10 @@ function trainingNeedsLeaveAsk(room) {
 function hideTrainLeave() {
   const sheet = document.getElementById('trainLeaveSheet');
   if (sheet) sheet.hidden = true;
+  if (state && state.practice) {
+    const el = typeof lessonTarget === 'function' ? lessonTarget(state.practice) : null;
+    if (el) placeFinger(el, lessonMisses >= 2);
+  }
 }
 function showTrainLeave() {
   let sheet = document.getElementById('trainLeaveSheet');
@@ -952,21 +956,13 @@ function showTrainLeave() {
     document.body.appendChild(sheet);
     sheet.addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
-      if (!b) return;
-      if (b.dataset.act === 'leave') exitTrainingHome();
-      else hideTrainLeave();
+      if (b && b.dataset.act === 'leave') exitTrainingHome();
+      else if (!b || b.dataset.act === 'stay') { if (ev.target === sheet || b) hideTrainLeave(); }
     });
   }
   sheet.hidden = false;
-  const pop = document.getElementById('coachPop');
-  const bar = document.querySelector('.topbar');
-  const floor = (bar ? bar.getBoundingClientRect().bottom : 64) + 8;
-  let top = floor;
-  if (pop && !pop.hidden) {
-    const r = pop.getBoundingClientRect();
-    if (r.height > 20 && r.bottom < window.innerHeight * 0.72) top = Math.ceil(r.bottom + 16);
-  }
-  sheet.style.top = top + 'px';
+  const finger = document.getElementById('coachFinger');
+  if (finger) finger.hidden = true;
 }
 function ensureTrainExit() {
   let btn = document.getElementById('trainExit');
@@ -3236,11 +3232,17 @@ function placeFinger(el, big) {
   const cardBox = card && !card.hidden ? card.getBoundingClientRect() : null;
   const nav = document.getElementById('secondaryBar');
   const navBox = nav ? nav.getBoundingClientRect() : null;
+  const hudBoxes = [];
+  document.querySelectorAll('#hudTray, .walletbar, #actionBar, #secondaryBar, .msgbar').forEach((node) => {
+    const b = node.getBoundingClientRect();
+    if (b.width > 8 && b.height > 8) hudBoxes.push(b);
+  });
   const spots = [
     { left: r.right - size * 0.35, top: r.top - size - 2, flip: true },
     { left: r.left - size * 0.65, top: r.top - size - 2, flip: true },
-    { left: r.right + 4, top: r.top + (r.height - size) / 2, flip: false },
-    { left: r.left - size - 4, top: r.top + (r.height - size) / 2, flip: false },
+    { left: r.left + Math.max(0, r.width - size - 1), top: r.top + Math.max(16, r.height - size - 8), flip: false, inside: true },
+    { left: r.right + 4, top: r.top + 2, flip: false },
+    { left: r.left - size - 4, top: r.top + 2, flip: false },
     { left: r.left + r.width / 2 - size / 2, top: r.bottom + 4, flip: false }
   ];
   const siblings = el.parentElement ? [...el.parentElement.children].filter((node) => node !== el) : [];
@@ -3252,10 +3254,11 @@ function placeFinger(el, big) {
   const fits = (s) => {
     const box = { left: s.left, top: s.top, right: s.left + size, bottom: s.top + size };
     if (box.left < 4 || box.top < 4 || box.right > window.innerWidth - 4 || box.bottom > window.innerHeight - 4) return false;
-    if (!kiss(box)) return false;
+    if (!s.inside && !kiss(box)) return false;
     if (tipBox && lessonRectsHit(box, tipBox, 1)) return false;
     if (cardBox && lessonRectsHit(box, cardBox, 1)) return false;
     if (navBox && navBox.height > 8 && lessonRectsHit(box, navBox, 0)) return false;
+    if (hudBoxes.some((b) => lessonRectsHit(box, b, 2))) return false;
     const notes = document.querySelectorAll('#deedSheet p, #deedSheet .kv, #deedSheet td');
     for (const note of notes) {
       const st = getComputedStyle(note);
@@ -3265,11 +3268,14 @@ function placeFinger(el, big) {
     }
     if (siblings.some((node) => {
       const b = node.getBoundingClientRect();
-      return b.width > 8 && b.height > 8 && lessonRectsHit(box, b, 0);
+      if (b.width < 8 || b.height < 8) return false;
+      const overlapW = Math.min(box.right, b.right) - Math.max(box.left, b.left);
+      const overlapH = Math.min(box.bottom, b.bottom) - Math.max(box.top, b.top);
+      return overlapW > 8 && overlapH > 8;
     })) return false;
     return true;
   };
-  const spot = spots.find(fits) || { left: r.right - size * 0.4, top: r.top - size - 2, flip: true };
+  const spot = spots.find(fits) || { left: r.left + Math.max(2, (r.width - size) / 2), top: r.top + 2, flip: true };
   finger.classList.toggle('flip', !!spot.flip);
   finger.style.left = (Math.max(4, Math.min(window.innerWidth - size - 4, spot.left)) + shift.x) + 'px';
   finger.style.top = (Math.max(4, Math.min(window.innerHeight - size - 4, spot.top)) + shift.y) + 'px';

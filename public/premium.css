@@ -1368,19 +1368,19 @@ body.train-gate .topbar, body.train-done .topbar, body.train-on .topbar { z-inde
 }
 body.train-on #trainExit:not([hidden]) { display: inline-flex; }
 #trainExit[hidden] { display: none !important; }
-body.train-on #tierBtn { display: none; }
-body.train-on #roomChip, body.train-on #modePill {
-  flex: 0 1 auto; min-width: 0; max-width: 78px;
-}
+body.train-on #tierBtn, body.train-on #roomChip { display: none !important; }
+body.train-on #modePill { flex: 0 1 auto; min-width: 0; max-width: none; }
 #trainLeaveSheet {
-  position: fixed; z-index: 230; left: 8px; top: calc(var(--topbar-h) + 8px);
-  width: min(220px, calc(100vw - 16px));
+  position: fixed; inset: 0; z-index: 240;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(8, 6, 4, 0.62);
 }
-#trainLeaveSheet[hidden] { display: none; }
+#trainLeaveSheet[hidden] { display: none !important; }
 .train-leave-card {
+  width: min(280px, 100%);
   background: #fff6e4; color: #1a140c;
   border: 3px solid #1a140c; border-radius: 16px;
-  box-shadow: 4px 5px 0 #1a140c; padding: 12px;
+  box-shadow: 4px 5px 0 #1a140c; padding: 14px;
 }
 .train-leave-card p { margin: 0 0 4px; font-size: 16px; font-weight: 900; }
 .train-leave-card .btn { width: 100%; min-height: 44px; margin-top: 8px; }

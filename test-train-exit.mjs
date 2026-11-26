@@ -58,12 +58,16 @@ async function layout(page) {
     const mute = box(document.getElementById('muteBtn'));
     const share = box(document.getElementById('shareBtn'));
     const coach = box(document.getElementById('coachPop'));
-    const sheet = box(document.getElementById('trainLeaveSheet'));
+    const room = document.getElementById('roomChip');
+    const roomShown = !!(room && getComputedStyle(room).display !== 'none' && !room.classList.contains('hidden'));
+    const finger = box(document.getElementById('coachFinger'));
+    const deals = box(document.getElementById('hudDeals'));
     return {
-      exit, mute, share, coach, sheet,
+      exit, mute, share, coach, roomShown, finger, deals,
       exitHitsMute: hit(exit, mute),
       exitHitsShare: hit(exit, share),
       exitHitsCoach: hit(exit, coach),
+      fingerHitsDeals: hit(finger, deals),
       step: (window.__kolopolyState() && window.__kolopolyState().practice.step) || ''
     };
   });
@@ -88,7 +92,8 @@ try {
   await page.waitForFunction(() => window.__kolopolyState().practice.step === 'walked');
   await sleep(700);
   const mid = await layout(page);
-  check('Exit stays clear once the dice are on the board', mid.exit && mid.exit.h >= 44 && !mid.exitHitsMute && !mid.exitHitsShare && !mid.exitHitsCoach, JSON.stringify(mid));
+  check('Exit stays clear once the dice are on the board', mid.exit && mid.exit.h >= 44 && !mid.exitHitsMute && !mid.exitHitsShare && !mid.exitHitsCoach && !mid.roomShown, JSON.stringify(mid));
+  check('the pointer does not cover the deals button', !mid.fingerHitsDeals, JSON.stringify({ finger: mid.finger, deals: mid.deals }));
   await page.screenshot({ path: OUT + '/train-exit-mid-390.png' });
 
   await page.click('#trainExit');
