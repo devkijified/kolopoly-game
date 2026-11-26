@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -140,5 +141,111 @@ test('the admin desk receives the full account number and players do not', async
     assert.equal(log.includes(ACCOUNT), false);
   } finally {
     child.kill('SIGTERM');
+  }
+});
+
+test('a claimed payout with claimedBank and no bank field still shows the account', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'onile-claimed-'));
+  const kemiId = accountIdFor('kemi@example.com');
+  const tundeId = accountIdFor('tunde@example.com');
+  const escrow = createEscrow({ file: path.join(dir, 'escrow.json'), housePercent: 10 });
+  const kemi = escrow.upsertPlayer({ accountId: kemiId, name: 'Kemi', email: 'kemi@example.com' }).player;
+  escrow.create({ playerId: kemi.id, title: 'Yard race', activity: 'Race', stakeNaira: 1000 });
+  const payoutFile = path.join(dir, 'payouts.json');
+  const queue = createPayouts({ file: payoutFile, paystack: { enabled: false }, mode: 'manual' });
+  const claimed = queue.fromLedger({
+    kind: 'prize', roomCode: 'ML5ASMBW', gameKey: 'onile:claimed', playerId: 1,
+    name: 'Kemi', accountId: kemiId, amountKobo: 360000, at: 1
+  });
+  const fetched = queue.fromLedger({
+    kind: 'prize', roomCode: 'PAYSTK1', gameKey: 'onile:fetched', playerId: 1,
+    name: 'Tunde', accountId: tundeId, amountKobo: 180000, at: 2
+  });
+  const doc = JSON.parse(fs.readFileSync(payoutFile, 'utf8'));
+  const claimedRow = doc.payouts.find((p) => p.id === claimed.id);
+  claimedRow.status = 'claimed';
+  claimedRow.claimedBank = { bankName: 'GTBank', accountName: 'KEMI ADE', last4: '1222', at: 1 };
+  delete claimedRow.bank;
+  const fetchedRow = doc.payouts.find((p) => p.id === fetched.id);
+  fetchedRow.status = 'claimed';
+  fetchedRow.claimedBank = { bankName: 'GTBank', accountName: 'TUNDE BELLO', last4: '6789', at: 1 };
+  delete fetchedRow.bank;
+  doc.banks = {
+    [tundeId]: { bankCode: '058', bankName: 'GTBank', accountName: 'TUNDE BELLO', last4: '6789', recipientCode: 'RCP_ok' }
+  };
+  fs.writeFileSync(payoutFile, JSON.stringify(doc));
+  createPayoutDetails({ file: path.join(dir, 'payout-details.json') }).remember(kemiId, {
+    bankName: 'GTBank', accountName: 'KEMI ADE', accountNumber: '0801111222'
+  });
+
+  const stub = http.createServer((req, res) => {
+    if (req.url === '/transferrecipient/RCP_ok') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: true, data: { details: { account_number: '0123456789', account_name: 'TUNDE BELLO' } } }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((resolve) => stub.listen(0, '127.0.0.1', resolve));
+  const stubPort = stub.address().port;
+  const secret = 'sk_test_fixture_not_real';
+  const port = 4312;
+  const child = spawn(process.execPath, ['onile/server.js'], {
+    cwd: path.join(import.meta.dirname, '..', '..'),
+    env: Object.assign({}, process.env, {
+      PORT: String(port),
+      KP_ADMIN_TOKEN: 'desk-test-key',
+      KP_AUTH_SECRET: SECRET,
+      KP_TEST: '1',
+      ONILE_DATA_DIR: dir,
+      RESEND_API_KEY: '',
+      PAYSTACK_SECRET_KEY: secret,
+      PAYSTACK_API_BASE: 'http://127.0.0.1:' + stubPort
+    }),
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let log = '';
+  child.stdout.on('data', (d) => { log += d; });
+  child.stderr.on('data', (d) => { log += d; });
+  const base = 'http://127.0.0.1:' + port;
+  try {
+    let up = false;
+    for (let i = 0; i < 40; i++) {
+      try { if ((await fetch(base + '/api/health')).ok) { up = true; break; } } catch (e) {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(up, true);
+    const opened = await fetch(base + '/api/admin/unlock', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'desk-test-key' })
+    });
+    const cookie = (opened.headers.get('set-cookie') || '').split(';')[0];
+    const queue = await fetch(base + '/api/admin/queue', { headers: { Cookie: cookie } });
+    const body = await queue.json();
+    const shown = body.payouts.find((p) => p.id === claimed.id);
+    assert.equal(shown.status, 'claimed');
+    assert.equal(shown.bank.bankName, 'GTBank');
+    assert.equal(shown.bank.accountName, 'KEMI ADE');
+    assert.equal(shown.bank.accountNumber, '0801111222');
+    assert.equal(shown.amountKobo, 360000);
+    const fromPaystack = body.payouts.find((p) => p.id === fetched.id);
+    assert.equal(fromPaystack.bank.accountNumber, '0123456789');
+    assert.equal(fromPaystack.bank.accountName, 'TUNDE BELLO');
+    const cached = fs.readFileSync(path.join(dir, 'payout-details.json'), 'utf8');
+    assert.equal(cached.includes('0123456789'), true);
+    assert.equal(fs.readFileSync(payoutFile, 'utf8').includes('0123456789'), false);
+    const auth = createAuth({ secret: SECRET });
+    const session = auth.verifyCode('kemi@example.com', auth.requestCode('kemi@example.com').code);
+    const mine = await fetch(base + '/api/challenges/mine', { headers: { Authorization: 'Bearer ' + session.token } });
+    const mineBody = await mine.json();
+    assert.equal(JSON.stringify(mineBody).includes('0801111222'), false);
+    assert.equal(JSON.stringify(mineBody).includes('0123456789'), false);
+    assert.equal(log.includes('0801111222'), false);
+    assert.equal(log.includes('0123456789'), false);
+    assert.equal(log.includes(secret), false);
+  } finally {
+    child.kill('SIGTERM');
+    stub.close();
   }
 });
