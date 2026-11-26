@@ -220,7 +220,10 @@ class BotBrain {
     }
     // 0b. A Sapa Deal offered to me while I raise money: take it when it
     // pays at least 60 percent of the printed price of what it asks for.
-    if (st.sapaOffer && st.sapaOffer.to === me.id) {
+    // An AFK takeover seat never answers: the person behind the seat is
+    // away (the Owambe rule above), and a money offer is theirs to
+    // answer when they return. Unanswered, it lapses on its own clock.
+    if (st.sapaOffer && st.sapaOffer.to === me.id && !me.afkTaken) {
       const printed = st.sapaOffer.spaces.reduce((sum, i) => sum + (D.SPACES[i] ? D.SPACES[i].price : 0), 0);
       this.send({ type: 'sapa_answer', offerId: st.sapaOffer.id, accept: st.sapaOffer.cash >= Math.floor(printed * 0.6) });
       return;

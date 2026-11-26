@@ -658,6 +658,29 @@ body:has(#view-signin.active) { background: #0f1116; }
 #pauseOverlay .pause-how p {
   margin: 0 0 4px; font-size: 14px; line-height: 1.35; font-weight: 650; color: #1a140c;
 }
+/* Link hold banner: a slim bar over the top of the board carrying
+   the waiting line and the live countdown while a seat reconnects.
+   No scrim and no blocked touches: the table underneath stays fully
+   playable, Log, Talk and the action bar included. */
+#linkHoldBanner {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  z-index: 80;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(94vw, 430px);
+  padding: 8px 14px; border-radius: 999px;
+  background: #1a140c; color: #fff6e4;
+  border: 2px solid #ffc857;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 14px; font-weight: 700; line-height: 1.25;
+  pointer-events: none;
+}
+#linkHoldBanner[hidden] { display: none; }
+#linkHoldBanner .lhb-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#linkHoldBanner .lhb-clock {
+  flex: none; font-family: 'Aeonik Pro', sans-serif; font-weight: 800;
+  color: #ffc857; font-variant-numeric: tabular-nums;
+}
 body:has(#view-game.is-paused) #bigDaddy { display: none !important; }
 @keyframes pauseBob {
   0%, 100% { transform: translateY(0) rotate(-1.5deg); }

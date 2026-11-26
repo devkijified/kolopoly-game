@@ -150,6 +150,8 @@ let wakeLock = null;
 let connBannerEl = null;
 let heartbeatTimer = null;
 let lastLocalActive = Date.now();
+let lastMsgAt = Date.now();
+let resumeWatchdog = null;
 const seenPositions = {};
 
 // Reconnect session: a seat (room code + player id + token) survives a
@@ -1158,6 +1160,7 @@ function syncWakeLock(room) {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    resumeCheck();
     if (!muted) unlockAudio();
     if (state && state.status === 'playing' && !state.paused) requestWakeLock();
     syncMusic();
@@ -1199,6 +1202,38 @@ function stopHeartbeat() {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
+// Resume after backgrounding. Root cause of the stuck minimized
+// player: iOS freezes a backgrounded page, so its timers stop and the
+// socket can die silently with no close event, readyState stuck at
+// OPEN (a zombie). The 1800ms reconnect in onclose never runs because
+// onclose never fires, the activity heartbeat never runs because its
+// timer is frozen too, and the old visibilitychange handler never
+// looked at the socket at all. On return the player sent moves into
+// the dead socket and never rejoined, while the server held the
+// whole table on the link hold. So every return to the foreground
+// proves the socket: a closing or closed one reconnects at once, and
+// an "open" one must answer a heartbeat within 5 seconds or it is
+// forced shut and rebuilt. The rebuild is the resync: onopen resends
+// the saved seat token, the server binds the seat again (bindSeat),
+// replies joined and broadcasts the full room state.
+function resumeCheck() {
+  if (!ws) { connect(); return; }
+  if (ws.readyState === 2 || ws.readyState === 3) { connect(); return; }
+  if (ws.readyState !== 1) return; // 0: a connect is already in flight
+  const pingedAt = lastMsgAt;
+  try { ws.send(JSON.stringify({ type: 'heartbeat' })); } catch (e) { }
+  if (resumeWatchdog) clearTimeout(resumeWatchdog);
+  resumeWatchdog = setTimeout(() => {
+    resumeWatchdog = null;
+    if (lastMsgAt !== pingedAt) return; // the room answered: the socket lives
+    const dead = ws;
+    if (dead) { try { dead.close(); } catch (e) { } }
+    connect();
+  }, 5000);
+}
+window.addEventListener('focus', () => resumeCheck());
+window.addEventListener('online', () => resumeCheck());
+
 // On Cloudflare the socket lands on one Durable Object. /lobby only
 // allocates a code (switch_room). /room/CODE is the table. The Node
 // socket ignores the path. The page itself is served for that URL so a
@@ -1229,6 +1264,11 @@ function seatEdgePath() {
   return '/lobby';
 }
 function connect() {
+  // One socket at a time: a connect already in flight (CONNECTING) or
+  // a live socket owns the seat until it closes. Rebuilds close the
+  // old socket first; this guard absorbs the late reconnect timers
+  // the old socket's close handler had already scheduled.
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let path = '';
   if (window.KOLOPOLY_EDGE) {
@@ -1236,6 +1276,7 @@ function connect() {
     path = edgePath;
   }
   ws = new WebSocket(proto + '//' + location.host + path);
+  const sock = ws;
   ws.onopen = () => {
     const again = connectedOnce;
     connectedOnce = true;
@@ -1270,6 +1311,8 @@ function connect() {
     if (!rejoinPending) flushQueue();
   };
   ws.onmessage = (ev) => {
+    lastMsgAt = Date.now();
+    if (resumeWatchdog) { clearTimeout(resumeWatchdog); resumeWatchdog = null; }
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.type === 'switch_room' && msg.code && window.KOLOPOLY_EDGE) {
@@ -1359,12 +1402,19 @@ function connect() {
       if (msg.line) toast(esc(msg.line));
       return;
     }
+    if (msg.type === 'toast') {
+      toast(esc(msg.text || ''), 4200);
+      return;
+    }
     if (msg.type === 'state') {
       if (!sessionLive) { sessionLive = true; flushQueue(); }
       onState(msg.room); return;
     }
   };
   ws.onclose = (ev) => {
+    // A rebuilt socket owns the seat now: this late close event must
+    // not tear down the new connection's session or heartbeat.
+    if (sock !== ws) return;
     sessionLive = false;
     stopHeartbeat();
     if (pendingEntry) { connect(); return; }
@@ -1969,6 +2019,9 @@ function pollReturnPayment() {
 }
 pollReturnPayment();
 window.addEventListener('pageshow', (ev) => {
+  // Every pageshow is a return to the foreground, persisted or not:
+  // prove the socket before the payment-return check below.
+  resumeCheck();
   if (!ev.persisted) return;
   const ref = readReturnRef();
   if (ref && (!payConfirm || payConfirm.state === 'checking' || payConfirm.state === 'waiting')) checkPayOnce(ref);
@@ -2964,13 +3017,43 @@ function wireSheetButtons(root, viewer) {
   }));
 }
 
+// A link hold is a wait, not a freeze: a slim banner over the board
+// carries the waiting line and the live countdown, and every control
+// (Log, Talk, the action bar) stays live underneath it. The banner is
+// painted here and ticked by the 500ms clock in paintLinkBanner.
+function paintLinkBanner(room) {
+  const b = $('linkHoldBanner');
+  if (!b) return;
+  const lw = room && room.linkWait;
+  if (!lw) { hideLinkBanner(); return; }
+  const key = (lw.playerId || '') + '|' + (lw.until || '');
+  if (b.getAttribute('data-lhb-key') !== key) {
+    b.setAttribute('data-lhb-key', key);
+    b.innerHTML = '<span class="lhb-text">Waiting for <b>' + esc(lw.name || 'a player') + '</b> to reconnect</span><span class="lhb-clock"></span>';
+  }
+  const clk = b.querySelector('.lhb-clock');
+  const left = Math.max(0, (lw.until || 0) - Date.now());
+  const s = Math.ceil(left / 1000);
+  if (clk) clk.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  b.hidden = false;
+}
+function hideLinkBanner() {
+  const b = $('linkHoldBanner');
+  if (b) { b.hidden = true; b.removeAttribute('data-lhb-key'); }
+}
+window.__kolopolyPaintLinkBanner = paintLinkBanner;
+
 // A dropped seat pauses the table. The card is a paper sticker: Big Daddy
 // holds the room, the missing token wears a wifi-wahala sticker, and a
 // ring counts the reconnect window. The fairness rule stays behind a tap.
 function renderPause(room) {
   if (window.__pauseShot) room = window.__pauseShot;
   const o = $('pauseOverlay');
-  const show = !!(room.paused && room.status === 'playing' && room.mode !== 'pass');
+  // A pause caused by a link hold never raises the full-screen card:
+  // the compact banner above carries it instead, paid or free alike.
+  const linkHold = !!(room.linkWait && room.status === 'playing' && room.mode !== 'pass');
+  if (linkHold) paintLinkBanner(room); else hideLinkBanner();
+  const show = !!(room.paused && room.status === 'playing' && room.mode !== 'pass') && !linkHold;
   $('view-game').classList.toggle('is-paused', show);
   if (window.KPBigDaddy) {
     if (show && window.KPBigDaddy.hold) window.KPBigDaddy.hold();
@@ -5554,6 +5637,7 @@ setInterval(() => {
   // KP9: the match clock ticks inside the header room chip.
   if (state) updateRoomChip(state);
   if (state && state.paused) paintPauseClock(window.__pauseShot || state);
+  if (state && state.linkWait) paintLinkBanner(state);
 }, 500);
 
 // KP14: UI taps are a faint tick, delegated on pointerdown so the tick
