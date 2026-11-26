@@ -3886,10 +3886,11 @@ function renderActionBar(room) {
   } else if (room.buildPlace && room.buildPlace.playerId === me.id) {
     html = '<p class="caption" style="align-self:center;">You win the last ' + room.buildPlace.kind + '. Tap a highlighted street to place am.</p>';
   } else if (room.turnPlayerId !== me.id && room.mode !== 'pass') {
-    // Lesson 5: management stays open. The hint lives in the players sheet,
-    // not as a second paragraph under the board.
+    // The message bar already names whose turn it is. A guided lesson
+    // still keeps the wait card, because that step points at it.
+    const lesson = room.practice && room.practice.kind !== 'free' && !room.practice.ended;
     const who = turn ? turn.name : 'them';
-    html = '<p class="wait-hint">Wait for ' + esc(who) + '\'s turn</p>';
+    html = lesson ? '<p class="wait-hint">Wait for ' + esc(who) + '\'s turn</p>' : '';
   } else {
     // My action (online: me; pass: the turn player, acting through this phone)
     const actor = room.mode === 'pass' ? turn : me;
@@ -3931,6 +3932,9 @@ function renderActionBar(room) {
     }
   }
   bar.innerHTML = html;
+  const view = document.getElementById('view-game');
+  const waitingOut = !!(view && me && !spectator && room.mode !== 'pass' && room.status === 'playing' && !room.auction && !room.debt && room.turnPlayerId !== me.id && !(room.practice && room.practice.kind !== 'free' && !room.practice.ended));
+  if (view) view.classList.toggle('turn-wait', waitingOut);
   const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
   wire('abRoll', () => sendAs('roll', {}));
   wire('abHustle', () => openHustleSheet(room));
