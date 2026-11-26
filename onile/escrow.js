@@ -751,7 +751,7 @@ function createEscrow(opts) {
   }
   function timelineOf(ch) {
     const items = (ch.audit || []).map((a) => ({
-      at: a.at, kind: a.type, text: a.detail || a.type, actor: a.actor || null, ref: null, amountKobo: null
+      at: a.at, kind: a.type, text: a.detail || (a.type === 'admin-emailed' ? '' : a.type), actor: a.actor || null, ref: null, amountKobo: null
     }));
     for (const p of people(ch)) {
       if (!p.paymentRef) continue;
@@ -762,6 +762,42 @@ function createEscrow(opts) {
     }
     items.sort((a, b) => a.at - b.at);
     return items;
+  }
+  function winnerNotice(ch) {
+    if (!ch || !ch.settlement || ch.settlement.kind !== 'winner' || !ch.winnerId) return null;
+    const m = moneyOf(ch);
+    const winner = personById(ch, ch.winnerId);
+    if (!winner) return null;
+    return {
+      code: ch.code,
+      title: ch.title,
+      stakeKobo: ch.stakeKobo,
+      housePercent: ch.housePercent,
+      potKobo: m.pot,
+      houseKobo: m.house,
+      prizeKobo: m.prize,
+      winner: { id: winner.id, name: winner.name },
+      players: people(ch).map((p) => ({ name: p.name, paid: !!p.paid }))
+    };
+  }
+  function pendingWinnerNotices() {
+    const rows = [];
+    for (const ch of state.challenges) {
+      if (ch.adminEmailed) continue;
+      const notice = winnerNotice(ch);
+      if (notice) rows.push(notice);
+    }
+    return rows;
+  }
+  function markWinnerMailed(code) {
+    const ch = byCode(code);
+    if (!ch) return { ok: false, error: 'unknown' };
+    if (ch.adminEmailed) return { ok: true, duplicate: true };
+    if (!winnerNotice(ch)) return { ok: false, error: 'state' };
+    ch.adminEmailed = { at: now() };
+    audit(ch, 'admin-emailed', null, null);
+    commit();
+    return { ok: true };
   }
   function bucketOf(status) {
     if (status === 'open' || status === 'joined') return 'open';
@@ -833,7 +869,8 @@ function createEscrow(opts) {
 
   return {
     upsertPlayer, create, join, recordPayment, start, cancel, report, resolve, decide, get, tickAll, drain,
-    list, ledger, player, playerByEmail, publicView, adminView, mine, disputes, overview, moneyOf
+    list, ledger, player, playerByEmail, publicView, adminView, mine, disputes, overview, moneyOf,
+    pendingWinnerNotices, markWinnerMailed
   };
 }
 

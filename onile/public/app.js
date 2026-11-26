@@ -297,7 +297,8 @@ var PAYMENT_STATUS = { paid: 'Paid', pending: 'Pending', failed: 'Failed', refun
 var EVENT_LABEL = {
   created: 'Opened', joined: 'Joined', paid: 'Stake paid', payment: 'Payment', held: 'Funds held',
   reported: 'Result named', disputed: 'Dispute', settled: 'Settled', cancelled: 'Cancelled',
-  expired: 'Closed', resolved: 'Decided', 'refund-queued': 'Refund queued'
+  expired: 'Closed', resolved: 'Decided', 'refund-queued': 'Refund queued',
+  'admin-emailed': 'Admin emailed'
 };
 function human(map, key) { return map[key] || 'Update'; }
 function seatChips(players) {
@@ -493,7 +494,20 @@ function load() {
     if (r.name === 'admin') {
       return api('/api/admin/queue').then(function (data) {
         page.admin = data.ok ? data : null;
-        if (data.ok) desk.refreshedAt = Date.now();
+        if (data.ok) {
+          desk.refreshedAt = Date.now();
+          var wanted = '';
+          try { wanted = new URLSearchParams(location.search).get('code') || ''; } catch (e) { wanted = ''; }
+          wanted = wanted.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (wanted && !desk.openedFromLink) {
+            var row = (data.challenges || []).filter(function (c) { return c.code === wanted; })[0];
+            if (row) {
+              desk.code = row.code;
+              desk.tab = row.bucket || desk.tab;
+              desk.openedFromLink = true;
+            }
+          }
+        }
       });
     }
   }).then(draw);

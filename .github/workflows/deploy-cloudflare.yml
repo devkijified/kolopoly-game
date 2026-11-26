@@ -17,6 +17,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Onile winner mail
+        run: node --test onile/test/winner-mail.test.mjs
       - name: Bundle the Worker (no network deploy)
         run: npx wrangler deploy --dry-run
 
