@@ -265,6 +265,9 @@ function createPayouts(opts) {
     if (!p) return { ok: false, error: 'unknown', message: 'That payout no dey.' };
     if (DONE.has(p.status)) return { ok: false, error: 'state', message: 'Already settled.' };
     if (p.status === 'sending' || p.status === 'refund-pending') return { ok: false, error: 'state', message: 'Paystack is still working on this one. Wait for it to finish.' };
+    if (p.kind === 'prize' && !(p.accountId && doc.banks[p.accountId])) {
+      return { ok: false, error: 'bank', message: 'Waiting for bank details' };
+    }
     p.note = String(note || '').slice(0, 200) || p.note;
     if (p.kind === 'prize') setStatus(p, 'paid-manual', { via: 'desk' });
     else { setStatus(p, 'refunded-manual', { via: 'desk' }); if (p.paymentRef && payments) { try { payments.update(p.paymentRef, { seat: 'refunded' }, { kind: 'refunded-manual' }); } catch (e) { /* best effort */ } } }

@@ -65,6 +65,8 @@ console.log('U1: payout queue rules');
   const q = createPayouts({ file, paystack: ps, payments, mode: 'manual' });
   const row = q.fromLedger({ kind: 'prize', roomCode: 'ABCD', gameKey: 'ABCD-1', playerId: 1, name: 'Ada', accountId: 'acc1', email: 'a@x.ng', amount: 900, amountKobo: 89910, at: 1 });
   check('a prize with no bank on file waits for the bank', row.status === 'awaiting-bank', row.status);
+  const early = q.markManual(row.id, 'paid by hand');
+  check('a prize with no bank cannot be marked paid by hand', !early.ok && early.error === 'bank' && early.message === 'Waiting for bank details' && q.get(row.id).status === 'awaiting-bank', JSON.stringify(early));
   const again = q.fromLedger({ kind: 'prize', roomCode: 'ABCD', gameKey: 'ABCD-1', playerId: 1, name: 'Ada', accountId: 'acc1', amount: 900, amountKobo: 89910, at: 2 });
   check('the same game never queues a second prize', again === row && q.list().length === 1);
   check('the transfer reference is Paystack shaped and fixed by the row', /^kpw_[0-9a-f]{28}$/.test(row.transferRef));

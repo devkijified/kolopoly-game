@@ -507,7 +507,7 @@ function createEscrow(opts) {
     if (!ch) return { ok: false, error: 'unknown', message: 'No challenge with that code.' };
     tick(ch);
     if (ch.status === 'refunded' || ch.status === 'cancelled') { commit(); return { ok: true, duplicate: true, challenge: ch }; }
-    if (ch.creatorId !== input.playerId) { commit(); return { ok: false, error: 'creator', message: 'Only the player who opened it can cancel.' }; }
+    if (!input.admin && ch.creatorId !== input.playerId) { commit(); return { ok: false, error: 'creator', message: 'Only the player who opened it can cancel.' }; }
     if (ch.status !== 'open' && ch.status !== 'joined') { commit(); return { ok: false, error: 'state', message: 'It has already started. Cancel is closed.' }; }
     const lines = refundLines(ch, 'cancelled');
     if (lines.length) {
@@ -591,6 +591,24 @@ function createEscrow(opts) {
     }
     commit();
     return { ok: false, error: 'action', message: 'Choose a winner, a split, or a refund.' };
+  }
+  function decide(input) {
+    const ch = byCode(input && input.code);
+    if (!ch) return { ok: false, error: 'unknown', message: 'No challenge with that code.' };
+    tick(ch);
+    if (ch.status === 'disputed') return resolve(Object.assign({}, input, { action: 'winner' }));
+    if (ch.status !== 'held' && ch.status !== 'reported') {
+      commit();
+      return { ok: false, error: 'state', message: 'This challenge is not waiting on a result.' };
+    }
+    if (ch.settlement) { commit(); return { ok: true, duplicate: true, challenge: ch }; }
+    const winner = winnerFrom(ch, input);
+    if (!winner) { commit(); return { ok: false, error: 'winner', message: 'Pick which player is paid.' }; }
+    ch.resolution = { action: 'winner', winnerId: winner.id, note: cleanText((input && input.note) || '', 0, 200) || '', at: now(), actor: 'admin' };
+    const planned = plan(ch, 'winner', [winnerLine(ch, winner)], winner);
+    audit(ch, 'resolved', 'admin', 'desk named the winner');
+    commit();
+    return { ok: true, queue: !!planned.queue, challenge: ch };
   }
 
   function get(code) {
@@ -703,7 +721,11 @@ function createEscrow(opts) {
   }
   function adminView(ch) {
     const base = publicView(ch, null);
-    base.players = people(ch).map((p) => ({ id: p.id, name: p.name, email: p.email, paid: !!p.paid, report: p.report || null }));
+    base.players = people(ch).map((p) => ({
+      id: p.id, name: p.name, email: p.email, paid: !!p.paid,
+      report: p.report || null, paymentRef: p.paymentRef || null, paidAt: p.paidAt || null
+    }));
+    base.timeline = timelineOf(ch);
     base.creator = ch.creator ? { name: ch.creator.name, email: ch.creator.email, paid: !!ch.creator.paid, report: ch.creator.report } : null;
     base.opponent = ch.opponent ? { name: ch.opponent.name, email: ch.opponent.email, paid: !!ch.opponent.paid, report: ch.opponent.report } : null;
     base.statements = people(ch).map((p) => statement(ch, p)).filter(Boolean);
@@ -727,6 +749,77 @@ function createEscrow(opts) {
     rows.sort((a, b) => b.createdAt - a.createdAt);
     return rows;
   }
+  function timelineOf(ch) {
+    const items = (ch.audit || []).map((a) => ({
+      at: a.at, kind: a.type, text: a.detail || a.type, actor: a.actor || null, ref: null, amountKobo: null
+    }));
+    for (const p of people(ch)) {
+      if (!p.paymentRef) continue;
+      items.push({
+        at: p.paidAt || ch.createdAt, kind: 'payment',
+        text: p.name + ' paid the stake', actor: p.id, ref: p.paymentRef, amountKobo: ch.stakeKobo
+      });
+    }
+    items.sort((a, b) => a.at - b.at);
+    return items;
+  }
+  function bucketOf(status) {
+    if (status === 'open' || status === 'joined') return 'open';
+    if (status === 'held' || status === 'reported') return 'live';
+    if (status === 'disputed') return 'disputes';
+    return 'settled';
+  }
+  function lagosMidnight(ts) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date(ts));
+    const pick = (type) => parts.find((p) => p.type === type).value;
+    return Date.parse(pick('year') + '-' + pick('month') + '-' + pick('day') + 'T00:00:00+01:00');
+  }
+  function overview() {
+    const challenges = [];
+    for (const ch of state.challenges) {
+      tick(ch);
+      const view = adminView(ch);
+      view.bucket = bucketOf(ch.status);
+      const stillHeld = view.bucket === 'open' || view.bucket === 'live' || view.bucket === 'disputes';
+      view.heldNowKobo = stillHeld ? ch.stakeKobo * paidCount(ch) : 0;
+      challenges.push(view);
+    }
+    commit();
+    challenges.sort((a, b) => b.createdAt - a.createdAt);
+    const t = now();
+    const day = lagosMidnight(t);
+    const week = day - 6 * 24 * 60 * 60 * 1000;
+    let paidTodayKobo = 0;
+    let paidWeekKobo = 0;
+    let houseKobo = 0;
+    let heldKobo = 0;
+    const counts = { open: 0, live: 0, disputes: 0, settled: 0 };
+    for (const row of challenges) {
+      counts[row.bucket] += 1;
+      heldKobo += row.heldNowKobo || 0;
+    }
+    for (const line of state.ledger) {
+      if (line.type === 'stake-in') {
+        if (line.at >= day) paidTodayKobo += line.amountKobo;
+        if (line.at >= week) paidWeekKobo += line.amountKobo;
+      }
+      if (line.type === 'house') houseKobo += line.amountKobo;
+    }
+    const users = state.players.map((p) => ({
+      id: p.id, name: p.name, email: p.email, createdAt: p.createdAt || null,
+      challenges: challenges.filter((row) => (row.players || []).some((s) => s.id === p.id)).length
+    }));
+    return {
+      ok: true,
+      stats: {
+        open: counts.open, live: counts.live, disputes: counts.disputes, settled: counts.settled,
+        heldKobo, paidTodayKobo, paidWeekKobo, houseKobo, users: users.length
+      },
+      challenges, users
+    };
+  }
   function disputes() {
     const rows = [];
     for (const ch of state.challenges) {
@@ -739,8 +832,8 @@ function createEscrow(opts) {
   }
 
   return {
-    upsertPlayer, create, join, recordPayment, start, cancel, report, resolve, get, tickAll, drain,
-    list, ledger, player, playerByEmail, publicView, adminView, mine, disputes, moneyOf
+    upsertPlayer, create, join, recordPayment, start, cancel, report, resolve, decide, get, tickAll, drain,
+    list, ledger, player, playerByEmail, publicView, adminView, mine, disputes, overview, moneyOf
   };
 }
 
