@@ -3108,14 +3108,23 @@ function firsQuote(room, player) {
   const pct = Math.floor(netWorth(room, player) * 0.10);
   return { flat, percent: pct, showPercent: pct > 0 && pct < flat };
 }
+function clearWaitCopy(room, player) {
+  if (!room || !player || !room.message) return;
+  const name = player.humanName || player.name;
+  if (room.message.indexOf('Waiting for ' + name) === 0) setMessage(room, name + ' don reconnect.');
+}
 function clearLinkHold(room, player) {
   if (!player || !player.linkHold) {
-    if (room && room.linkWait && player && room.linkWait.playerId === player.id) room.linkWait = null;
+    if (room && room.linkWait && player && room.linkWait.playerId === player.id) {
+      room.linkWait = null;
+      clearWaitCopy(room, player);
+    }
     return;
   }
   player.linkUsedMs = (player.linkUsedMs || 0) + Math.max(0, now() - (player.linkHold.armed || now()));
   player.linkHold = null;
   if (room.linkWait && room.linkWait.playerId === player.id) room.linkWait = null;
+  clearWaitCopy(room, player);
 }
 function creditStake(room, player, reason, idPrefix) {
   const kobo = (room.paidFee || 0) * 100;
@@ -3153,6 +3162,19 @@ function finishLinkHold(room, player) {
 }
 function armLinkHold(room, player) {
   if (!player || player.bot || player.resigned || room.status !== 'playing') return;
+  // A free table never freezes for a dropped phone. The seat becomes a
+  // bot at once, and the same player can take it back when they return.
+  if (!room.paid) {
+    const name = player.humanName || player.name;
+    player.humanName = name;
+    if (convertHumanToAfkBot(room, player, { force: true })) {
+      const line = name + ' network blink. Bot dey hold their seat.';
+      setMessage(room, line);
+      pushFeed(room, 'info', line, { playerId: player.id });
+    } else setMessage(room, name + ' dey away.');
+    updatePause(room);
+    return;
+  }
   const used = player.linkUsedMs || 0;
   const windowMs = Math.min(LINK_DROP_MS, Math.max(0, LINK_CAP_MS - used));
   if (windowMs < 5000) { finishLinkHold(room, player); return; }
@@ -3163,12 +3185,13 @@ function armLinkHold(room, player) {
   updatePause(room);
 }
 
-function convertHumanToAfkBot(room, player) {
+function convertHumanToAfkBot(room, player, opts) {
   // A paid seat is never played by a bot. A network drop pauses the table
   // instead, and an idle paid seat only skips a turn.
+  opts = opts || {};
   if (room && (room.paid || room.practice)) return false;
   if (!player || player.bot || player.bankrupt || player.resigned) return false;
-  if (room.afkTakeovers >= AFK_MAX_TAKEOVERS) return false;
+  if (!opts.force && room.afkTakeovers >= AFK_MAX_TAKEOVERS) return false;
   const others = room.players.filter((p) => p.id !== player.id && !p.bankrupt);
   if (!others.length) return false;
   if (player.ws && !player.ws.__bot) {

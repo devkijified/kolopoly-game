@@ -1158,11 +1158,18 @@ function syncWakeLock(room) {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    resumeLink();
     if (!muted) unlockAudio();
     if (state && state.status === 'playing' && !state.paused) requestWakeLock();
     syncMusic();
-  } else if (document.visibilityState === 'hidden') releaseWakeLock();
+  } else if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    releaseWakeLock();
+  }
 });
+window.addEventListener('pageshow', () => resumeLink());
+window.addEventListener('focus', () => resumeLink());
+window.addEventListener('online', () => resumeLink());
 
 function showConnBanner(text) {
   if (!connBannerEl) {
@@ -1228,7 +1235,40 @@ function seatEdgePath() {
   if (inviteCode.length === 4) return '/room/' + inviteCode;
   return '/lobby';
 }
+let lastInbound = 0;
+let hiddenAt = 0;
+let reconnectTimer = null;
+function resumeDecision(env) {
+  if (!env || !env.hasSeat) return 'idle';
+  if (env.readyState !== 1) return 'reconnect';
+  if ((env.hiddenFor || 0) < 800) return 'idle';
+  if (!env.lastInbound || env.now - env.lastInbound > 8000) return 'reconnect';
+  return 'probe';
+}
+window.KPResume = { decide: resumeDecision };
+function resumeLink() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (!hasSeat || !hiddenAt) return;
+  const action = resumeDecision({
+    hasSeat: true,
+    readyState: ws ? ws.readyState : 3,
+    lastInbound: lastInbound,
+    now: Date.now(),
+    hiddenFor: Date.now() - hiddenAt
+  });
+  if (action === 'reconnect') { connect(); return; }
+  if (action === 'probe' && ws) {
+    const mark = lastInbound;
+    try { ws.send(JSON.stringify({ type: 'heartbeat' })); }
+    catch (e) { connect(); return; }
+    setTimeout(() => { if (lastInbound === mark) connect(); }, 1200);
+  }
+}
 function connect() {
+  clearTimeout(reconnectTimer);
+  if (ws && ws.readyState !== 3) {
+    try { ws.__replaced = true; ws.close(); } catch (e) { /* already gone */ }
+  }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let path = '';
   if (window.KOLOPOLY_EDGE) {
@@ -1270,6 +1310,7 @@ function connect() {
     if (!rejoinPending) flushQueue();
   };
   ws.onmessage = (ev) => {
+    lastInbound = Date.now();
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.type === 'switch_room' && msg.code && window.KOLOPOLY_EDGE) {
@@ -1365,6 +1406,8 @@ function connect() {
     }
   };
   ws.onclose = (ev) => {
+    if (ev && ev.target && ev.target.__replaced) return;
+    if (ws && ev && ev.target && ws !== ev.target) return;
     sessionLive = false;
     stopHeartbeat();
     if (pendingEntry) { connect(); return; }
@@ -1383,7 +1426,7 @@ function connect() {
       // AFK bot took the seat: keep the seat token so a return can reclaim.
       showConnBanner('You don go quiet. A bot dey hold your seat. Come back sharp to reclaim.');
       if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
-      setTimeout(connect, 1800);
+      reconnectTimer = setTimeout(connect, 1800);
       return;
     }
     // Soft drop: never scream "disconnected" while the seat is still held.
@@ -1391,7 +1434,7 @@ function connect() {
     // has the new build up can raise the banner before the reconnect.
     if (hasSeat && !pendingLessonKind && !(state && state.practice)) showConnBanner('Link dey reconnect. Your seat and money dey held.');
     if (window.KPUpdate && typeof window.KPUpdate.checkNow === 'function') window.KPUpdate.checkNow();
-    setTimeout(connect, 1800);
+    reconnectTimer = setTimeout(connect, 1800);
   };
 }
 function flushQueue() {
@@ -2406,6 +2449,9 @@ function onState(room) {
   }
   const prev = state;
   state = room;
+  if (room && room.message && /network blink/.test(room.message) && (!prev || prev.messageSeq !== room.messageSeq)) {
+    toast(room.message, 4200);
+  }
   hideConnBanner();
   if (room.status === 'playing') { unlockAudio(); syncWakeLock(room); }
   else releaseWakeLock();
@@ -2964,14 +3010,15 @@ function wireSheetButtons(root, viewer) {
   }));
 }
 
-// A dropped seat pauses the table. The card is a paper sticker: Big Daddy
-// holds the room, the missing token wears a wifi-wahala sticker, and a
-// ring counts the reconnect window. The fairness rule stays behind a tap.
+// A paid drop keeps a small banner over the board. A free drop never
+// covers the table: the seat is already a bot, and the message bar speaks.
+let pauseTick = null;
 function renderPause(room) {
   if (window.__pauseShot) room = window.__pauseShot;
   const o = $('pauseOverlay');
-  const show = !!(room.paused && room.status === 'playing' && room.mode !== 'pass');
-  $('view-game').classList.toggle('is-paused', show);
+  const show = !!(room.paid && room.linkWait && room.paused && room.status === 'playing' && room.mode !== 'pass');
+  const view = $('view-game');
+  if (view) view.classList.toggle('is-paused', false);
   if (window.KPBigDaddy) {
     if (show && window.KPBigDaddy.hold) window.KPBigDaddy.hold();
     else if (!show && window.KPBigDaddy.release) window.KPBigDaddy.release();
@@ -3012,6 +3059,16 @@ function renderPause(room) {
     '</details></div>';
   o.classList.add('show');
   paintPauseClock(room);
+  if (!pauseTick) {
+    pauseTick = setInterval(() => {
+      if (!state || !state.linkWait || !state.paused) {
+        clearInterval(pauseTick);
+        pauseTick = null;
+        return;
+      }
+      paintPauseClock(state);
+    }, 250);
+  }
 }
 function paintPauseClock(room) {
   const num = $('pauseRingNum');

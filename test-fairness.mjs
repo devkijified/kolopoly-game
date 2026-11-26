@@ -78,14 +78,20 @@ try {
   const guestId = guest.joined.playerId;
   const token = guest.joined.token;
   guest.ws.close();
-  await waitFor(host, (s) => s.paused && s.linkWait && s.linkWait.name === 'Mobolaji', 'paused for reconnect');
-  check('a dropped seat pauses the table with their name', host.state.paused && host.state.linkWait.name === 'Mobolaji');
+  await waitFor(host, (s) => {
+    const p = s.players.find((x) => x.id === guestId);
+    return p && p.bot && !s.paused && !s.linkWait;
+  }, 'free drop becomes a bot');
+  check('a free drop does not freeze the table', !host.state.paused && !host.state.linkWait && (host.state.feed || []).some((e) => /network blink/.test(e.text || '')));
   const back = await socket(port);
   send(back, 'rejoin', { code, playerId: guestId, token });
-  await waitFor(host, (s) => !s.paused && !s.linkWait, 'resumed');
-  check('reconnect clears the pause', !host.state.paused && !host.state.linkWait);
+  await waitFor(host, (s) => {
+    const p = s.players.find((x) => x.id === guestId);
+    return p && !p.bot && !s.linkWait && (s.message || '').indexOf('Waiting for Mobolaji') !== 0;
+  }, 'reclaimed');
+  check('reconnect clears any waiting line', (host.state.message || '').indexOf('Waiting for Mobolaji') !== 0);
   const still = host.state.players.find((p) => p.id === guestId);
-  check('the returned seat is still human', still && !still.bot);
+  check('the returned seat is human again', still && !still.bot);
 
   send(host, 'test_set_paid', { playerId: guestId, fee: 200, accountId: 'a_mobo' });
   await waitFor(host, (s) => s.paid && s.paid.fee === 200, 'marked paid');
