@@ -21,6 +21,7 @@ const realClick = appSrc.match(/dataset\.act === 'real'[\s\S]{0,90}/);
 const endReal = appSrc.match(/const real = \$\('endReal'\);[\s\S]{0,140}/);
 check('the coach Play-real button leaves training', !!(realClick && realClick[0].includes('exitTrainingHome') && !realClick[0].includes('KPStartPractice')));
 check('the final-table Play-real button leaves training', !!(endReal && endReal[0].includes('exitTrainingHome') && !endReal[0].includes("KPStartPractice('free')")));
+check('the top Exit button uses the clean training exit', appSrc.includes("btn.id = 'trainExit'") && appSrc.includes('if (trainingNeedsLeaveAsk(state)) showTrainLeave();') && appSrc.includes("if (b.dataset.act === 'leave') exitTrainingHome();"));
 check('a collect card is good news', gameData.cardMood('bankPays') === 'good' && /Collect/.test(gameData.cardCaption('bankPays')));
 check('NEPA blackout is bad news', gameData.cardMood('nepaLight') === 'bad' && /NEPA/.test(gameData.cardCaption('nepaLight')));
 

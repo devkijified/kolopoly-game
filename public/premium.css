@@ -1357,7 +1357,33 @@ body.train-gate #coachGate {
   #coachRing, #coachFinger { animation: none; }
 }
 #coachGate[hidden] { display: none; }
-body.train-gate .topbar, body.train-done .topbar { z-index: 220; }
+body.train-gate .topbar, body.train-done .topbar, body.train-on .topbar { z-index: 220; }
+#trainExit {
+  flex: none; align-items: center; justify-content: center;
+  min-width: 64px; min-height: 44px; height: 44px; padding: 0 12px;
+  border: 3px solid #1a140c; border-radius: 14px;
+  background: #fff6e4; color: #1a140c;
+  box-shadow: 3px 3px 0 #e8a90c;
+  font: 900 15px/1 "Figtree", system-ui, sans-serif;
+}
+body.train-on #trainExit:not([hidden]) { display: inline-flex; }
+#trainExit[hidden] { display: none !important; }
+body.train-on #tierBtn, body.train-on #roomChip { display: none !important; }
+body.train-on #modePill { flex: 0 1 auto; min-width: 0; max-width: none; }
+#trainLeaveSheet {
+  position: fixed; inset: 0; z-index: 240;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(8, 6, 4, 0.62);
+}
+#trainLeaveSheet[hidden] { display: none !important; }
+.train-leave-card {
+  width: min(280px, 100%);
+  background: #fff6e4; color: #1a140c;
+  border: 3px solid #1a140c; border-radius: 16px;
+  box-shadow: 4px 5px 0 #1a140c; padding: 14px;
+}
+.train-leave-card p { margin: 0 0 4px; font-size: 16px; font-weight: 900; }
+.train-leave-card .btn { width: 100%; min-height: 44px; margin-top: 8px; }
 body.train-gate .coach-live {
   position: relative; z-index: 172 !important; pointer-events: auto;
   outline: none !important; box-shadow: none !important;
