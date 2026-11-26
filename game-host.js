@@ -3212,17 +3212,36 @@ function convertHumanToAfkBot(room, player) {
 }
 
 function reclaimAfkBot(room, player, ws) {
-  if (!player || !player.afkTaken) return;
+  // Paid tables never hand a seat to a bot, so there is nothing to take back.
+  if (!room || room.paid || !player || !player.afkTaken) return false;
   if (player.botBrain) { try { player.botBrain.kill(); } catch (e) { } player.botBrain = null; }
   if (player.ws && player.ws.__bot) {
     try { player.ws.__detached = true; player.ws.readyState = 3; } catch (e) { }
   }
+  const name = player.humanName || player.name;
+  player.name = name;
   player.bot = false;
   player.afkTaken = false;
   player.ws = ws;
   player.connected = true;
   touchActive(player);
-  setMessage(room, player.name + ' don return. Bot don comot for the seat.');
+  // Their turn comes back with a full clock. An open auction keeps its
+  // own clock, and an open trade stays for them to answer.
+  if (room.status === 'playing' && room.turnPlayerId === player.id && !room.auction) setDeadline(room);
+  if (room.endTable) {
+    const row = room.endTable.find((r) => r.playerId === player.id);
+    if (row) { row.name = name; row.humanName = name; row.bot = false; row.afkTaken = false; }
+  }
+  if (room.status === 'playing' || room.status === 'ended') {
+    pushFeed(room, 'info', name + ' is back', { playerId: player.id });
+    setMessage(room, name + ' is back');
+  }
+  try {
+    if (ws && typeof ws.send === 'function' && room.status !== 'lobby') {
+      ws.send(JSON.stringify({ type: 'notice', action: 'back', message: "You're back. Your seat is yours." }));
+    }
+  } catch (e) { /* the seat is already theirs */ }
+  return true;
 }
 
 function spawnBot(room) {
@@ -3338,6 +3357,14 @@ function handleConnection(ws) {
           if (!p.linkHold) p.linkHold = { until: now() - 1, armed: now() - 1 };
           else p.linkHold.until = now() - 1;
         }
+        broadcast(room);
+        return;
+      }
+      if (msg.type === 'test_take_afk') {
+        const p = room.players.find((x) => x.id === Number(msg.playerId)) || ctx.player;
+        const ok = convertHumanToAfkBot(room, p);
+        if (ok && p && p.botBrain) p.botBrain.hold = true;
+        send({ type: 'test_take_afk', ok: !!ok, playerId: p ? p.id : null });
         broadcast(room);
         return;
       }
