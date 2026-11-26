@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "onile": "node onile/server.js",
-    "test": "node test-engine.mjs && node test-big-daddy.mjs && node test-install-prompt.mjs && node test-auction-price.mjs && node test-afk-reclaim.mjs && node test-board28.mjs && node test-ops.mjs && node test-ops-live.mjs && node test-ops-roster.mjs && node test-credit-book.mjs && node test-retention-gate.mjs && node --test onile/test/escrow.test.mjs onile/test/auth.test.mjs onile/test/group.test.mjs onile/test/admin.test.mjs",
+    "test": "node test-engine.mjs && node test-big-daddy.mjs && node test-install-prompt.mjs && node test-auction-price.mjs && node test-afk-reclaim.mjs && node test-free-drop.mjs && node test-board28.mjs && node test-ops.mjs && node test-ops-live.mjs && node test-ops-roster.mjs && node test-credit-book.mjs && node test-retention-gate.mjs && node --test onile/test/escrow.test.mjs onile/test/auth.test.mjs onile/test/group.test.mjs onile/test/admin.test.mjs",
     "test:worker": "vitest run --config vitest.worker.config.mjs",
     "vapid": "node scripts/generate-vapid.js",
     "test:p2e": "node test-paid.mjs && node test-p2e.mjs"

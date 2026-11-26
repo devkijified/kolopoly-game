@@ -589,9 +589,18 @@ body:has(#view-signin.active) { background: #0f1116; }
 }
 #pauseOverlay .pause-stage {
   position: relative; z-index: 1;
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 8px;
-  min-height: 132px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 0;
 }
+#pauseOverlay.show .pause-daddy,
+#pauseOverlay.show .pause-seat,
+#pauseOverlay.show .pause-how { display: none; }
+#pauseOverlay.show .pause-card.pause-sticker { width: min(100%, 420px); padding: 8px 10px; }
+#pauseOverlay.show .pause-ring,
+#pauseOverlay.show .pause-ring svg { width: 64px; height: 64px; margin: 0; }
+#pauseOverlay.show .pause-ring-num { font-size: 15px; }
+#pauseOverlay.show .pause-headline { font-size: 16px; margin: 0; }
+#pauseOverlay.show .pause-line { font-size: 13px; }
 #pauseOverlay .pause-daddy {
   width: 132px; height: 148px; object-fit: contain; object-position: bottom;
   filter: drop-shadow(3px 6px 0 rgba(26, 20, 12, 0.28));
