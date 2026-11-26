@@ -38,9 +38,11 @@
   };
   let lastAt = 0;
   const pending = [];
+  const seen = new Set();
   let timer = null;
   let swapTimer = null;
   let current = null;
+  const TIP_MS = 4000;
 
   function enabled() {
     try { return localStorage.getItem(KEY) !== '0'; } catch (e) { return true; }
@@ -115,10 +117,28 @@
     const next = pending.shift();
     if (next) show(next.id, Object.assign({ force: true }, next.extra || {}));
   }
+  function place(el) {
+    const game = document.getElementById('view-game');
+    const bar = document.getElementById('actionBar');
+    const onTable = game && game.classList && game.classList.contains('active') && bar && bar.parentNode;
+    if (onTable) {
+      el.classList.remove('bd-fixed');
+      if (el.parentNode !== bar.parentNode || el.nextSibling !== bar) bar.parentNode.insertBefore(el, bar);
+      return;
+    }
+    el.classList.add('bd-fixed');
+    if (!el.parentNode) document.body.appendChild(el);
+  }
+  function dismiss() {
+    hide();
+    const next = pending.shift();
+    if (next) show(next.id, Object.assign({ force: true }, next.extra || {}));
+  }
   function show(id, extra) {
     extra = extra || {};
     const spec = LINES[id];
     if (!spec || !enabled()) return false;
+    if (spec.line && /monopoly/i.test(spec.line)) return false;
     const lesson = window.__kolopolyState && window.__kolopolyState();
     const teaching = lesson && lesson.practice && lesson.practice.kind !== 'free' && lesson.practice.action !== 'free' && lesson.practice.step !== 'ready';
     if (teaching) {
@@ -134,114 +154,134 @@
       return true;
     }
     const now = extra.now || Date.now();
-    if (!extra.force && (current || (lastAt && now - lastAt < 800))) {
-      pending.push({ id, extra });
-      return true;
-    }
+    if (!extra.force && lastAt && now - lastAt < GAP_MS) return false;
     lastAt = now;
     const el = ensure();
     const pose = spec.pose;
     const tint = spec.tint ? (TINT[extra.phase] || 'none') : 'none';
-    const jail = id === 'jail';
-    const still = reduced() || extra.still;
-    el.className = 'bd-stage' + (still ? ' bd-still' : ' bd-show');
+    el.className = 'bd-tip';
     el.hidden = false;
-    el.innerHTML = '<div class="bd-dim"></div><div class="bd-pop' + (jail ? ' bd-jail' : '') + (still ? ' bd-still' : ' bd-show') + '">' +
-      '<div class="bd-fx">' + propsFor(id) + '</div>' +
-      '<img class="bd-fig" alt="" decoding="async" loading="lazy">' +
-      '<div class="bd-bubble"></div></div>';
+    place(el);
+    el.innerHTML = '<button type="button" class="bd-chip">' +
+      '<img alt="" decoding="async" width="36" height="36">' +
+      '<span class="bd-line"></span></button>';
     const img = el.querySelector('img');
     img.src = src(pose);
     img.style.filter = tint === 'none' ? '' : tint;
-    const bubble = el.querySelector('.bd-bubble');
-    bubble.textContent = '';
-    if (spec.stamp) {
-      const stamp = document.createElement('div');
-      stamp.className = 'bd-stamp';
-      stamp.textContent = spec.stamp;
-      bubble.appendChild(stamp);
-    }
-    const line = document.createElement('div');
-    line.textContent = extra.line || spec.line;
-    bubble.appendChild(line);
+    const line = el.querySelector('.bd-line');
+    const text = extra.line || spec.line;
+    line.textContent = spec.stamp ? (spec.stamp + '. ' + text) : text;
     current = id;
     clearTimeout(timer);
     clearTimeout(swapTimer);
-    const words = (extra.line || spec.line || '').length;
-    const ms = Math.max(4500, Math.min(8000, 4000 + words * 45));
-    timer = setTimeout(() => {
-      hide();
-      const next = pending.shift();
-      if (next) show(next.id, Object.assign({ force: true }, next.extra || {}));
-    }, extra.ms || ms);
-    bubble.addEventListener('click', () => { hide(); const next = pending.shift(); if (next) show(next.id, Object.assign({ force: true }, next.extra || {})); });
-    if (spec.then && !reduced() && !extra.still) {
-      swapTimer = setTimeout(() => {
-        if (current !== id || !img) return;
-        img.src = src(spec.then);
-      }, 700);
-    }
+    timer = setTimeout(dismiss, extra.ms || TIP_MS);
+    const chip = el.querySelector('.bd-chip');
+    if (chip && chip.addEventListener) chip.addEventListener('click', (ev) => {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      dismiss();
+    });
     try { if (window.KPBigDaddySting) window.KPBigDaddySting(); } catch (e) { /* sound is garnish */ }
     return true;
   }
+  // Drop the chip once the seat no longer has that action.
+  function follow(room, meId) {
+    if (!current || !room) return;
+    const me = (room.players || []).find((p) => p && p.id === meId);
+    if (current === 'jail' && (!me || !me.inJail)) hide();
+    else if (current === 'build' && room.phase !== 'end') hide();
+    else if (current === 'low' && (!me || me.cash >= 80000)) hide();
+  }
 
-  // One highlight from a room update. Feed lines and seat changes share
-  // the same 20 second gate, so two beats in one push still show once.
+  // One highlight from a room update, and only for the seat that can
+  // act on it. Everyone else keeps the ordinary log line.
+  function freshFeed(prev, room) {
+    const prevSeq = prev.feed && prev.feed.length ? prev.feed[prev.feed.length - 1].seq : 0;
+    return (room.feed || []).filter((e) => e && e.seq > prevSeq);
+  }
+  function offer(hit, meId) {
+    if (!hit || hit.actorId == null || meId == null) return null;
+    if (String(hit.actorId) !== String(meId)) return null;
+    if (seen.has(hit.key)) return null;
+    seen.add(hit.key);
+    return hit.id;
+  }
   function detect(prev, room, meId) {
     if (!prev || !room) return null;
-    const prevSeq = prev.feed && prev.feed.length ? prev.feed[prev.feed.length - 1].seq : 0;
-    const fresh = (room.feed || []).filter((e) => e && e.seq > prevSeq);
+    const fresh = freshFeed(prev, room);
+    let hit = null;
     for (const e of fresh) {
-      if (e.kind === 'power') return 'card';
-      if (e.kind === 'bankrupt') return 'lose';
-      if (e.kind === 'kirikiri') return 'jail';
-      if (e.kind === 'jackpot') return 'pot';
+      if (hit) break;
+      if (e.kind === 'power' && e.playerId != null) hit = { id: 'card', actorId: e.playerId, key: 'card:' + e.seq };
+      else if (e.kind === 'kirikiri' && e.playerId != null) hit = { id: 'jail', actorId: e.playerId, key: 'jail:' + e.seq };
+      else if (e.kind === 'jackpot' && e.playerId != null) hit = { id: 'pot', actorId: e.playerId, key: 'pot:' + e.seq };
+      else if (e.kind === 'bankrupt' && e.playerId != null) hit = { id: 'lose', actorId: e.playerId, key: 'lose:' + e.seq };
     }
-    if (room.owambeResult && room.owambeResult.winnerId != null &&
-      (!prev.owambeResult || prev.owambeResult.id !== room.owambeResult.id)) return 'pot';
-    if (room.props && prev.props) {
-      for (let i = 0; i < room.props.length; i++) {
+    if (!hit && room.owambeResult && room.owambeResult.winnerId != null &&
+      (!prev.owambeResult || prev.owambeResult.id !== room.owambeResult.id)) {
+      hit = { id: 'pot', actorId: room.owambeResult.winnerId, key: 'owambe:' + room.owambeResult.id };
+    }
+    if (!hit && room.props && prev.props) {
+      for (let i = 0; i < room.props.length && !hit; i++) {
         const now = room.props[i];
         const old = prev.props[i];
-        if (now && old && now.b >= 5 && old.b < 5) return 'rent';
+        if (now && old && now.b >= 5 && old.b < 5 && now.o != null) {
+          hit = { id: 'rent', actorId: now.o, key: 'hotel:' + i };
+        }
       }
       const groups = (window.KP_DATA && window.KP_DATA.GROUP_SPACES) || {};
       for (const g of Object.keys(groups)) {
+        if (hit) break;
         const ids = groups[g];
         if (!ids || !ids.length) continue;
         const owner = room.props[ids[0]] && room.props[ids[0]].o;
         if (owner == null) continue;
         const full = ids.every((i) => room.props[i] && room.props[i].o === owner);
         const was = ids.every((i) => prev.props[i] && prev.props[i].o === owner);
-        if (full && !was) return 'rent';
+        if (full && !was) hit = { id: 'rent', actorId: owner, key: 'set:' + g + ':' + owner };
       }
     }
-    for (const e of fresh) {
-      if (e.kind === 'credit' && e.spaceName && Number(e.amount) >= 40000) return 'rent';
-      if (e.kind === 'phase') {
-        const now = room.inf ? room.inf.phase : 0;
-        const before = prev.inf ? prev.inf.phase : 0;
-        if (now > before) return 'salary';
+    if (!hit) {
+      for (const e of fresh) {
+        if (e.kind === 'credit' && e.spaceName && Number(e.amount) >= 40000 && e.playerId != null) {
+          hit = { id: 'rent', actorId: e.playerId, key: 'rent:' + e.seq };
+          break;
+        }
+        if (e.kind === 'phase') {
+          const now = room.inf ? room.inf.phase : 0;
+          const before = prev.inf ? prev.inf.phase : 0;
+          if (now > before && room.turnPlayerId != null) {
+            hit = { id: 'salary', actorId: room.turnPlayerId, key: 'salary:' + now };
+            break;
+          }
+        }
       }
     }
-    if (room.paid && room.paid.allPaid && !(prev.paid && prev.paid.allPaid)) return 'paid';
-    if (room.players && prev.players) {
+    if (!hit && room.paid && room.paid.allPaid && !(prev.paid && prev.paid.allPaid) && room.hostId != null) {
+      hit = { id: 'paid', actorId: room.hostId, key: 'paid:' + (room.code || '') };
+    }
+    if (!hit && room.players && prev.players) {
       for (const p of room.players) {
-        if (!p || !p.afkTaken || p.id === meId) continue;
+        if (!p || !p.bankrupt || p.id == null) continue;
         const was = prev.players.find((x) => x.id === p.id);
-        if (was && !was.afkTaken) return 'afk';
-      }
-      for (const p of room.players) {
-        if (!p || !p.bankrupt) continue;
-        const was = prev.players.find((x) => x.id === p.id);
-        if (was && !was.bankrupt) return 'lose';
+        if (was && !was.bankrupt) {
+          hit = { id: 'lose', actorId: p.id, key: 'broke:' + p.id };
+          break;
+        }
       }
     }
-    const me = (room.players || []).find((p) => p.id === meId);
-    const prevMe = (prev.players || []).find((p) => p.id === meId);
-    if (me && prevMe && me.cash < 80000 && prevMe.cash >= 80000) return 'low';
-    if (room.phase === 'end' && prev.phase !== 'end' && me && me.cash > 200000) return 'build';
-    return null;
+    const me = (room.players || []).find((p) => p && String(p.id) === String(meId));
+    const prevMe = (prev.players || []).find((p) => p && String(p.id) === String(meId));
+    if (!hit && me && prevMe && me.cash < 80000 && prevMe.cash >= 80000) {
+      hit = { id: 'low', actorId: me.id, key: 'low:' + me.id + ':' + me.cash };
+    }
+    if (!hit && room.phase === 'end' && prev.phase !== 'end' && room.turnPlayerId != null) {
+      const turn = (room.players || []).find((p) => p && p.id === room.turnPlayerId);
+      if (turn && turn.cash > 200000) {
+        const seq = fresh.length ? fresh[fresh.length - 1].seq : room.turnPlayerId;
+        hit = { id: 'build', actorId: turn.id, key: 'build:' + turn.id + ':' + seq };
+      }
+    }
+    return offer(hit, meId);
   }
 
 
@@ -259,6 +299,7 @@
     hide: hide,
     hold: hold,
     release: release,
+    follow: follow,
     allow: allow,
     enabled: enabled,
     setEnabled: setEnabled,

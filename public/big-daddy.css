@@ -1,62 +1,52 @@
-/* Big Daddy on stage. The dim and the figure never take taps, so a
-   turn, the dice, and a timer keep working for the short time he is up. */
-.bd-stage {
+/* A small sticker above the action buttons. It does not dim the
+   table, and the only tap it takes is its own dismiss. */
+#bigDaddy.bd-tip {
+  /* 8px of clear space under the 3px shadow. The timer ring sits
+     on the button, below this sticker. */
+  margin: 0 0 11px;
+  pointer-events: none;
+  position: relative;
+  z-index: 5;
+}
+#bigDaddy.bd-tip[hidden] { display: none !important; }
+#bigDaddy.bd-tip.bd-fixed {
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: 88px;
-  z-index: 80;
-  pointer-events: none;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  margin: 0;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  justify-content: center;
 }
-.bd-stage[hidden] { display: none !important; }
-.bd-dim { display: none; }
-.bd-pop {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 8px;
-}
-.bd-pop.bd-jail { align-items: flex-start; }
-.bd-fig {
-  height: 84px;
-  width: 84px;
-  flex: none;
-  max-width: 84px;
-  object-fit: contain;
-  object-position: center bottom;
-  transform-origin: 50% 100%;
-  filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.45));
-}
-.bd-pop.bd-jail .bd-fig {
-  height: 48vh;
-  max-width: none;
-  object-position: left bottom;
-  margin-left: -6vw;
-}
-.bd-bubble {
-  position: relative;
-  align-self: stretch;
-  margin: 0 4px 8px;
-  padding: 12px 14px;
+.bd-chip {
   pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 3px solid #1a140c;
+  border-radius: 14px;
+  background: #fff6e4;
+  color: #1a140c;
+  box-shadow: 3px 3px 0 #e8a90c;
+  font: 800 13px/1.25 "Figtree", system-ui, sans-serif;
+  text-align: left;
   cursor: pointer;
-  border-radius: 16px;
-  background: #12151b;
-  color: #fff8ea;
-  border: 2px solid #ffc857;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-  font-size: 19px;
-  font-weight: 800;
-  line-height: 1.3;
 }
+#bigDaddy.bd-fixed .bd-chip { width: auto; max-width: min(280px, 100%); }
+.bd-chip img {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  object-fit: contain;
+}
+.bd-line { min-width: 0; }
+.bd-dim, .bd-stage, .bd-pop, .bd-fig, .bd-bubble { display: none !important; }
 .bd-stamp {
   display: inline-block;
   margin-bottom: 6px;

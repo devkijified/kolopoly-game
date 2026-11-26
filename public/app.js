@@ -2450,9 +2450,11 @@ function onState(room) {
   funMoments(room, prev);
   showRoomEmote(room);
   showPayback(room);
-  if (prev && window.KPBigDaddy) {
-    const beat = window.KPBigDaddy.detect(prev, room, myId);
-    if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1 });
+  if (prev && window.KPBigDaddy && !spectator) {
+    const viewer = room.mode === 'pass' ? actingId() : myId;
+    const beat = window.KPBigDaddy.detect(prev, room, viewer);
+    if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1, actorId: viewer });
+    if (window.KPBigDaddy.follow) window.KPBigDaddy.follow(room, viewer);
   }
   renderOwambe(room);
   musicWanted = room.status === 'playing' || room.status === 'countdown';
@@ -3946,9 +3948,15 @@ function renderActionBar(room) {
   if (!spectator && me && !me.bankrupt && room.status === 'playing' && !room.paid) {
     secHtml += ubtn('sbCards', 'card', 'Cards', false);
   }
-  if (!spectator && me && !me.bankrupt && room.status === 'playing') {
+  // A seated player confirms Leave. A spectator, a bankrupt seat, and a
+  // finished table get Leave immediately: it goes home and drops the watch.
+  const seatedLeave = !spectator && me && !me.bankrupt && (room.status === 'playing' || room.status === 'countdown');
+  const homeLeave = spectator || !me || (me && me.bankrupt) || room.status === 'ended';
+  if (seatedLeave) {
     secHtml += ubtn('sbLeave', 'logout', leaveArmed ? 'Sure?' : 'Leave', leaveArmed);
-    if (myId === room.hostId && !room.paid) secHtml += ubtn('sbEndRoom', 'tickCircle', endRoomArmed ? 'Sure?' : 'End', endRoomArmed);
+    if (myId === room.hostId && !room.paid && room.status === 'playing') secHtml += ubtn('sbEndRoom', 'tickCircle', endRoomArmed ? 'Sure?' : 'End', endRoomArmed);
+  } else if (homeLeave && room.status !== 'lobby') {
+    secHtml += ubtn('sbLeave', 'logout', 'Leave', false);
   }
   sec.innerHTML = secHtml;
   wire('sbDeeds', () => openMyDeeds());
@@ -3973,6 +3981,14 @@ function renderActionBar(room) {
     }));
   });
   wire('sbLeave', () => {
+    if (spectator || !me || me.bankrupt || room.status === 'ended') {
+      leaveArmed = false;
+      send('leave', {});
+      clearSeat();
+      releaseWakeLock();
+      setTimeout(() => location.reload(), 200);
+      return;
+    }
     if (!leaveArmed) { leaveArmed = true; renderActionBar(room); setTimeout(() => { leaveArmed = false; if (state) renderActionBar(state); }, 4000); return; }
     leaveArmed = false;
     sendAs('resign', {});
