@@ -784,6 +784,16 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   box-shadow: 0 12px 26px rgba(10, 6, 2, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(232, 169, 12, 0.35);
 }
 .bid-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 9px; }
+.auction-price {
+  display: flex; align-items: center; gap: 8px; margin-top: 8px;
+  padding: 7px 8px; border-radius: 10px;
+  border-left: 6px solid var(--band, #e8a90c); background: #fff;
+}
+.auction-price-text { min-width: 0; flex: 1; font-size: 13px; font-weight: 800; line-height: 1.25; }
+.auction-hint { flex: none; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; }
+.auction-hint.under { background: #1f8a4c; color: #fff; }
+.auction-hint.over { background: #c98922; color: #1a140c; }
+.auction-phase { margin: 6px 0 0; }
 
 /* Feed sheet list */
 .feed-item { padding: 8px 2px; border-bottom: 1px dashed var(--line); }

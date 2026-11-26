@@ -292,6 +292,28 @@ function cardCaption(fxType) {
   if (cardMood(fxType) === 'good') return 'Good news. Big Daddy dey smile.';
   return 'Move as the card talk.';
 }
-const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, faceLines, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf, cardMood, cardCaption };
+// Auction sheet copy. List price is the printed deed price. Inflation
+// adds a Now price only when this phase's index actually changes it.
+// Phase 1 (index 1) says nothing about a multiplier.
+function auctionPriceCopy(space, inf, highBid) {
+  if (!space || !space.price) return null;
+  const list = space.price;
+  let rent = 0;
+  if (space.rent && space.rent.length) rent = space.rent[0];
+  else if (space.type === 'station') rent = STATION_RENT[0];
+  const index = inf && Number(inf.index) > 0 ? Number(inf.index) : 1;
+  const now = Math.round(list * index);
+  let text = 'List price ' + fmtN(list);
+  if (inf && now !== list) text += ' · Now ' + fmtN(now);
+  if (rent) text += ' · Rent ' + fmtN(rent);
+  let hint = '';
+  const bid = Number(highBid) || 0;
+  if (bid > 0 && bid < list) hint = 'under list';
+  else if (bid > list) hint = 'over list';
+  const phase = inf && Number(inf.phase) > 1 ? 'You pay the bid. Printed rent is higher this phase.' : '';
+  const band = space.group && GROUPS[space.group] ? GROUPS[space.group].color : '#e8a90c';
+  return { text: text, hint: hint, phase: phase, list: list, now: now, rent: rent, band: band };
+}
+const DATA = { BOARD_SIZE, SIDE, JAIL_INDEX, PARKING_INDEX, GOTOJAIL_INDEX, INCOME_TAX_INDEX, NEPA_INDEX, TOP_INDEX, STATION_RENT, UTILITY_PER_PIP, DUPLEX_SUPPLY, MANSION_SUPPLY, fmtN, potPhrase, DENOMS, START_CASH, START_PAY, JAIL_FINE, GROUPS, SPACES, GROUP_SPACES, STATIONS, UTILITIES, OWNABLE, WAHALA, FAMILY, TOKENS, TOKEN_LEGACY, canonToken, SPACE_STICKER, stickerFor, faceLines, PLAYER_COLORS, mortgageOf, unmortgageCost, perkLine, buildCostOf, cardMood, cardCaption, auctionPriceCopy };
 if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
 if (typeof window !== 'undefined') window.KP_DATA = DATA;
