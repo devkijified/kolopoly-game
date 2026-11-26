@@ -643,6 +643,10 @@ function newRoom(code, isPublic, mode, settings) {
     turnOrder: [], turnIdx: 0, turnPlayerId: null,
     phase: 'roll', dice: null, buySpace: null, buyPrice: null,
     auction: null, bankAuctionQueue: [], debt: null,
+    // Agreed pause (free tables only): a pause or resume every other
+    // connected human voted for. agreedPause holds while the table is
+    // frozen by agreement; pauseVote is the live ballot, if any.
+    agreedPause: null, pauseVote: null, pauseNote: null, pauseNoteSeq: 0,
     // Inflation Mode state (null in Classic): phase engine, contracts, stamps.
     inf: null, activePhase: 1, lastDice: null, hornDebt: null,
     // Seven-phase tactical state (Inflation only): the frozen Lifeline bill
@@ -866,6 +870,13 @@ function publicRoom(room) {
       expiresAt: room.trade.expiresAt || null, honourPass: room.trade.honourPass || []
     } : null,
     turnDeadline: room.turnDeadline, gameEndsAt: room.gameEndsAt,
+    agreedPause: room.agreedPause ? { by: room.agreedPause.by, byName: room.agreedPause.byName } : null,
+    pauseVote: room.pauseVote ? {
+      kind: room.pauseVote.kind, by: room.pauseVote.by, byName: room.pauseVote.byName,
+      endsAt: room.pauseVote.endsAt, needed: room.pauseVote.needed.slice(),
+      agreed: Object.keys(room.pauseVote.votes).map(Number)
+    } : null,
+    pauseNote: room.pauseNote || null,
     startedKey: room.startedKey || null,
     message: room.message, messageSeq: room.messageSeq,
     banner: room.banner || null,
@@ -1724,7 +1735,7 @@ function updatePause(room) {
   const noHumanSeated = room.players.some((p) => p.bot)
     && !room.players.some((p) => !p.bot && p.connected && !p.bankrupt);
   const linkWaiting = room.players.some((p) => p.linkHold && !p.connected && !p.bot && !p.resigned);
-  room.paused = room.status === 'playing' && (connectedSolvent(room).length < 2 || noHumanSeated || linkWaiting);
+  room.paused = room.status === 'playing' && (connectedSolvent(room).length < 2 || noHumanSeated || linkWaiting || !!room.agreedPause);
   if (room.paused && !was) {
     // Lesson 14: the pause speaks. Record when it started and the frozen
     // turn clock value so the waiting card can show both honestly.
@@ -1752,6 +1763,69 @@ function updatePause(room) {
     }
     room.pauseSince = null;
     room.pauseClockMs = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agreed pause (free tables only). Any human proposes a pause or a
+// resume; the game moves only when every OTHER connected human agrees.
+// Bots never vote and never block. The freeze itself is the ordinary
+// pause machinery above: room.agreedPause feeds updatePause, so every
+// clock (turn, auction, match, phases) halts and later shifts whole.
+// ---------------------------------------------------------------------------
+function freeTable(room) { return !room.paid && room.mode !== 'pass'; }
+function pauseVoters(room, exceptId) {
+  return room.players
+    .filter((p) => p.id !== exceptId && p.connected && !p.bot && !p.bankrupt && !p.resigned)
+    .map((p) => p.id);
+}
+function setPauseNote(room, text) {
+  room.pauseNoteSeq = (room.pauseNoteSeq || 0) + 1;
+  room.pauseNote = { seq: room.pauseNoteSeq, text };
+}
+function applyPauseVote(room) {
+  const v = room.pauseVote;
+  if (!v) return;
+  room.pauseVote = null;
+  if (v.kind === 'pause') {
+    room.agreedPause = { by: v.by, byName: v.byName };
+    setPauseNote(room, 'Everybody don gree. Game don pause.');
+  } else {
+    room.agreedPause = null;
+    setPauseNote(room, 'Everybody don gree. Game dey play back.');
+  }
+  updatePause(room);
+  broadcast(room);
+}
+function failPauseVote(room, text) {
+  room.pauseVote = null;
+  setPauseNote(room, text);
+  broadcast(room);
+}
+// Runs every tick: keeps the ballot honest as seats change under it.
+// A voter who disconnects, resigns or turns bot stops being required;
+// a proposer who leaves the table cancels the vote; a lapsed clock
+// fails it. When the required set has fully agreed, the vote applies.
+function prunePauseVote(room) {
+  const v = room.pauseVote;
+  if (!v) return;
+  if (room.status !== 'playing') { room.pauseVote = null; return; }
+  const proposer = room.players.find((p) => p.id === v.by);
+  if (!proposer || !proposer.connected || proposer.bot || proposer.bankrupt || proposer.resigned) {
+    failPauseVote(room, 'The pause vote don cancel: the person wey propose am don leave the table.');
+    return;
+  }
+  const before = v.needed.join(',');
+  v.needed = v.needed.filter((id) => {
+    const p = room.players.find((x) => x.id === id);
+    return p && p.connected && !p.bot && !p.bankrupt && !p.resigned;
+  });
+  if (v.needed.join(',') !== before) broadcast(room); // the ballot shrank: say so at once
+  if (v.needed.every((id) => v.votes[id])) { applyPauseVote(room); return; }
+  if (now() >= v.endsAt) {
+    failPauseVote(room, v.kind === 'pause'
+      ? 'Pause no land: time finish and no be everybody gree.'
+      : 'Resume no land: time finish and no be everybody gree.');
   }
 }
 
@@ -2938,6 +3012,7 @@ function tick() {
         }
       }
     }
+    prunePauseVote(room);
     if (room.status !== 'playing' || room.paused) continue;
     let changed = false;
     if (drivePracticeBot(room)) changed = true;
@@ -3176,6 +3251,9 @@ function finishLinkHold(room, player) {
 // idle AFK takeover is a different road (the player had minutes
 // of warnings) and takes no grace.
 const LINK_GRACE_MS = 10000;
+// Agreed pause (free tables): how long the other humans get to answer
+// a pause or resume proposal before the vote lapses.
+const PAUSE_VOTE_MS = TEST ? 15000 : 20000;
 function graceLinkBot(player, ms) {
   if (!player || !player.botBrain) return;
   player.botBrain.hold = true;
@@ -3918,6 +3996,53 @@ function handleConnection(ws) {
         }
       }
       ws.close();
+      return;
+    }
+    // Agreed pause (free tables): propose a pause or a resume, and vote
+    // on one. The ballot lives in the room state, so a phone that
+    // backgrounds mid-vote resyncs to the same pending prompt.
+    if (msg.type === 'propose_pause') {
+      const room = ctx.room, me = ctx.player;
+      if (!room || !me || ctx.spectator) return fail('Join a room first.');
+      if (!freeTable(room)) return fail('Na only free table fit pause like this.');
+      if (room.status !== 'playing') return fail('The game is not in play right now.');
+      if (me.bankrupt || me.resigned) return fail('You no dey play again.');
+      if (room.pauseVote) return fail('One vote dey run already.');
+      const kind = msg.kind === 'resume' ? 'resume' : 'pause';
+      if (kind === 'pause' && room.agreedPause) return fail('Game don pause already.');
+      if (kind === 'resume' && !room.agreedPause) return fail('Game no pause.');
+      const needed = pauseVoters(room, me.id);
+      if (!needed.length) {
+        // Nobody else dey to gree: the proposal lands at once.
+        if (kind === 'pause') {
+          room.agreedPause = { by: me.id, byName: me.name };
+          setPauseNote(room, 'No other player dey to gree, so the pause land at once.');
+        } else {
+          room.agreedPause = null;
+          setPauseNote(room, 'No other player dey to gree, so the game play back at once.');
+        }
+        updatePause(room);
+        broadcast(room);
+        return;
+      }
+      room.pauseVote = { kind, by: me.id, byName: me.name, votes: {}, needed, endsAt: now() + PAUSE_VOTE_MS };
+      broadcast(room);
+      return;
+    }
+    if (msg.type === 'pause_vote') {
+      const room = ctx.room, me = ctx.player;
+      if (!room || !me || ctx.spectator) return fail('Join a room first.');
+      const v = room.pauseVote;
+      if (!v) return fail('No vote dey run.');
+      if (!v.needed.includes(me.id)) return fail('Na the other players dey vote for this one.');
+      if (v.votes[me.id]) return fail('You don vote already.');
+      if (msg.agree) {
+        v.votes[me.id] = true;
+        if (v.needed.every((id) => v.votes[id])) applyPauseVote(room);
+        else broadcast(room);
+      } else {
+        failPauseVote(room, me.name + ' no gree. ' + (v.kind === 'pause' ? 'Game no pause.' : 'Game still dey pause.'));
+      }
       return;
     }
     if (ctx.spectator || !ctx.player) return fail('Spectators fit only watch.');

@@ -11,7 +11,7 @@
     rent: { sel: '#hudCashBtn', line: 'Your money went to Ada.' },
     salary: { sel: '#hudCashBtn', line: 'The bank paid your salary.' },
     jail: { sel: '#abJailPay', line: 'Tap Pay bail or roll double.' },
-    wait: { sel: '.wait-hint', line: 'Wait. It is Ada\'s turn.' }
+    wait: { sel: '.msgbar', line: 'Wait. It is Ada\'s turn.' }
   };
 
   function data() { return window.KP_DATA || {}; }
@@ -294,7 +294,7 @@
   }
 
   function boot() {
-    ['howBtn', 'welcomeHowBtn', 'lobbyHowBtn', 'hudHelp'].forEach((id) => {
+    ['howBtn', 'welcomeHowBtn', 'lobbyHowBtn'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('click', open);
     });

@@ -728,6 +728,9 @@ const sfx = {
   clang(at) { tone({ f: 1400, at: at || 0, dur: 0.3, type: 'square', vol: 0.03 }); tone({ f: 220, at: (at || 0) + 0.02, dur: 0.4, type: 'triangle', vol: 0.075 }); },
   // Up NEPA: crowd murmur swell under the bright return notes.
   chime() { noiseHit({ dur: 0.9, vol: 0.04, freq: 480, ftype: 'lowpass', attack: 0.3 }); tone({ f: 880, at: 0.05, dur: 0.14, vol: 0.07 }); tone({ f: 1174, at: 0.16, dur: 0.2, vol: 0.07 }); },
+  // A soft two-note welcome when a new seat fills in the lobby. Routes
+  // through tone(), so the mute switch silences it like every cue.
+  join() { tone({ f: 659, dur: 0.1, type: 'triangle', vol: 0.045 }); tone({ f: 880, at: 0.09, dur: 0.16, type: 'triangle', vol: 0.045 }); },
   horn() { tone({ f: 185, dur: 0.16, type: 'sawtooth', vol: 0.055 }); tone({ f: 185, at: 0.22, dur: 0.2, type: 'sawtooth', vol: 0.055 }); },
   cheer() { noiseHit({ dur: 1.1, vol: 0.045, freq: 900, freq2: 1400, q: 0.6, attack: 0.25 }); tone({ f: 659, at: 0.1, dur: 0.12, vol: 0.05 }); tone({ f: 784, at: 0.22, dur: 0.12, vol: 0.05 }); tone({ f: 988, at: 0.34, dur: 0.22, vol: 0.05 }); },
   cardSwish() { paperSlide(0, 0.26); },
@@ -2529,6 +2532,7 @@ function onState(room) {
   musicWanted = room.status === 'playing' || room.status === 'countdown';
   syncMusic();
   if (room.status === 'lobby') renderLobby(room);
+  else { lastLobbyCode = null; lastLobbySeatIds = null; }
   if (room.status === 'playing' || room.status === 'ended' || room.status === 'countdown') renderGame(room);
   if (room.status === 'ended') renderEnd(room);
   prevStatus = room.status;
@@ -2806,46 +2810,66 @@ function runCountdown() {
 // ---------------------------------------------------------------------------
 // Lobby
 // ---------------------------------------------------------------------------
-let qrForCode = null;
+// Lobby join tracking: the seat ids seen at the last lobby render, so
+// a seat that fills between renders can pop in with a soft cue instead
+// of the whole list silently reshuffling. Reset when we leave the
+// lobby or the room changes, so a room's first paint never plays it.
+let lastLobbyCode = null;
+let lastLobbySeatIds = null;
+// The room settings rows the Settings sheet shows, rebuilt each render.
+let lobbySettingsRows = [];
+let lobbySettingsNote = '';
 // Same origin, path /, so the link stays inside the installed app's scope.
 function inviteLink() { return location.origin + '/?join=' + state.code; }
 function renderLobby(room) {
   $('lobbyCode').textContent = room.code;
   // KP14 audit: a pass-and-play room can never be joined (join_room
-  // refuses it and /api/room answers exists:false), so its code hero,
-  // caption and invite machinery hide. The code is decoration there.
+  // refuses it and /api/room answers exists:false), so its code block
+  // and invite machinery hide. The code is decoration there.
   const passRoom = room.mode === 'pass';
-  for (const id of ['lobbyCodeCap', 'lobbyCodeHero']) { const el = $(id); if (el) el.classList.toggle('hidden', passRoom); }
-  document.querySelectorAll('.invite-actions').forEach((el) => el.classList.toggle('hidden', passRoom));
-  const qrEl = $('inviteQr'); if (qrEl) qrEl.classList.toggle('hidden', passRoom);
+  const topEl = $('lobbyTop'); if (topEl) topEl.classList.toggle('hidden', passRoom);
   const modeLine = room.settings.gameMode === 'inflation'
     ? 'Inflation Mode · ' + ({ quick: 'Quick Bite', standard: 'Standard', fullnight: 'Full Night' }[room.settings.preset] || 'Standard') + ' preset'
     : 'Classic Mode';
   $('lobbyModeLine').textContent = modeLine + (room.mode === 'pass' ? ' · This phone (pass and play)' : room.isPublic ? ' · Public quick room' : ' · Private room') +
     (room.paid ? ' · Paid table: ' + room.paid.city + ', ' + fmtN(room.paid.fee) + ' entry' : '');
+  lobbySettingsNote = $('lobbyModeLine').textContent;
   $('copyInviteBtn').innerHTML = window.icon('copy', 16) + ' Copy invite';
   $('shareInviteBtn').innerHTML = window.icon('share', 16) + ' Share';
-  if (typeof qrcode === 'function' && qrForCode !== room.code) {
-    qrForCode = room.code;
-    let svg = '';
-    for (let t = 4; t <= 14 && !svg; t++) {
-      try { const qr = qrcode(t, 'M'); qr.addData(inviteLink()); qr.make(); svg = qr.createSvgTag({ cellSize: 3, margin: 6, scalable: true }); } catch (e) { svg = ''; }
-    }
-    $('inviteQr').innerHTML = svg;
-  }
+  // The Players list is the page. One card per seat: who is in, who is
+  // host, who has paid; empty seats wait with their own Invite button.
+  const seatIds = room.players.map((p) => p.id);
+  const joinedIds = (lastLobbyCode === room.code && lastLobbySeatIds)
+    ? seatIds.filter((id) => !lastLobbySeatIds.includes(id)) : [];
   $('slotBoard').innerHTML = Array.from({ length: 6 }, (_, k) => {
     const p = room.players[k];
-    if (!p) return '<div class="slot empty">Waiting for player…</div>';
-    return '<div class="slot"><div class="avatar" style="background:' + p.color + '">' + window.tokenArt(p.token, 36) + '</div>' +
-      '<div class="seat-copy"><div class="nm">' + esc(p.name) + (p.bot ? ' <span class="bot-tag">BOT</span>' : '') + (p.isHost ? ' ' + window.icon('crown', 14) : '') + '</div>' +
-      '<div class="meta">' + (room.paid && !p.bot
-        ? (p.paidSeat ? 'Paid ' + fmtN(room.paid.fee) : p.payPending ? 'Payment dey go…' : 'Awaiting payment') + (p.connected ? '' : ' · Disconnected')
-        : p.bot ? 'Bot player · always ready' : room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
+    if (!p) return '<div class="slot empty"><span class="slot-waiting">Waiting…</span>' +
+      (passRoom ? '' : '<button class="btn small ghost slot-invite" type="button" data-invite="1">Invite</button>') + '</div>';
+    const chips = [];
+    if (p.isHost) chips.push('<span class="seat-chip host-chip">Host</span>');
+    if (p.bot) chips.push('<span class="seat-chip">Bot</span>');
+    if (room.paid && !p.bot) {
+      chips.push(p.paidSeat ? '<span class="seat-chip paid-chip">Paid ' + fmtN(room.paid.fee) + '</span>'
+        : p.payPending ? '<span class="seat-chip wait-chip">Payment dey go…</span>'
+        : '<span class="seat-chip wait-chip">Awaiting payment</span>');
+    } else if (!p.bot) {
+      chips.push(room.mode === 'pass' ? '<span class="seat-chip">This phone</span>'
+        : p.connected ? '<span class="seat-chip ready-chip">Ready</span>' : '<span class="seat-chip wait-chip">Away</span>');
+    }
+    return '<div class="slot' + (joinedIds.includes(p.id) ? ' seat-join' : '') + '"><div class="avatar" style="background:' + p.color + '">' + window.tokenArt(p.token, 36) + '</div>' +
+      '<div class="seat-copy"><div class="nm">' + esc(p.name) + '</div>' +
+      '<div class="seat-chips">' + chips.join('') + '</div>' +
+      '<div class="meta">' + (p.bot ? 'Bot player · always ready' : room.mode === 'pass' ? 'On this phone' : p.connected ? 'Connected' : 'Disconnected') + '</div></div>' +
       (room.mode === 'pass' && myId === room.hostId && p.id !== room.hostId ? '<button class="btn small ghost" data-remove-local="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') +
       (p.bot && myId === room.hostId ? '<button class="btn small ghost" data-remove-bot="' + p.id + '" style="margin-left:auto;">Remove</button>' : '') + '</div>';
   }).join('');
   $('slotBoard').querySelectorAll('[data-remove-local]').forEach((b) => b.addEventListener('click', () => send('remove_local_player', { playerId: Number(b.dataset.removeLocal) })));
   $('slotBoard').querySelectorAll('[data-remove-bot]').forEach((b) => b.addEventListener('click', () => send('remove_bot', { playerId: Number(b.dataset.removeBot) })));
+  $('slotBoard').querySelectorAll('[data-invite]').forEach((b) => b.addEventListener('click', () => shareInviteLink()));
+  if (joinedIds.some((id) => id !== myId)) { try { sfx.join(); } catch (e) { /* sound is a garnish */ } }
+  lastLobbyCode = room.code;
+  lastLobbySeatIds = seatIds;
+  const countEl = $('lobbyPlayerCount'); if (countEl) countEl.textContent = room.players.length + ' of 6';
   $('passAddBox').classList.toggle('hidden', room.mode !== 'pass');
   const chips = [];
   if (room.settings.gameMode === 'inflation') {
@@ -2857,12 +2881,18 @@ function renderLobby(room) {
   if (room.settings.noRentInJail) chips.push('No rent while in Kirikiri');
   if (room.settings.firstLapNoBuy) chips.push('First lap: no buying');
   chips.push('Turn timer: ' + (room.settings.turnTimerSec ? room.settings.turnTimerSec + 's' : 'off'));
-  $('lobbySettings').innerHTML = chips.map((c, i) => '<span class="chip' + (i === 0 ? ' chip-salary' : '') + '">' + esc(c) + '</span>').join('');
+  // The settings live behind the one Settings row now, not as a stack
+  // of chips competing with the players list. The row carries a short
+  // summary; the sheet carries every row.
+  lobbySettingsRows = chips.slice();
+  if (room.settings.chaos) {
+    lobbySettingsRows.push('CHAOS MODE ON: one seat go be Nepo (+₦500,000 and a free deed), one seat go be Lapo (₦1,000,000 start, first rent forgiven). Seats are picked when the game starts, nobody is ambushed after.');
+  }
+  const sumEl = $('lobbySettingsSum');
+  if (sumEl) sumEl.textContent = (room.settings.gameMode === 'inflation' ? 'Inflation' : 'Classic') + ' · ' +
+    (room.settings.timed ? 'Timed' : 'Untimed') + (room.settings.chaos ? ' · Chaos' : '');
   paintWalletNote();
   kickWallet();
-  $('chaosNote').textContent = room.settings.chaos
-    ? 'CHAOS MODE ON: one seat go be Nepo (+₦500,000 and a free deed), one seat go be Lapo (₦1,000,000 start, first rent forgiven). Seats are picked when the game starts, nobody is ambushed after.'
-    : '';
   // Paid table lobby: the entry panel. Every seated human pays their
   // own seat; my Pay button shows only while my seat is unpaid, and the
   // panel explains the one rule that gates the start.
@@ -2912,18 +2942,22 @@ function renderLobby(room) {
     paidBox.innerHTML = '';
   }
   const isHost = myId === room.hostId;
-  $('startBtn').style.display = isHost || room.mode === 'pass' ? '' : 'none';
+  // One primary action: the host gets the big Start button; everybody
+  // else gets a plain "Waiting for host" block in the same place.
+  // Lesson 1: while the host is inside the grace window nobody can
+  // start, so the button hides for the host's own returning view too.
+  const canStart = (isHost || room.mode === 'pass') && !room.hostAway;
+  $('startBtn').style.display = canStart ? '' : 'none';
+  const waitHost = $('lobbyWaitHost');
+  if (waitHost) waitHost.classList.toggle('hidden', canStart || room.mode === 'pass');
   $('startBtn').disabled = room.players.length < 2 || !!(room.paid && !room.paid.allPaid);
   $('startBtn').innerHTML = window.icon('play', 18) + ' Start game (' + room.players.length + (room.players.length === 1 ? ' player)' : ' players)');
   $('lobbyHint').textContent = room.paid && !room.paid.allPaid
     ? 'Paid table: the game starts when every seat don pay the ' + fmtN(room.paid.fee) + ' entry.'
     : room.players.length < 2
     ? 'You need at least 2 players. Share the code make your people join.'
-    : isHost ? 'Everybody don enter? Start when ready.' : 'Waiting for the host to start the game.';
-  // Lesson 1: the host is inside the grace window. The room is alive and
-  // waiting for them, and nobody can start without them.
+    : isHost ? 'Everybody don enter? Start when ready.' : '';
   if (room.hostAway) {
-    $('startBtn').style.display = 'none';
     $('lobbyHint').textContent = 'Host step out small, room go wake when e return.';
   }
   // Bots (the owner's ask): right after the host creates a room, ask once:
@@ -2939,12 +2973,27 @@ $('copyInviteBtn').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(inviteLink()); toast('Invite link copied. Send am give your people.'); }
   catch { toast('Copy no work. The link na: ' + inviteLink(), 6000); }
 });
-$('shareInviteBtn').addEventListener('click', async () => {
-  // KP14 audit: the lobby Share button speaks the owner's approved
-  // invitation copy, same as the header Share button in a room.
+// KP14 audit: the lobby Share button speaks the owner's approved
+// invitation copy, same as the header Share button in a room. The
+// empty seats' Invite buttons speak the same words through here.
+async function shareInviteLink() {
   const data = { title: 'Kolopoly', text: 'Join me to play Kolopoly. Room ' + state.code + ' dey wait for you. Break your kolo, buy the street.', url: inviteLink() };
   if (navigator.share) { try { await navigator.share(data); } catch { /* user closed */ } }
   else { try { await navigator.clipboard.writeText(data.text + '\n' + data.url); toast('Invite link copied.'); } catch { toast(data.text + ' ' + data.url, 6000); } }
+}
+$('shareInviteBtn').addEventListener('click', () => shareInviteLink());
+$('lobbySettingsBtn').addEventListener('click', () => {
+  const sheet = $('lobbySettingsSheet');
+  if (!sheet) return;
+  sheet.innerHTML = '<div class="grab"></div><h3 class="title">Room settings</h3>' +
+    (lobbySettingsNote ? '<p class="caption">' + esc(lobbySettingsNote) + '</p>' : '') +
+    '<div class="settings-rows">' + lobbySettingsRows.map((r) => '<div class="settings-row-item">' + esc(r) + '</div>').join('') + '</div>' +
+    '<button class="btn block" id="lobbySheetHow" type="button" style="margin-top:12px;">How to play</button>' +
+    '<button class="btn ghost block" data-close="1" type="button" style="margin-top:8px;">Close</button>';
+  $('lobbySettingsScrim').classList.add('show');
+  wireSheetButtons(sheet, myId);
+  const how = $('lobbySheetHow');
+  if (how) how.addEventListener('click', () => { closeScrim('lobbySettingsScrim'); if (window.KPHowTo) window.KPHowTo.open(); });
 });
 $('addLocalBtn').addEventListener('click', () => {
   const name = $('localNameIn').value.trim();
@@ -3060,6 +3109,26 @@ function renderPause(room) {
     else if (!show && window.KPBigDaddy.release) window.KPBigDaddy.release();
   }
   if (!show) { o.classList.remove('show'); o.innerHTML = ''; o.removeAttribute('data-pause-key'); return; }
+  if (room.agreedPause) {
+    // A pause the whole table voted for: its own card, naming who
+    // proposed it, with the Continue proposal inside. Distinct from
+    // the link-hold card below in words and in kind.
+    const key = 'agreed|' + room.agreedPause.by + '|' + (room.pauseVote ? 'voting' : 'idle');
+    if (o.getAttribute('data-pause-key') === key && o.classList.contains('show')) return;
+    o.setAttribute('data-pause-key', key);
+    const voting = !!(room.pauseVote && room.pauseVote.kind === 'resume');
+    o.innerHTML = '<div class="pause-card pause-sticker" role="status">' +
+      '<h3 class="pause-headline">Game don pause</h3>' +
+      '<p class="pause-line"><b>' + esc(room.agreedPause.byName || 'A player') + '</b> propose am, everybody gree.</p>' +
+      '<p class="pause-line">All the clocks dey frozen. No move go land till the game play back.</p>' +
+      (voting
+        ? '<p class="pause-line">Resume vote dey run. Check the vote card.</p>'
+        : '<button class="btn big" id="pauseResumeBtn" type="button">Continue game</button>' +
+          '<p class="pause-line">To play back, the other players must gree too.</p>') +
+      '</div>';
+    o.classList.add('show');
+    return;
+  }
   const missing = room.players.filter((p) => !p.connected && !p.bankrupt && !p.resigned);
   const gone = (room.linkWait && room.players.find((p) => p.id === room.linkWait.playerId)) || missing[0] || null;
   const who = (room.linkWait && room.linkWait.name) || (gone && gone.name) || 'a player';
@@ -3113,6 +3182,64 @@ function paintPauseClock(room) {
   }
 }
 window.__kolopolyRenderPause = renderPause;
+
+// Agreed pause votes (free tables). The ballot lives in the room
+// state, so this renderer is pure: whatever the server says is pending
+// is what the sheet shows, including after a backgrounded phone
+// resyncs. Outcomes arrive as pauseNote toasts.
+let pauseNoteSeen = 0;
+let pauseVoteKey = '';
+function renderVote(room) {
+  const scrim = $('pauseVoteScrim');
+  const sheet = $('pauseVoteSheet');
+  if (!scrim || !sheet) return;
+  if (room.pauseNote && room.pauseNote.seq) {
+    if (pauseNoteSeen && room.pauseNote.seq !== pauseNoteSeen) toast(room.pauseNote.text);
+    pauseNoteSeen = room.pauseNote.seq;
+  }
+  const v = room.pauseVote;
+  const me = room.players.find((p) => p.id === myId);
+  const amProposer = !!(v && v.by === myId);
+  const amVoter = !!(v && v.needed.includes(myId));
+  if (!v || room.status !== 'playing' || !me || me.bankrupt || me.resigned || (!amVoter && !amProposer)) {
+    scrim.classList.remove('show');
+    pauseVoteKey = '';
+    return;
+  }
+  const key = v.kind + '|' + v.by + '|' + v.endsAt;
+  const secs = Math.max(0, Math.ceil((v.endsAt - Date.now()) / 1000));
+  const agreedLine = v.agreed.length + ' of ' + v.needed.length + ' don gree';
+  if (pauseVoteKey === key && amVoter && !amProposer && v.agreed.includes(myId) && sheet.querySelector('[data-pv]')) {
+    pauseVoteKey = ''; // I just agreed: rebuild once with the waiting view
+  }
+  if (pauseVoteKey !== key) {
+    pauseVoteKey = key;
+    const verb = v.kind === 'pause' ? 'pause the game' : 'play back';
+    let body;
+    if (amProposer) {
+      body = '<p class="pv-line">You propose make una ' + verb + '. Dey wait for the other players to gree.</p>';
+    } else if (v.agreed.includes(myId)) {
+      body = '<p class="pv-line">You don gree. Dey wait for the others.</p>';
+    } else {
+      body = '<p class="pv-line"><b>' + esc(v.byName) + '</b> wan ' + verb + '. E go happen only if everybody gree.</p>' +
+        '<div class="pv-actions"><button class="btn big" type="button" data-pv="agree">I gree</button>' +
+        '<button class="btn ghost big" type="button" data-pv="decline">I no gree</button></div>';
+    }
+    sheet.innerHTML = '<div class="grab"></div><h3 class="title">' + (v.kind === 'pause' ? 'Pause the game?' : 'Play back?') + '</h3>' + body +
+      '<p class="pv-line pv-count">Time left: <b id="pvCount">' + secs + 's</b> · <span id="pvAgreed">' + agreedLine + '</span></p>';
+  } else {
+    const c = $('pvCount'); if (c) c.textContent = secs + 's';
+    const a = $('pvAgreed'); if (a) a.textContent = agreedLine;
+  }
+  scrim.classList.add('show');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target || !e.target.closest) return;
+  const vb = e.target.closest('[data-pv]');
+  if (vb) { send('pause_vote', { agree: vb.getAttribute('data-pv') === 'agree' }); return; }
+  const rb = e.target.closest('#pauseResumeBtn');
+  if (rb) send('propose_pause', { kind: 'resume' });
+});
 function trainingRecord() {
   try { return JSON.parse(localStorage.getItem('kolopolyTraining') || '{}'); } catch (e) { return {}; }
 }
@@ -3872,6 +3999,7 @@ function renderGame(room) {
   renderAuction(room);
   renderTactical(room);
   renderPause(room);
+  renderVote(room);
   renderCoach(room);
   if (window.KPLearn) window.KPLearn.onRoom(room, myId);
   maybeShowModals(room);
@@ -3961,18 +4089,19 @@ function renderActionBar(room) {
         '<button class="btn red" id="abBankrupt">' + (bankruptArmed ? 'Tap again: confirm bankruptcy' : window.icon('alert', 18) + ' Bankruptcy') + '</button>';
     } else {
       const d = byId(room.debt.playerId);
-      html = '<p class="caption" style="align-self:center;">' + esc(d ? d.name : 'A player') + ' dey raise ' + fmtN(room.debt.amount) + ' (' + esc(room.debt.reason) + ').</p>';
+      html = '<div class="raise-offer"><p class="caption">' + esc(d ? d.name : 'A player') + ' dey raise ' + fmtN(room.debt.amount) + ' (' + esc(room.debt.reason) + ').</p>';
       if (room.mode !== 'pass' && !spectator && me && !me.bankrupt && !room.sapaOffer && d && sapaDeedsOf(room, d.id).length) {
-        html += '<button class="btn gold" id="abSapa">' + window.icon('swapH', 18) + ' Sapa Deal: buy their deed</button>';
+        html += '<button class="btn gold" id="abSapa">Buy deed</button>';
       }
+      html += '</div>';
     }
   } else if (room.buildPlace && room.buildPlace.playerId === me.id) {
     html = '<p class="caption" style="align-self:center;">You win the last ' + room.buildPlace.kind + '. Tap a highlighted street to place am.</p>';
   } else if (room.turnPlayerId !== me.id && room.mode !== 'pass') {
-    // Lesson 5: management stays open. The hint lives in the players sheet,
-    // not as a second paragraph under the board.
-    const who = turn ? turn.name : 'them';
-    html = '<p class="wait-hint">Wait for ' + esc(who) + '\'s turn</p>';
+    // Not my turn: no card under the board, in any state. The message
+    // bar names whose turn it is, and the dock collapses (turn-wait)
+    // until play comes back to me.
+    html = '';
   } else {
     // My action (online: me; pass: the turn player, acting through this phone)
     const actor = room.mode === 'pass' ? turn : me;
@@ -4014,6 +4143,12 @@ function renderActionBar(room) {
     }
   }
   bar.innerHTML = html;
+  const view = document.getElementById('view-game');
+  const waitingOut = !!(view && me && !spectator && room.mode !== 'pass' && room.status === 'playing' && !room.auction && !room.debt && room.turnPlayerId !== me.id && !(room.practice && room.practice.kind !== 'free' && !room.practice.ended));
+  if (view) {
+    view.classList.toggle('turn-wait', waitingOut);
+    view.classList.toggle('turn-offer', !!bar.querySelector('#abSapa'));
+  }
   const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
   wire('abRoll', () => sendAs('roll', {}));
   wire('abHustle', () => openHustleSheet(room));
@@ -5057,7 +5192,14 @@ function paintHud(room) {
   const players = $('hudPlayers');
   if (players) players.innerHTML = window.icon('users', 20) + '<span class="hud-badge">' + room.players.length + '</span>';
   const deals = $('hudDeals');
-  if (deals) deals.innerHTML = window.icon(room.inf ? 'card' : 'swapH', 20);
+  if (deals) deals.innerHTML = window.icon(room.inf ? 'card' : 'swapH', 20) + '<span class="hud-deals-lb">Deals</span>';
+  const pauseBtn = $('hudPause');
+  if (pauseBtn) {
+    // Agreed pause lives on free tables only, and only mid-game; while
+    // an agreed pause holds, the Continue button sits in the pause card.
+    const canPause = room.status === 'playing' && !room.paid && room.mode !== 'pass' && !room.agreedPause;
+    pauseBtn.style.display = canPause ? '' : 'none';
+  }
   syncBoardView();
 }
 function openHud(kind) {
@@ -5663,6 +5805,7 @@ if (tray) tray.addEventListener('click', (e) => {
     if (!(state && state.practice && state.practice.kind !== 'free' && state.practice.action !== 'free')) openHud('wallet');
   }
   else if (b.id === 'hudDeals') openHud('deals');
+  else if (b.id === 'hudPause') send('propose_pause', { kind: 'pause' });
 });
 const viewBtn = $('viewToggle');
 if (viewBtn) viewBtn.addEventListener('pointerdown', (e) => {
