@@ -348,8 +348,7 @@ function detailSheet(data, c) {
   }
   if (c.bucket === 'disputes') actions.push('<button type="button" class="red" data-act="ask" data-kind="refund" data-code="' + esc(c.code) + '">Refund everyone</button>');
   (data.payouts || []).filter(function (p) { return p.roomCode === c.code; }).forEach(function (p) {
-    var done = /^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status);
-    if (!done) actions.push(markPaidButton(p));
+    actions.push(payoutFacts(p));
   });
   return '<div class="sheet-back" data-act="close-sheet"></div><section class="sheet" role="dialog" aria-label="Challenge detail">' +
     '<div class="desk-card-top"><strong>' + esc(c.code) + '</strong><button type="button" class="secondary sheet-close" data-act="close-sheet">Close</button></div>' +
@@ -358,10 +357,26 @@ function detailSheet(data, c) {
     said + '<ol class="timeline">' + (timeline || '<li><span>No events yet.</span></li>') + '</ol><div class="actions">' + actions.join('') + '</div></section>';
 }
 function markPaidButton(p) {
-  if (p.kind === 'prize' && !p.bank) {
-    return '<button type="button" disabled>Mark payout paid</button><p class="fine">Waiting for bank details</p>';
+  if (/^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status)) return '';
+  if (p.kind === 'prize' && (!p.bank || !p.bank.accountNumber)) {
+    return '<button type="button" disabled>Mark payout paid</button>';
   }
   return '<button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button>';
+}
+function payoutFacts(p) {
+  var button = markPaidButton(p);
+  if (p.kind !== 'prize') return '<div class="actions">' + button + '</div>';
+  if (!p.bank || !p.bank.accountNumber) {
+    return '<p class="fine">Waiting for bank details</p><div class="actions">' + button + '</div>';
+  }
+  var line = p.bank.bankName + ' ' + p.bank.accountNumber + ' ' + p.bank.accountName + ' ' + naira(p.amountKobo);
+  return '<div class="pay-facts">' +
+    '<p><span>Bank</span><b>' + esc(p.bank.bankName) + '</b></p>' +
+    '<p class="acct"><span>Account number</span><b>' + esc(p.bank.accountNumber) + '</b><button type="button" class="copy-mini" data-act="copy-text" data-text="' + esc(p.bank.accountNumber) + '">Copy</button></p>' +
+    '<p><span>Account name</span><b>' + esc(p.bank.accountName) + '</b></p>' +
+    '<p><span>Payout</span><b>' + naira(p.amountKobo) + '</b></p>' +
+    '<button type="button" class="secondary" data-act="copy-text" data-text="' + esc(line) + '">Copy details</button>' +
+    '</div><div class="actions">' + button + '</div>';
 }
 function confirmBox() {
   var ask = desk.confirm;
@@ -393,11 +408,10 @@ function viewAdmin(data) {
   var list = '';
   if (desk.tab === 'payouts') {
     list = (data.payouts || []).map(function (p) {
-      var bank = p.bank ? esc(p.bank.bankName) + ' · ••••' + esc(p.bank.last4) : 'No bank yet';
       return '<article class="card"><span class="desk-card-top"><strong>' + esc(human(PAYOUT_KIND, p.kind)) + ' · ' + naira(p.amountKobo) + '</strong><span class="chip">' + esc(human(PAYOUT_STATUS, p.status)) + '</span></span>' +
-        '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || 'Player') + '<br>' + bank + '</p>' +
-        '<p class="fine">' + esc(lagos(p.createdAt || p.updatedAt)) + ' Lagos</p>' +
-        '<div class="actions">' + markPaidButton(p) + '</div></article>';
+        '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || 'Player') + '</p>' +
+        payoutFacts(p) +
+        '<p class="fine">' + esc(lagos(p.createdAt || p.updatedAt)) + ' Lagos</p></article>';
     }).join('') || '<section class="card">No payout rows.</section>';
   } else if (desk.tab === 'payments') {
     list = (data.payments || []).map(function (p) {
@@ -522,6 +536,14 @@ function formData(form) {
 document.addEventListener('click', function (e) {
   var nav = e.target.closest('[data-nav]');
   if (nav) { e.preventDefault(); flash(''); go(nav.getAttribute('href')); return; }
+  var copied = e.target.closest('[data-act="copy-text"]');
+  if (copied) {
+    var text = copied.getAttribute('data-text') || '';
+    var noted = function () { flash('Copied.'); draw(); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(noted).catch(function () { flash('Could not copy.'); draw(); });
+    else { flash('Could not copy.'); draw(); }
+    return;
+  }
   var copy = e.target.closest('[data-act="copy"]');
   if (copy) {
     var link = location.origin + '/c/' + copy.getAttribute('data-code');

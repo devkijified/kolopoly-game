@@ -260,6 +260,14 @@ button:disabled { opacity: 0.6; }
 .chip.muted { background: #e7dfd2; color: var(--ink-soft); }
 .ref { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
 button.danger { background: #b42318; color: #fff8ec; }
+.pay-facts { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; min-width: 0; }
+.pay-facts p { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; }
+.pay-facts span { font-size: 12px; font-weight: 800; color: var(--ink-soft); }
+.pay-facts b { font-size: 16px; overflow-wrap: anywhere; }
+.pay-facts .acct { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.pay-facts .acct span { grid-column: 1 / -1; }
+button.copy-mini { width: auto; min-height: 36px; padding: 4px 10px; font-size: 13px; box-shadow: 2px 2px 0 var(--ink); }
+.pay-facts button.secondary { min-height: 44px; }
 .desk-tab.on { background: var(--gold); }
 button.desk-card {
   display: flex; flex-direction: column; align-items: stretch; gap: 4px;

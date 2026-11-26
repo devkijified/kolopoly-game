@@ -14,6 +14,7 @@ const { createMailer } = require('../mailer');
 const { createEscrow, clampPercent, normCode } = require('./escrow');
 const { createOnileMail } = require('./mail');
 const { createWinnerMail } = require('./winner-mail');
+const { createPayoutDetails } = require('./payout-details');
 
 const PUBLIC = path.join(__dirname, 'public');
 const FONT_DIR = path.join(__dirname, '..', 'public', 'fonts');
@@ -46,6 +47,7 @@ const escrow = createEscrow({
   joinWindowMs: JOIN_MS,
   reportWindowMs: REPORT_MS
 });
+const payoutDetails = createPayoutDetails({ file: path.join(DATA_DIR, 'payout-details.json') });
 const onileMail = createOnileMail({});
 if (onileMail.testMode) console.log('Winner mail uses the test transport. Set RESEND_API_KEY to email the house.');
 const winnerMail = createWinnerMail({ mailer: onileMail, escrow, payouts, publicUrl: PUBLIC_URL });
@@ -169,7 +171,7 @@ function publish(ch, viewerId) {
   const view = escrow.publicView(ch, viewerId);
   if (viewerId) {
     const mine = payouts.mine(viewerId);
-    view.bank = mine.bank;
+    view.bank = mine.bank ? { bankName: mine.bank.bankName, accountName: mine.bank.accountName, last4: mine.bank.last4 } : null;
     view.payout = (mine.payouts || []).find((p) => p.roomCode === ch.code) || null;
   } else {
     view.bank = null;
@@ -469,7 +471,18 @@ const server = http.createServer((req, res) => {
       let body;
       try { body = await readJson(req); } catch (e) { json(res, 400, { ok: false, error: 'body', message: 'That request was not valid.' }); return; }
       const out = await payouts.setBank({ accountId: player.id }, body || {});
-      json(res, out.ok ? 200 : (out.status || 400), out.ok ? { ok: true, bank: out.bank } : { ok: false, error: out.error, message: out.message });
+      if (out.ok && out.bank && out.bank.last4) {
+        const accountNumber = String((body && body.accountNumber) || '').replace(/\s+/g, '');
+        if (accountNumber.slice(-4) === out.bank.last4) {
+          payoutDetails.remember(player.id, {
+            bankName: out.bank.bankName,
+            accountName: out.bank.accountName,
+            accountNumber
+          });
+        }
+      }
+      const bank = out.ok && out.bank ? { bankName: out.bank.bankName, accountName: out.bank.accountName, last4: out.bank.last4 } : null;
+      json(res, out.ok ? 200 : (out.status || 400), out.ok ? { ok: true, bank } : { ok: false, error: out.error, message: out.message });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }
@@ -537,9 +550,21 @@ const server = http.createServer((req, res) => {
     return;
   }
   function payoutCard(p) {
+    const masked = p.bank || null;
+    let bank = null;
+    if (masked) {
+      const stored = p.accountId ? payoutDetails.forAccount(p.accountId) : null;
+      const accountNumber = stored && stored.accountNumber.slice(-4) === masked.last4 ? stored.accountNumber : null;
+      bank = {
+        bankName: masked.bankName,
+        accountName: masked.accountName,
+        last4: masked.last4,
+        accountNumber
+      };
+    }
     return {
       id: p.id, kind: p.kind, roomCode: p.roomCode, amountKobo: p.amountKobo,
-      status: p.status, name: p.name, note: p.note || null, bank: p.bank || null,
+      status: p.status, name: p.name, note: p.note || null, bank,
       updatedAt: p.updatedAt, createdAt: p.createdAt
     };
   }
