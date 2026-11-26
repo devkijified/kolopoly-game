@@ -779,7 +779,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
    frosted light glass, layered soft shadow, inset highlights, no hard
    border. */
 .auction-card {
-  background: linear-gradient(180deg, rgba(255, 249, 233, 0.97), rgba(255, 241, 208, 0.94));
+  background: #fff6e4;
   border: none; border-radius: 18px; padding: 13px; margin-bottom: 10px; color: var(--ink);
   box-shadow: 0 12px 26px rgba(10, 6, 2, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(232, 169, 12, 0.35);
 }
@@ -1389,6 +1389,13 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   letter-spacing: 1.1px; color: rgba(245, 239, 226, 0.58);
 }
 .walletbar .caption { color: rgba(245, 239, 226, 0.75); font-weight: 600; }
+.walletbar .actionbar .wait-hint {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 48px; margin: 0; padding: 10px 14px;
+  border-radius: 16px; background: #fff6e4; color: #1a140c;
+  font-size: 15px; font-weight: 800; text-align: center;
+  box-shadow: 0 8px 18px rgba(10, 6, 2, 0.28);
+}
 
 /* The primary pill: gradient with a gloss sweep on top, soft layered
    shadow, and a springy scale press. Contextual colours ride the same
@@ -2145,6 +2152,7 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 #auctionOverlay.show .auction-card {
   pointer-events: auto; margin: 0 auto; max-width: 520px;
   max-height: min(46vh, 340px); overflow: auto;
+  background: #fff6e4;
 }
 #auctionOverlay .btn { min-height: 44px; }
 #modePill.mode-live {
