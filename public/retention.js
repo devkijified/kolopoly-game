@@ -674,10 +674,12 @@
     return standalone() || localInstalled() || accountInstalled || (deviceKind() === 'android' && androidAssumed);
   }
   function installMode() {
+    // A phone that already runs, or has run, the installed app stays on
+    // the normal page. iOS cannot open that Home Screen app from a Safari
+    // tab, so there is no "open in the app" note.
     if (standalone()) return 'hidden';
-    if (deviceKind() === 'android' && (localInstalled() || accountInstalled || androidAssumed)) return 'hidden';
-    if (ios() && (localInstalled() || accountInstalled)) return 'note';
     if (localInstalled() || accountInstalled) return 'hidden';
+    if (deviceKind() === 'android' && androidAssumed) return 'hidden';
     return 'prompt';
   }
   function rememberInstalled() {
@@ -745,17 +747,8 @@
         b.addEventListener('click', () => showInstallSheet());
       }
     }
-    let note = $('lobbyInstallNote');
-    if (!note && b && b.parentNode) {
-      note = document.createElement('p');
-      note.id = 'lobbyInstallNote';
-      note.className = 'install-note hidden';
-      b.parentNode.insertBefore(note, b.nextSibling);
-    }
-    if (note) {
-      note.textContent = 'Open the Kolopoly app from your Home Screen';
-      note.classList.toggle('hidden', mode !== 'note');
-    }
+    const note = $('lobbyInstallNote');
+    if (note) note.remove();
     const card = $('endInstall');
     if (card && mode !== 'prompt') card.remove();
   }
@@ -1011,10 +1004,8 @@
     maybeInstall,
     showInstall: showInstallSheet,
     endInstallHtml() {
-      const mode = installMode();
-      if (mode === 'note') return '<p class="install-note" id="endInstallNote">Open the Kolopoly app from your Home Screen</p>';
-      if (mode !== 'prompt' || installSnoozed()) return '';
-      return '<div class="install-card" id="endInstall"><button class="btn gold block" type="button" id="endInstallGo">' + installCta() + '</button><button class="btn ghost block mt8" type="button" id="endInstallLater">Not now</button></div>';
+      // The install offer lives on the landing chip, not on the final table.
+      return '';
     },
     bindEndInstall() {
       const later = $('endInstallLater');

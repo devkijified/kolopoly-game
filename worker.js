@@ -945,13 +945,13 @@ export class RetentionDO {
 
 function cacheControlFor(pathname, version) {
   if (pathname === '/sw.js') return 'no-store';
-  if (pathname === '/' || pathname.endsWith('.html') || pathname.startsWith('/api/')) return 'no-cache';
+  if (pathname === '/' || /^\/room\/[A-Za-z]{4}\/?$/.test(pathname) || pathname.endsWith('.html') || pathname.startsWith('/api/')) return 'no-cache';
   if (version && /^[a-f0-9]{12}$/.test(version)) return 'public, max-age=31536000, immutable';
   if (pathname.startsWith('/vendor/') || pathname.startsWith('/fonts/')) return 'public, max-age=604800';
   return 'no-cache';
 }
 function typeOf(pathname, fallback) {
-  if (pathname.endsWith('.html') || pathname === '/') return 'text/html; charset=utf-8';
+  if (pathname.endsWith('.html') || pathname === '/' || /^\/room\/[A-Za-z]{4}\/?$/.test(pathname)) return 'text/html; charset=utf-8';
   if (pathname.endsWith('.js')) return 'text/javascript; charset=utf-8';
   if (pathname.endsWith('.css')) return 'text/css; charset=utf-8';
   if (pathname.endsWith('.webmanifest')) return 'application/manifest+json; charset=utf-8';
@@ -962,7 +962,8 @@ function typeOf(pathname, fallback) {
 async function servePublic(request, env) {
   const url = new URL(request.url);
   const pathname = url.pathname;
-  const assetPath = pathname === '/' ? '/index.html' : pathname;
+  const roomPage = /^\/room\/[A-Za-z]{4}\/?$/.test(pathname);
+  const assetPath = (pathname === '/' || roomPage) ? '/index.html' : pathname;
   const asset = await env.ASSETS.fetch(new Request('https://assets.local' + assetPath));
   if (!asset.ok) return asset;
   const build = await computeBuild(env);
@@ -975,7 +976,7 @@ async function servePublic(request, env) {
   if (!stampable) return new Response(asset.body, { status: asset.status, headers });
   let text = await asset.text();
   if (text.includes('__KOLOPOLY_BUILD__')) text = text.split('__KOLOPOLY_BUILD__').join(build);
-  if (pathname === '/' || pathname === '/index.html') {
+  if (pathname === '/' || pathname === '/index.html' || roomPage) {
     if (!text.includes('KOLOPOLY_EDGE')) {
       text = text.replace('</head>', '<script>window.KOLOPOLY_EDGE=1</script></head>');
     }

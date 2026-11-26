@@ -1201,15 +1201,27 @@ function stopHeartbeat() {
 
 // On Cloudflare the socket lands on one Durable Object. /lobby only
 // allocates a code (switch_room). /room/CODE is the table. The Node
-// server ignores the path, and this branch stays off unless the page
-// was stamped with KOLOPOLY_EDGE.
+// socket ignores the path. The page itself is served for that URL so a
+// captured link still opens the game. This branch stays off unless the
+// page was stamped with KOLOPOLY_EDGE.
 let edgePath = '';
 let pendingEntry = null;
 let lastEntry = null;
+// Invite links are /?join=CODE. Room links are /room/CODE. Both stay on
+// this origin, inside the manifest scope, so an installed Android app
+// can open them. iOS cannot.
+function inviteCodeFromLocation() {
+  try {
+    const q = new URLSearchParams(location.search).get('join');
+    if (q && /^[A-Za-z]{4}$/.test(q.trim())) return q.trim().toUpperCase();
+    const m = String(location.pathname || '').match(/^\/room\/([A-Za-z]{4})\/?$/);
+    if (m) return m[1].toUpperCase();
+  } catch (e) { /* a broken URL is not an invite */ }
+  return '';
+}
 function seatEdgePath() {
   const seat = loadSeat();
-  const invite = new URLSearchParams(location.search).get('join');
-  const inviteCode = invite ? invite.trim().toUpperCase().slice(0, 4) : '';
+  const inviteCode = inviteCodeFromLocation();
   const inviteWins = inviteCode && seat && inviteCode !== seat.code;
   const seatStale = seat && seat.name && rememberedName() && seat.name !== rememberedName();
   if (seat && seat.code && !inviteWins && !seatStale) return '/room/' + seat.code;
@@ -1242,8 +1254,8 @@ function connect() {
     // socket a brief pause instead of a stranger session mid-game. An invite
     // link for a different room wins over the stored seat.
     const seat = loadSeat();
-    const invite = new URLSearchParams(location.search).get('join');
-    const inviteWins = invite && seat && invite.trim().toUpperCase().slice(0, 4) !== seat.code;
+    const inviteCode = inviteCodeFromLocation();
+    const inviteWins = inviteCode && seat && inviteCode !== seat.code;
     // A seat saved under a different display name belongs to a different
     // person on this device: never auto-resume into their game.
     const seatStale = seat && seat.name && rememberedName() && seat.name !== rememberedName();
@@ -2222,7 +2234,7 @@ function tryJoin(code) {
 $('joinBtn').addEventListener('click', () => tryJoin($('codeIn').value));
 $('codeIn').addEventListener('input', () => { if ($('codeIn').value.trim().length === 4) tryJoin($('codeIn').value); });
 
-const inviteCode = new URLSearchParams(location.search).get('join');
+const inviteCode = inviteCodeFromLocation();
 function tokenArtFor(id) {
   const t = window.KP_DATA.TOKENS.find((x) => x.id === id) || window.KP_DATA.TOKENS[0];
   return window.tokenArt(t.id, 40);
@@ -2291,7 +2303,7 @@ if (inviteCode) {
     $('inviteAs').textContent = 'Type your name below, then join.';
   }
   $('inviteMeta').textContent = 'Checking the room...';
-  history.replaceState(null, '', location.pathname);
+  history.replaceState(null, '', /^\/room\/[A-Za-z]{4}\/?$/.test(location.pathname) ? '/' : location.pathname);
   fetch('/api/room/' + code + '?clientId=' + encodeURIComponent(CLIENT_ID || '')).then((r) => r.json()).then((info) => {
     inviteInfo = info;
     if (!info.exists) {
@@ -2738,6 +2750,7 @@ function runCountdown() {
 // Lobby
 // ---------------------------------------------------------------------------
 let qrForCode = null;
+// Same origin, path /, so the link stays inside the installed app's scope.
 function inviteLink() { return location.origin + '/?join=' + state.code; }
 function renderLobby(room) {
   $('lobbyCode').textContent = room.code;
@@ -5328,6 +5341,7 @@ function renderEnd(room) {
     paintWalletNote();
     kickWallet();
   }
+  if (!trainingEnd && window.KPInstall && window.KPInstall.noteGame) window.KPInstall.noteGame();
   if (!trainingEnd && window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
   const endShare = $('endShare');
   if (endShare) endShare.addEventListener('click', () => {
