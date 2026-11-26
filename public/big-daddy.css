@@ -1,8 +1,10 @@
 /* A small sticker above the action buttons. It does not dim the
    table, and the only tap it takes is its own dismiss. */
 #bigDaddy.bd-tip {
-  margin: 0 0 8px;
+  margin: 0 8px 18px 0;
   pointer-events: none;
+  position: relative;
+  z-index: 1;
 }
 #bigDaddy.bd-tip[hidden] { display: none !important; }
 #bigDaddy.bd-tip.bd-fixed {
