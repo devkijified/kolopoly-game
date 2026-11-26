@@ -279,11 +279,179 @@ function createLive(opts) {
     };
   }
 
+  function everPlayed(row) {
+    return (Number(row.tablesPlayed) || Number(row.games) || 0) > 0 || (Number(row.daysPlayed) || 0) > 0 || !!row.lastPlayed;
+  }
+  function tagsFor(row) {
+    const name = String(row.name || '').trim();
+    const tags = [];
+    if (/^kiji$/i.test(name)) tags.push('owner');
+    if (/^qa\s/i.test(name)) tags.push('qa');
+    if (/^learner\b/i.test(name)) tags.push('learner');
+    if (!everPlayed(row)) tags.push('training');
+    return tags;
+  }
+  function mergePeople(rows) {
+    const groups = new Map();
+    for (const row of rows) {
+      const name = String(row.name || '').trim();
+      const key = name ? name.toLowerCase() : ('id:' + row.id);
+      const days = (row.playedDayList || []).slice();
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, Object.assign({}, row, { playedDayList: days }));
+        continue;
+      }
+      existing.claims = (existing.claims || 0) + (row.claims || 0);
+      existing.tablesPlayed = (existing.tablesPlayed || 0) + (row.tablesPlayed || 0);
+      existing.tablesWon = (existing.tablesWon || 0) + (row.tablesWon || 0);
+      existing.creditKobo = (existing.creditKobo || 0) + (row.creditKobo || 0);
+      existing.pushOn = !!(existing.pushOn || row.pushOn);
+      existing.activeToday = !!(existing.activeToday || row.activeToday);
+      existing.active7d = !!(existing.active7d || row.active7d);
+      for (const day of days) if (!existing.playedDayList.includes(day)) existing.playedDayList.push(day);
+      if ((row.lastPlayed || '') > (existing.lastPlayed || '')) existing.lastPlayed = row.lastPlayed;
+    }
+    return [...groups.values()].map((row) => {
+      row.playedDayList.sort();
+      row.daysPlayed = row.playedDayList.length;
+      if (!row.lastPlayed && row.playedDayList.length) row.lastPlayed = row.playedDayList[row.playedDayList.length - 1];
+      delete row.playedDayList;
+      const tags = tagsFor(row);
+      return Object.assign(row, { tags, real: tags.length === 0 });
+    });
+  }
+  function creditBook() {
+    if (!opts.playCredit || typeof opts.playCredit.view !== 'function') return [];
+    const book = opts.playCredit.view();
+    return book && Array.isArray(book.accounts) ? book.accounts : [];
+  }
+  function shelfPlayers() {
+    const roster = opts.retention && typeof opts.retention.opsRoster === 'function' ? opts.retention.opsRoster() : { day: '', players: [] };
+    const byId = new Map();
+    for (const row of roster.players || []) {
+      if (!row || !row.id) continue;
+      byId.set(row.id, {
+        id: row.id,
+        name: row.name || '',
+        daysPlayed: row.daysPlayed || 0,
+        lastPlayed: row.lastPlayed || '',
+        activeToday: !!row.activeToday,
+        active7d: !!row.active7d,
+        tablesPlayed: row.tablesPlayed || 0,
+        tablesWon: row.tablesWon || 0,
+        claims: row.claims || 0,
+        pushOn: !!row.pushOn,
+        creditKobo: 0,
+        playedDayList: (row.playedDayList || []).slice(),
+        shelf: true
+      });
+    }
+    for (const acct of creditBook()) {
+      const id = String(acct.accountId || '');
+      if (!id) continue;
+      const hit = byId.get(id);
+      const kobo = Math.round(Number(acct.balanceKobo) || 0);
+      if (hit) hit.creditKobo = kobo;
+      else if (kobo !== 0) {
+        byId.set(id, {
+          id, name: '', daysPlayed: 0, lastPlayed: '', activeToday: false, active7d: false,
+          tablesPlayed: 0, tablesWon: 0, claims: 0, pushOn: false, creditKobo: kobo, shelf: true
+        });
+      }
+    }
+    const shelfRows = [...byId.values()];
+    if (!shelfRows.length && seeded) {
+      return seedPlayers().map((p) => Object.assign({}, p, { tags: tagsFor(p), real: tagsFor(p).length === 0, shelf: false, creditKobo: 0, pushOn: false, claims: 0, daysPlayed: 0, lastPlayed: '', tablesPlayed: p.games || 0, tablesWon: p.wins || 0 }));
+    }
+    const people = mergePeople(shelfRows);
+    people.sort((a, b) => (b.lastPlayed || '').localeCompare(a.lastPlayed || '') || String(a.name || '').localeCompare(String(b.name || '')));
+    return people;
+  }
+  function houseStats() {
+    const rows = shelfPlayers().filter((row) => row.shelf);
+    const real = rows.filter((row) => row.real);
+    const summary = opts.retention && typeof opts.retention.opsSummary === 'function' ? opts.retention.opsSummary() : null;
+    const today = summary && summary.today ? summary.today : { claims: 0, tablesStarted: 0, tablesFinished: 0, afkTakeovers: 0 };
+    return {
+      realPlayers: real.length,
+      players: rows.length,
+      activeToday: real.filter((row) => row.activeToday).length,
+      active7d: real.filter((row) => row.active7d).length,
+      tablesStarted: today.tablesStarted || 0,
+      tablesFinished: today.tablesFinished || 0,
+      afk: today.afkTakeovers || 0,
+      claims: today.claims || 0,
+      pushOn: summary && summary.push ? summary.push.subscribers || 0 : rows.filter((row) => row.pushOn).length
+    };
+  }
+  function publicShelf(row) {
+    return {
+      id: row.id,
+      name: row.name || '',
+      tags: row.tags || [],
+      real: !!row.real,
+      shelf: true,
+      daysPlayed: row.daysPlayed || 0,
+      lastPlayed: row.lastPlayed || '',
+      tablesPlayed: row.tablesPlayed || 0,
+      tablesWon: row.tablesWon || 0,
+      claims: row.claims || 0,
+      pushOn: !!row.pushOn,
+      creditKobo: row.creditKobo || 0
+    };
+  }
+  function ledgerPayments() {
+    if (!opts.money || typeof opts.money.view !== 'function') return null;
+    let view;
+    try { view = opts.money.view(); } catch (e) { return null; }
+    if (!view || view.ok === false) return null;
+    const payments = (view.payments || []).map((row) => ({
+      id: String(row.reference || ''),
+      status: row.status || '',
+      amount: Math.round((Number(row.amountKobo) || 0) / 100),
+      user: row.email || '',
+      at: new Date(row.createdAt || Date.now()).toISOString(),
+      room: row.roomCode || ''
+    }));
+    const payouts = (view.payouts || []).map((row) => ({
+      id: String(row.id || ''),
+      status: row.status || '',
+      kind: row.kind || '',
+      amount: Math.round((Number(row.amountKobo) || 0) / 100),
+      room: row.roomCode || ''
+    }));
+    const totals = view.totals || {};
+    return {
+      ok: true,
+      source: 'ledger',
+      totals: {
+        count: payments.length,
+        paid: Math.round((Number(totals.collectedKobo) || 0) / 100) || payments.filter((row) => row.status === 'paid').reduce((sum, row) => sum + row.amount, 0),
+        failed: payments.filter((row) => row.status === 'failed').length,
+        pending: payments.filter((row) => row.status === 'pending' || row.status === 'abandoned').length,
+        payouts: payouts.length,
+        payoutPending: Number(totals.open) || payouts.filter((row) => row.status && row.status !== 'paid' && row.status !== 'paid-manual' && row.status !== 'refunded' && row.status !== 'refunded-manual').length
+      },
+      payments,
+      payouts
+    };
+  }
+
   function view(part, query) {
     query = query || {};
     if (part === 'rooms') {
       const q = String(query.q || '').toLowerCase();
-      return { ok: true, rooms: allRooms().filter((r) => !q || String(r.code).toLowerCase().includes(q) || r.players.some((p) => p.name.toLowerCase().includes(q))) };
+      const rooms = allRooms().filter((r) => !q || String(r.code).toLowerCase().includes(q) || r.players.some((p) => p.name.toLowerCase().includes(q)));
+      return {
+        ok: true,
+        rooms,
+        stats: {
+          live: rooms.length,
+          playing: rooms.filter((r) => r.status === 'playing').length,
+          humans: rooms.reduce((sum, r) => sum + (r.humans || 0), 0)
+        }
+      };
     }
     if (part === 'room') {
       const code = String(query.code || '').toUpperCase();
@@ -293,40 +461,95 @@ function createLive(opts) {
     }
     if (part === 'players') {
       const q = String(query.q || '').toLowerCase();
-      const rows = players.filter((p) => !q || p.name.toLowerCase().includes(q) || p.phone.includes(q) || p.email.toLowerCase().includes(q));
-      return { ok: true, players: rows.map((p) => ({ id: p.id, name: p.name, phone: p.phone, email: p.email, banned: p.banned, muted: p.muted, lastSeen: p.lastSeen })) };
+      const rows = shelfPlayers().filter((p) => {
+        if (!q) return true;
+        if (p.shelf) return (p.name || 'no name').toLowerCase().includes(q);
+        return p.name.toLowerCase().includes(q) || String(p.phone || '').includes(q) || String(p.email || '').toLowerCase().includes(q);
+      });
+      const listed = rows.filter((p) => p.shelf);
+      const pool = listed.length ? listed : rows;
+      return {
+        ok: true,
+        stats: {
+          real: pool.filter((p) => p.real).length,
+          total: pool.length
+        },
+        players: rows.map((p) => (p.shelf ? publicShelf(p) : { id: p.id, name: p.name, phone: p.phone, email: p.email, banned: p.banned, muted: p.muted, lastSeen: p.lastSeen, tags: p.tags || [], real: p.real !== false, shelf: false }))
+      };
     }
     if (part === 'player') {
-      const p = players.find((row) => row.id === String(query.id || ''));
+      const id = String(query.id || '');
+      const shelf = shelfPlayers().find((row) => row.shelf && row.id === id);
+      if (shelf) return { ok: true, player: publicShelf(shelf) };
+      const p = players.find((row) => row.id === id);
       if (!p) return { ok: false, error: 'missing', message: 'No player with that id.' };
       return { ok: true, player: publicPlayer(p) };
     }
     if (part === 'economy') {
       const days = String(query.days || '7') === '30' ? 30 : 7;
+      const series = opts.retention && typeof opts.retention.opsDays === 'function' ? opts.retention.opsDays(days) : [];
+      if ((series && series.length) || !seeded) {
+        const stats = houseStats();
+        const started = (series || []).reduce((sum, row) => sum + (row.started || 0), 0);
+        const finished = (series || []).reduce((sum, row) => sum + (row.finished || 0), 0);
+        return {
+          ok: true,
+          days,
+          tracked: true,
+          headlines: {
+            dau: stats.activeToday,
+            wau: stats.active7d,
+            started,
+            finished,
+            claims: (series || []).reduce((sum, row) => sum + (row.claims || 0), 0),
+            afk: (series || []).reduce((sum, row) => sum + (row.afk || 0), 0)
+          },
+          series: series || []
+        };
+      }
       const rows = economy.slice(-days);
       return { ok: true, days, headlines: headlines(rows.length ? rows : economy), series: rows };
     }
     if (part === 'payments') {
+      const ledger = ledgerPayments();
+      if (ledger && (ledger.payments.length || ledger.totals.payouts || !seeded)) return ledger;
       const paid = payments.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0);
       return {
         ok: true,
         totals: {
+          count: payments.length,
           paid,
           failed: payments.filter((p) => p.status === 'failed').length,
-          pending: payments.filter((p) => p.status === 'pending').length
+          pending: payments.filter((p) => p.status === 'pending').length,
+          payouts: 0,
+          payoutPending: 0
         },
         payments
       };
     }
     if (part === 'moderation') {
-      return { ok: true, reports, flagged: players.filter((p) => p.reports > 0 || p.banned || p.muted).map(publicPlayer) };
+      const flagged = players.filter((p) => p.reports > 0 || p.banned || p.muted).map(publicPlayer);
+      return {
+        ok: true,
+        stats: { reports: reports.length, open: reports.filter((r) => r.status === 'open').length, flagged: flagged.length },
+        reports,
+        flagged
+      };
     }
-    if (part === 'events') return { ok: true, event, scheduled };
-    if (part === 'audit') return { ok: true, audit: audit.slice().reverse() };
+    if (part === 'events') {
+      return { ok: true, event, scheduled, stats: { live: event && event.status === 'live' ? 1 : 0, scheduled: scheduled.length } };
+    }
+    if (part === 'audit') {
+      const rows = audit.slice().reverse();
+      return { ok: true, audit: rows, stats: { actions: rows.length } };
+    }
     const rooms = allRooms();
+    const days = opts.retention && typeof opts.retention.opsDays === 'function' ? opts.retention.opsDays(7) : [];
     return {
       ok: true,
       health: health(),
+      stats: houseStats(),
+      days: days || [],
       live: {
         playersOnline: rooms.reduce((s, r) => s + r.humans, 0),
         rooms: rooms.length,

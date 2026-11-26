@@ -58,9 +58,23 @@
     h = h || {};
     return '<div class="live-health"><span>Up ' + esc(h.uptimeSec) + 's</span><span>Build ' + esc(h.build || '—') + '</span><span>' + esc(h.memoryMb) + ' MB</span><span>' + esc(h.websockets) + ' sockets</span><span>' + esc(h.errorRate) + ' errors/min</span></div>';
   }
+  function statGrid(items) {
+    return '<div class="live-grid">' + items.map((item) => '<div class="live-stat"><span>' + esc(item[0]) + '</span><b>' + esc(item[1]) + '</b></div>').join('') + '</div>';
+  }
+  function chip(tag) {
+    const label = { owner: 'Owner', qa: 'QA', learner: 'Learner', training: 'Training' }[tag] || tag;
+    return '<span class="player-chip">' + esc(label) + '</span>';
+  }
   function bars(series, key) {
     const max = Math.max.apply(null, series.map((row) => row[key] || 0).concat(1));
-    return '<div class="live-bars">' + series.map((row) => '<div class="live-bar"><span>' + esc(row.day.slice(5)) + '</span><i style="width:' + Math.round(((row[key] || 0) / max) * 100) + '%"></i><b>' + esc(row[key]) + '</b></div>').join('') + '</div>';
+    return '<div class="live-bars">' + series.map((row) => {
+      const n = row[key] || 0;
+      const w = Math.round((n / max) * 100);
+      return '<div class="live-bar"><span>' + esc(String(row.day || '').slice(5)) + '</span><i data-w="' + w + '"></i><b>' + esc(n) + '</b></div>';
+    }).join('') + '</div>';
+  }
+  function paintBars() {
+    root.querySelectorAll('.live-bar i').forEach((el) => { el.style.width = (el.getAttribute('data-w') || '0') + '%'; });
   }
 
   async function show(next) {
@@ -69,13 +83,26 @@
     if (next === 'overview') {
       const data = await get('part=overview');
       const live = data.live || {};
+      const s = data.stats || {};
+      const days = data.days || [];
       root.innerHTML = '<article class="live-card"><h2>Live</h2>' + health(data.health) +
-        '<div class="live-grid" style="margin-top:10px"><div class="live-stat"><span>Players online</span><b>' + esc(live.playersOnline) + '</b></div><div class="live-stat"><span>Rooms</span><b>' + esc(live.rooms) + '</b></div><div class="live-stat"><span>In play</span><b>' + esc(live.playing) + '</b></div></div></article>' +
-        (data.rooms || []).map((room) => '<article class="live-card"><button type="button" data-room="' + esc(room.code) + '">' + esc(room.code) + '</button><p>' + esc(room.status) + ' · ' + esc(room.phase) + ' · ' + esc(room.mode) + '</p></article>').join('');
+        statGrid([
+          ['Real players', s.realPlayers || 0],
+          ['Active today', s.activeToday || 0],
+          ['Active 7d', s.active7d || 0],
+          ['Started today', s.tablesStarted || 0],
+          ['Finished today', s.tablesFinished || 0],
+          ['AFK today', s.afk || 0],
+          ['Claims today', s.claims || 0],
+          ['Online now', live.playersOnline || 0]
+        ]) + '</article>' +
+        '<article class="live-card"><h3>Tables by day</h3>' + (days.length ? days.map((row) => '<div class="live-day"><b>' + esc(row.day) + '</b><span>Started ' + esc(row.started) + '</span><span>Finished ' + esc(row.finished) + '</span><span>AFK ' + esc(row.afk) + '</span><span>Claims ' + esc(row.claims) + '</span></div>').join('') : '<p>none yet</p>') + '</article>' +
+        ((data.rooms || []).length ? (data.rooms || []).map((room) => '<article class="live-card"><button type="button" data-room="' + esc(room.code) + '">' + esc(room.code) + '</button><p>' + esc(room.status) + ' · ' + esc(room.phase) + ' · ' + esc(room.mode) + '</p></article>').join('') : '<article class="live-card"><h3>Live rooms</h3><p>none yet</p></article>');
     } else if (next === 'rooms') {
       const data = await get('part=rooms');
-      root.innerHTML = '<article class="live-card"><h2>Rooms</h2><input class="live-search" id="room-q" placeholder="Search code or name"></article>' +
-        (data.rooms || []).map((room) => '<article class="live-card"><div class="live-row"><b>' + esc(room.code) + '</b><button type="button" data-room="' + esc(room.code) + '">Open</button></div><p>' + esc(room.status) + ' · ' + esc(room.phase) + ' · ' + esc(room.humans) + ' human</p></article>').join('');
+      const s = data.stats || {};
+      root.innerHTML = '<article class="live-card"><h2>Rooms</h2>' + statGrid([['Live rooms', s.live || 0], ['In play', s.playing || 0], ['Humans', s.humans || 0]]) + '<input class="live-search" id="room-q" placeholder="Search code or name"></article>' +
+        ((data.rooms || []).length ? (data.rooms || []).map((room) => '<article class="live-card"><div class="live-row"><b>' + esc(room.code) + '</b><button type="button" data-room="' + esc(room.code) + '">Open</button></div><p>' + esc(room.status) + ' · ' + esc(room.phase) + ' · ' + esc(room.humans) + ' human</p></article>').join('') : '<article class="live-card"><p>none yet</p></article>');
       const q = document.getElementById('room-q');
       q.addEventListener('input', async () => {
         const found = await get('part=rooms&q=' + encodeURIComponent(q.value));
@@ -85,51 +112,112 @@
       });
     } else if (next === 'players') {
       const data = await get('part=players');
-      root.innerHTML = '<article class="live-card"><h2>Players</h2><input class="live-search" id="player-q" placeholder="Name, phone or email"></article>' +
-        playerList(data.players);
-      document.getElementById('player-q').addEventListener('input', async (ev) => {
-        const found = await get('part=players&q=' + encodeURIComponent(ev.target.value));
-        root.querySelectorAll('.live-player').forEach((el) => el.remove());
-        root.insertAdjacentHTML('beforeend', playerList(found.players));
-      });
+      paintPlayers(data, '');
     } else if (next === 'economy') {
       await economy('7');
     } else if (next === 'payments') {
       const data = await get('part=payments');
       const totals = data.totals || {};
-      root.innerHTML = '<article class="live-card"><h2>Payments</h2><p>Read only. No secret keys.</p><div class="live-grid"><div class="live-stat"><span>Paid</span><b>' + naira(totals.paid) + '</b></div><div class="live-stat"><span>Failed</span><b>' + esc(totals.failed) + '</b></div><div class="live-stat"><span>Pending</span><b>' + esc(totals.pending) + '</b></div></div></article>' +
-        (data.payments || []).map((pay) => '<article class="live-card"><b>' + esc(pay.status) + '</b> ' + naira(pay.amount) + '<p>' + esc(pay.user) + ' · ' + esc(pay.at.slice(0, 10)) + '</p><p>' + esc(pay.id) + '</p></article>').join('');
+      const pays = data.payments || [];
+      const payouts = data.payouts || [];
+      root.innerHTML = '<article class="live-card"><h2>Payments</h2><p>Read only. No secret keys.</p>' +
+        statGrid([
+          ['Payments', totals.count || pays.length || 0],
+          ['Paid', naira(totals.paid)],
+          ['Failed', totals.failed || 0],
+          ['Pending', totals.pending || 0],
+          ['Payouts', totals.payouts || payouts.length || 0],
+          ['Payouts open', totals.payoutPending || 0]
+        ]) + '</article>' +
+        (pays.length ? pays.map((pay) => '<article class="live-card"><b>' + esc(pay.status || 'none yet') + '</b> ' + naira(pay.amount) + '<p>' + esc(pay.user || 'No name') + (pay.room ? ' · ' + esc(pay.room) : '') + '</p><p>' + esc(String(pay.at || '').slice(0, 10)) + '</p></article>').join('') : '<article class="live-card"><h3>Payments</h3><p>none yet</p></article>') +
+        (payouts.length ? '<article class="live-card"><h3>Payouts</h3>' + payouts.map((row) => '<p>' + esc(row.status || 'open') + ' · ' + naira(row.amount) + (row.room ? ' · ' + esc(row.room) : '') + '</p>').join('') + '</article>' : '');
     } else if (next === 'moderation') {
       const data = await get('part=moderation');
-      root.innerHTML = '<article class="live-card"><h2>Moderation</h2></article>' +
-        (data.reports || []).map((rep) => '<article class="live-card"><p class="chip-bad">' + esc(rep.kind) + ' · ' + esc(rep.status) + '</p><p>' + esc(rep.text) + '</p><p>' + esc(rep.from) + ' about ' + esc(rep.about) + '</p><button type="button" data-player="' + esc(rep.aboutId) + '">Open player</button></article>').join('') +
-        (data.flagged || []).map((p) => '<article class="live-card"><b>' + esc(p.name) + '</b><p>' + (p.banned ? 'Banned' : '') + ' ' + (p.muted ? 'Muted' : '') + ' · reports ' + esc(p.reports) + '</p></article>').join('');
+      const s = data.stats || {};
+      const reports = data.reports || [];
+      const flagged = data.flagged || [];
+      root.innerHTML = '<article class="live-card"><h2>Moderation</h2>' + statGrid([['Reports', s.reports || 0], ['Open', s.open || 0], ['Flagged', s.flagged || 0]]) + '</article>' +
+        (reports.length ? reports.map((rep) => '<article class="live-card"><p class="chip-bad">' + esc(rep.kind) + ' · ' + esc(rep.status) + '</p><p>' + esc(rep.text) + '</p><p>' + esc(rep.from) + ' about ' + esc(rep.about) + '</p><button type="button" data-player="' + esc(rep.aboutId) + '">Open player</button></article>').join('') : '<article class="live-card"><p>none yet</p></article>') +
+        flagged.map((p) => '<article class="live-card"><b>' + esc(p.name) + '</b><p>' + (p.banned ? 'Banned' : '') + ' ' + (p.muted ? 'Muted' : '') + ' · reports ' + esc(p.reports) + '</p></article>').join('');
     } else if (next === 'events') {
       const data = await get('part=events');
       const ev = data.event || {};
-      root.innerHTML = '<article class="live-card"><h2>Weekly event</h2><p><b>' + esc(ev.name) + '</b> · ' + esc(ev.status) + '</p><p>' + esc(ev.starts) + ' → ' + esc(ev.ends) + '</p><div class="live-actions"><button type="button" data-act="event_stop">Stop</button><button type="button" data-act="event_start">Start</button></div></article>' +
+      const s = data.stats || {};
+      const running = ev.status === 'live' && ev.name && ev.name !== 'No event';
+      const nextName = (data.scheduled || []).map((item) => item.name).filter(Boolean).join(', ');
+      const stateCopy = running
+        ? '<p><b>' + esc(ev.name) + '</b> is running</p>' + ((ev.starts || ev.ends) ? '<p>' + esc(ev.starts || '') + ' → ' + esc(ev.ends || '') + '</p>' : '')
+        : '<p><b>No event running</b></p><p>Next: ' + esc(nextName || 'none scheduled') + '</p>';
+      const stateAction = running
+        ? '<button type="button" data-act="event_stop">Stop</button>'
+        : '<button type="button" data-act="event_start">Start</button>';
+      root.innerHTML = '<article class="live-card"><h2>Weekly event</h2>' + statGrid([['Live events', s.live || 0], ['Scheduled', s.scheduled || 0]]) + stateCopy + '<div class="live-actions">' + stateAction + '</div></article>' +
         '<article class="live-card"><h3>Schedule</h3><input id="ev-name" placeholder="Event name"><button type="button" id="ev-save">Schedule</button></article>';
-      root.querySelector('[data-act="event_stop"]').addEventListener('click', () => act({ action: 'event_stop' }, 'Stop the event', 'Players will leave this event.'));
-      root.querySelector('[data-act="event_start"]').addEventListener('click', () => act({ action: 'event_start', name: ev.name }, 'Start the event', 'This event goes live.'));
+      const stopBtn = root.querySelector('[data-act="event_stop"]');
+      const startBtn = root.querySelector('[data-act="event_start"]');
+      if (stopBtn) stopBtn.addEventListener('click', () => act({ action: 'event_stop' }, 'Stop the event', 'Players will leave this event.'));
+      if (startBtn) startBtn.addEventListener('click', () => act({ action: 'event_start', name: ev.name && ev.name !== 'No event' ? ev.name : 'House event' }, 'Start the event', 'This event goes live.'));
       document.getElementById('ev-save').addEventListener('click', () => act({ action: 'event_schedule', name: document.getElementById('ev-name').value || 'House week' }, 'Schedule an event', 'Add it to the schedule.'));
     } else if (next === 'broadcast') {
-      root.innerHTML = '<article class="live-card"><h2>Broadcast</h2><textarea id="bc-text" rows="3" maxlength="180" placeholder="In-game announcement"></textarea><div class="live-actions"><button type="button" id="bc-send">Send in game</button><button type="button" id="bc-push">Push to everyone</button></div></article>';
+      const data = await get('part=overview');
+      const subs = (data.stats && data.stats.pushOn) || 0;
+      root.innerHTML = '<article class="live-card"><h2>Broadcast</h2>' + statGrid([['Push on', subs], ['Sent from here', 0]]) + '<textarea id="bc-text" rows="3" maxlength="180" placeholder="In-game announcement"></textarea><div class="live-actions"><button type="button" id="bc-send">Send in game</button><button type="button" id="bc-push">Push to everyone</button></div></article>';
       document.getElementById('bc-send').addEventListener('click', () => act({ action: 'broadcast', text: document.getElementById('bc-text').value }, 'Send the announcement', 'Everyone online will see this banner.'));
       document.getElementById('bc-push').addEventListener('click', () => act({ action: 'broadcast_push', text: document.getElementById('bc-text').value }, 'Push to everyone', 'This would notify every device. Type the phrase to continue.', true));
     } else if (next === 'audit') {
       const data = await get('part=audit');
-      root.innerHTML = '<article class="live-card"><h2>Audit</h2>' + ((data.audit || []).map((row) => '<div class="live-row"><span>' + esc(row.at.slice(0, 16).replace('T', ' ')) + ' · ' + esc(row.who) + '</span><b>' + esc(row.action) + '</b></div><p>' + esc(row.target) + ' ' + esc(row.detail) + '</p>').join('') || '<p>No admin actions yet.</p>') + '</article>';
+      const rows = data.audit || [];
+      const s = data.stats || {};
+      root.innerHTML = '<article class="live-card"><h2>Audit</h2>' + statGrid([['Actions', s.actions != null ? s.actions : rows.length]]) + (rows.length ? rows.map((row) => '<div class="live-row"><span>' + esc(String(row.at).slice(0, 16).replace('T', ' ')) + ' · ' + esc(row.who) + '</span><b>' + esc(row.action) + '</b></div><p>' + esc(row.target) + ' ' + esc(row.detail) + '</p>').join('') : '<p>none yet</p>') + '</article>';
     }
   }
 
-  function playerList(rows) {
-    return (rows || []).map((p) => '<div class="live-player"><div><b>' + esc(p.name) + '</b><p>' + esc(p.email) + '</p></div><button type="button" data-player="' + esc(p.id) + '">Open</button></div>').join('');
+  function paintPlayers(data, query) {
+    const stats = data.stats || {};
+    const hide = !root.querySelector('#hide-test') || root.querySelector('#hide-test').checked;
+    root.innerHTML = '<article class="live-card"><h2>Players</h2><p class="real-count">Real players: ' + esc(stats.real || 0) + '</p>' +
+      statGrid([['Real players', stats.real || 0], ['People', stats.total || 0]]) +
+      '<label class="live-toggle"><input type="checkbox" id="hide-test"' + (hide ? ' checked' : '') + '> Hide QA, training, and owner</label>' +
+      '<input class="live-search" id="player-q" placeholder="Search by name" value="' + esc(query) + '"></article>' +
+      playerList(data.players, hide);
+    document.getElementById('hide-test').addEventListener('change', () => paintPlayers(data, document.getElementById('player-q').value));
+    document.getElementById('player-q').addEventListener('input', async (ev) => {
+      const found = await get('part=players&q=' + encodeURIComponent(ev.target.value));
+      const box = document.getElementById('hide-test');
+      root.querySelectorAll('.live-player, .live-player-card').forEach((el) => el.remove());
+      root.insertAdjacentHTML('beforeend', playerList(found.players, box && box.checked));
+    });
+  }
+
+  function playerList(rows, hide) {
+    return (rows || []).filter((p) => !hide || p.real !== false).map((p) => {
+      if (p.shelf) return playerCard(p);
+      return '<div class="live-player"><div><b>' + esc(p.name) + '</b><p>' + esc(p.email) + '</p></div><button type="button" data-player="' + esc(p.id) + '">Open</button></div>';
+    }).join('') || '<article class="live-card live-player-card"><p>none yet</p></article>';
+  }
+  function playerCard(p) {
+    const name = String(p.name || '').trim() || 'No name';
+    const tags = (p.tags || []).map(chip).join('');
+    const tables = (p.tablesPlayed || p.tablesWon) ? ('Tables played ' + esc(p.tablesPlayed || 0) + ' · won ' + esc(p.tablesWon || 0)) : 'Tables none yet';
+    const credit = p.creditKobo ? '<p>Credit ' + naira(Math.round(p.creditKobo / 100)) + '</p>' : '';
+    return '<article class="live-card live-player-card" data-real="' + (p.real ? '1' : '0') + '"><div class="live-player-head"><b>' + esc(name) + '</b><span class="player-chips">' + tags + '</span></div><p>Days played ' + esc(p.daysPlayed || 0) + ' · last ' + esc(p.lastPlayed || 'none yet') + '</p><p>' + tables + '</p><p>Claims ' + esc(p.claims || 0) + ' · Push ' + (p.pushOn ? 'on' : 'off') + '</p>' + credit + '<button type="button" data-player="' + esc(p.id) + '">Open</button></article>';
   }
   async function economy(days) {
     const data = await get('part=economy&days=' + days);
     const h = data.headlines || {};
-    root.innerHTML = '<article class="live-card"><h2>Economy</h2><div class="live-actions"><button type="button" data-days="7">7 days</button><button type="button" data-days="30">30 days</button></div><div class="live-grid"><div class="live-stat"><span>DAU</span><b>' + esc(h.dau) + '</b></div><div class="live-stat"><span>WAU</span><b>' + esc(h.wau) + '</b></div><div class="live-stat"><span>MAU</span><b>' + esc(h.mau) + '</b></div><div class="live-stat"><span>Signups</span><b>' + esc(h.signups) + '</b></div><div class="live-stat"><span>Started</span><b>' + esc(h.started) + '</b></div><div class="live-stat"><span>Finished</span><b>' + esc(h.finished) + '</b></div><div class="live-stat"><span>Avg length</span><b>' + esc(h.lengthMin) + 'm</b></div><div class="live-stat"><span>Abandon</span><b>' + esc(h.abandon) + '</b></div><div class="live-stat"><span>D1</span><b>' + esc(h.d1) + '</b></div><div class="live-stat"><span>D7</span><b>' + esc(h.d7) + '</b></div><div class="live-stat"><span>Spins</span><b>' + esc(h.spins) + '</b></div><div class="live-stat"><span>Set rewards</span><b>' + esc(h.sets) + '</b></div><div class="live-stat"><span>Trades</span><b>' + esc(h.trades) + '</b></div><div class="live-stat"><span>Events</span><b>' + esc(h.events) + '</b></div><div class="live-stat"><span>Push opt-ins</span><b>' + esc(h.pushes) + '</b></div></div></article>' +
-      '<article class="live-card"><h3>Games started</h3>' + bars(data.series || [], 'started') + '</article>';
+    const shown = (v) => (v == null || v === '' ? 'none yet' : v);
+    const series = data.series || [];
+    root.innerHTML = '<article class="live-card"><h2>Economy</h2><div class="seg" role="group" aria-label="Range"><button type="button" data-days="7"' + (String(days) === '7' ? ' class="on"' : '') + '>7 days</button><button type="button" data-days="30"' + (String(days) === '30' ? ' class="on"' : '') + '>30 days</button></div>' +
+      statGrid([
+        ['Active today', shown(h.dau)],
+        ['Active 7d', shown(h.wau)],
+        ['Started', shown(h.started)],
+        ['Finished', shown(h.finished)],
+        ['Claims', shown(h.claims)],
+        ['AFK', shown(h.afk)]
+      ]) + '</article>' +
+      '<article class="live-card"><h3>Games started</h3>' + (series.length ? bars(data.series, 'started') : '<p>none yet</p>') + '</article>';
+    paintBars();
     root.querySelectorAll('[data-days]').forEach((btn) => btn.addEventListener('click', () => economy(btn.getAttribute('data-days'))));
   }
   async function room(code) {
@@ -149,6 +237,10 @@
     const data = await get('part=player&id=' + encodeURIComponent(id));
     if (!data.player) { root.innerHTML = '<article class="live-card">No such player.</article>'; return; }
     const p = data.player;
+    if (p.shelf) {
+      root.innerHTML = playerCard(p);
+      return;
+    }
     root.innerHTML = '<article class="live-card"><h2>' + esc(p.name) + '</h2><p>' + esc(p.email) + ' · ' + esc(p.phone) + '</p><p>Played ' + esc(p.games) + ' · won ' + esc(p.wins) + '</p><p>Last seen ' + esc(String(p.lastSeen).slice(0, 16)) + '</p><p>' + (p.banned ? '<span class="chip-bad">Banned</span>' : '<span class="chip-ok">Clear</span>') + ' ' + (p.muted ? 'Muted' : '') + '</p><div class="live-actions"><button type="button" id="ban">' + (p.banned ? 'Unban' : 'Ban') + '</button><button type="button" id="mute">' + (p.muted ? 'Unmute' : 'Mute') + '</button></div></article>' +
       '<article class="live-card"><h3>Cosmetics</h3><p>' + esc(p.cosmetics.join(', ') || 'None') + '</p><h3>Stickers</h3><p>' + esc(p.stickers.join(', ') || 'None') + '</p><button type="button" id="grant">Grant Gold Big Man</button> <button type="button" id="revoke">Revoke it</button></article>' +
       '<article class="live-card"><h3>Spins</h3>' + p.spins.map((s) => '<p>' + esc(s.day) + ' · ' + esc(s.prize) + '</p>').join('') + '<h3>Rewards</h3>' + p.rewards.map((s) => '<p>' + esc(s.day) + ' · ' + esc(s.name) + '</p>').join('') + '</article>' +
