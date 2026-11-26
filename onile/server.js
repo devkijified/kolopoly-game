@@ -12,6 +12,7 @@ const { createPayouts } = require('../payouts');
 const { createAuth } = require('../auth');
 const { createMailer } = require('../mailer');
 const { createEscrow, clampPercent, normCode } = require('./escrow');
+const { createWinnerMail } = require('./winner-mail');
 
 const PUBLIC = path.join(__dirname, 'public');
 const FONT_DIR = path.join(__dirname, '..', 'public', 'fonts');
@@ -44,6 +45,7 @@ const escrow = createEscrow({
   joinWindowMs: JOIN_MS,
   reportWindowMs: REPORT_MS
 });
+const winnerMail = createWinnerMail({ mailer, escrow, payouts, publicUrl: PUBLIC_URL });
 
 const ADMIN_FAILS = new Map();
 const LIMITS = new Map();
@@ -419,6 +421,7 @@ const server = http.createServer((req, res) => {
       const result = escrow.report({ code: reportRoute[1], playerId: player.id, winnerId: body.winnerId, winnerRole: body.winnerRole });
       if (!result.ok && !result.challenge) { json(res, result.error === 'unknown' ? 404 : 400, result); return; }
       if (!result.ok) { json(res, 400, { ok: false, error: result.error, message: result.message }); return; }
+      if (result.queue) winnerMail.kick();
       json(res, 200, { ok: true, challenge: afterMoney(normCode(reportRoute[1]), player.id) });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
@@ -597,6 +600,7 @@ const server = http.createServer((req, res) => {
       const result = escrow.decide({ code: body.code, winnerId: body.winnerId, note: body.note, actor: 'admin' });
       if (!result.ok) { json(res, result.error === 'unknown' ? 404 : 400, { ok: false, error: result.error, message: result.message }); return; }
       escrow.drain(normCode(body.code), payouts);
+      if (result.queue) winnerMail.kick();
       json(res, 200, { ok: true, challenge: escrow.adminView(escrow.get(body.code)) });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
@@ -616,6 +620,7 @@ const server = http.createServer((req, res) => {
       });
       if (!result.ok) { json(res, result.error === 'unknown' ? 404 : 400, { ok: false, error: result.error, message: result.message }); return; }
       const view = afterMoney(normCode(body.code), null);
+      if (result.queue && body.action === 'winner') winnerMail.kick();
       json(res, 200, { ok: true, challenge: escrow.adminView(escrow.get(body.code)) , public: view });
     })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
@@ -661,6 +666,7 @@ const server = http.createServer((req, res) => {
 function sweep() {
   try {
     for (const code of escrow.tickAll()) escrow.drain(code, payouts);
+    winnerMail.kick();
   } catch (e) { /* next sweep */ }
   if (!paystack.enabled) return;
   payments.pendingOlderThan(Number(process.env.KP_SWEEP_AGE_MS) || 60000).slice(0, 5).forEach((rec) => {
@@ -672,6 +678,7 @@ const timer = setInterval(sweep, Number(process.env.KP_SWEEP_INTERVAL_MS) || 300
 if (timer.unref) timer.unref();
 
 server.listen(PORT, HOST, () => {
+  winnerMail.kick();
   console.log('Onile listening on ' + HOST + ':' + PORT + ' (house ' + HOUSE + '%, payouts ' + (process.env.KP_PAYOUT_MODE === 'auto' ? 'auto' : 'manual') + ').');
   console.log(paystack.enabled
     ? 'Paystack is set up. Payments settle from the signed webhook, verify calls, and the reconcile sweep.'

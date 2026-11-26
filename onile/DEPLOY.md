@@ -19,6 +19,7 @@ Do not copy those secrets into git, into this file, or into the journal.
 | `ONILE_PUBLIC_URL` | `https://onile.kolopoly.fun` |
 | `ONILE_DATA_DIR` | `/var/lib/onile` (not Kolopoly's data dir). |
 | `ONILE_HOUSE_PERCENT` | Optional. Default `10`. |
+| `ONILE_ADMIN_EMAIL` | Optional. Where a confirmed winner is emailed. Default `kijified@gmail.com`. The mail goes out through the same Resend setup as sign-in (`RESEND_API_KEY`, `KP_MAIL_FROM`). |
 | `ONILE_JOIN_HOURS` | Optional. Default `24`. |
 | `ONILE_REPORT_HOURS` | Optional. Default `24`. |
 

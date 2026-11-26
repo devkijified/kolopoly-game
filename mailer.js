@@ -53,6 +53,28 @@ function createMailer(opts) {
           log('Resend no answer for a sign-in mail: ' + (e && e.message ? e.message : 'network'));
           return { ok: false, error: 'mail', message: FAIL };
         }
+      },
+      async send(mail) {
+        const to = String(mail && mail.to || '').trim();
+        const subject = String(mail && mail.subject || '').slice(0, 200);
+        const text = String(mail && mail.text || '');
+        const html = mail && mail.html ? String(mail.html) : undefined;
+        if (!to || !subject) return { ok: false, error: 'mail', message: 'Missing mail fields.' };
+        try {
+          const res = await doFetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from, to: [to], subject, text, html })
+          });
+          if (!res.ok) {
+            log('Resend refused a mail (' + res.status + ').');
+            return { ok: false, error: 'mail', message: 'The mail was not accepted.' };
+          }
+          return { ok: true };
+        } catch (e) {
+          log('Resend no answer for a mail.');
+          return { ok: false, error: 'mail', message: 'The mail was not sent.' };
+        }
       }
     };
   }
@@ -71,6 +93,21 @@ function createMailer(opts) {
       if (!pretend) {
         log('Sign-in mail is not set up (no RESEND_API_KEY). The player was told to try again.');
         return { ok: false, error: 'mail', message: 'Sign-in mail never set up yet. Nothing was sent. Try again.' };
+      }
+      return { ok: true };
+    },
+    async send(mail) {
+      outbox.push({
+        at: Date.now(),
+        to: mail && mail.to,
+        subject: mail && mail.subject,
+        text: mail && mail.text,
+        html: mail && mail.html
+      });
+      log('Mail (test transport): ' + String(mail && mail.subject || ''));
+      if (!pretend) {
+        log('Mail is not set up (no RESEND_API_KEY). Nothing was sent.');
+        return { ok: false, error: 'mail', message: 'Mail never set up yet. Nothing was sent.' };
       }
       return { ok: true };
     }
