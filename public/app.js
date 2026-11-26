@@ -3878,10 +3878,11 @@ function renderActionBar(room) {
         '<button class="btn red" id="abBankrupt">' + (bankruptArmed ? 'Tap again: confirm bankruptcy' : window.icon('alert', 18) + ' Bankruptcy') + '</button>';
     } else {
       const d = byId(room.debt.playerId);
-      html = '<p class="caption" style="align-self:center;">' + esc(d ? d.name : 'A player') + ' dey raise ' + fmtN(room.debt.amount) + ' (' + esc(room.debt.reason) + ').</p>';
+      html = '<div class="raise-offer"><p class="caption">' + esc(d ? d.name : 'A player') + ' dey raise ' + fmtN(room.debt.amount) + ' (' + esc(room.debt.reason) + ').</p>';
       if (room.mode !== 'pass' && !spectator && me && !me.bankrupt && !room.sapaOffer && d && sapaDeedsOf(room, d.id).length) {
-        html += '<button class="btn gold" id="abSapa">' + window.icon('swapH', 18) + ' Sapa Deal: buy their deed</button>';
+        html += '<button class="btn gold" id="abSapa">Buy deed</button>';
       }
+      html += '</div>';
     }
   } else if (room.buildPlace && room.buildPlace.playerId === me.id) {
     html = '<p class="caption" style="align-self:center;">You win the last ' + room.buildPlace.kind + '. Tap a highlighted street to place am.</p>';
@@ -3934,7 +3935,10 @@ function renderActionBar(room) {
   bar.innerHTML = html;
   const view = document.getElementById('view-game');
   const waitingOut = !!(view && me && !spectator && room.mode !== 'pass' && room.status === 'playing' && !room.auction && !room.debt && room.turnPlayerId !== me.id && !(room.practice && room.practice.kind !== 'free' && !room.practice.ended));
-  if (view) view.classList.toggle('turn-wait', waitingOut);
+  if (view) {
+    view.classList.toggle('turn-wait', waitingOut);
+    view.classList.toggle('turn-offer', !!bar.querySelector('#abSapa'));
+  }
   const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
   wire('abRoll', () => sendAs('roll', {}));
   wire('abHustle', () => openHustleSheet(room));

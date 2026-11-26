@@ -388,6 +388,9 @@ body:has(#view-game.active) { background: radial-gradient(120% 60% at 50% 100%, 
   #view-game.active.turn-wait {
     --dock-reserve: calc(72px + env(safe-area-inset-bottom, 0px));
   }
+  #view-game.active.turn-offer {
+    --dock-reserve: calc(168px + env(safe-area-inset-bottom, 0px));
+  }
   #view-game.active.turn-wait #actionBar { display: none !important; }
   #view-game.active .game-stage { flex: 1 1 0% !important; min-height: 0; }
 }
