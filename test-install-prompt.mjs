@@ -3,7 +3,7 @@
 import fs from 'fs';
 import vm from 'vm';
 
-const context = { window: {}, document: undefined, setInterval() {}, setTimeout() {} };
+const context = { window: {}, document: undefined, URL, setInterval() {}, setTimeout() {} };
 context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(new URL('./public/install-prompt.js', import.meta.url), 'utf8'), context);
@@ -47,7 +47,19 @@ check('the open chip is not immediately hidden by the session flag', IP.decide(O
 check('desktop never shows it', IP.decide(Object.assign({}, base, { ua: desktop })).show === false);
 check('ios safari gets the chip', IP.decide(Object.assign({}, base, { ua: safari, hasPrompt: false })).kind === 'ios');
 check('an in-app browser is told to use safari instead of the share steps', IP.decide(Object.assign({}, base, { ua: instagram, hasPrompt: false })).kind === 'ios-inapp');
+check('a phone that has opened the installed app stays quiet', IP.decide(Object.assign({}, base, { ua: safari, hasPrompt: false, seenStandalone: true })).show === false);
+check('without that flag, safari keeps the normal chip', IP.decide(Object.assign({}, base, { ua: safari, hasPrompt: false, seenStandalone: false })).show === true);
 check('the snooze is 7 days', IP.snoozeUntil(1000) - 1000 === 7 * 24 * 60 * 60 * 1000);
+check('an invite link is inside the app scope', IP.linkInScope('https://kolopoly.fun/?join=ABCD') === true);
+check('a room link is inside the app scope', IP.linkInScope('https://kolopoly.fun/room/ABCD') === true);
+check('another site is outside the app', IP.linkInScope('https://example.com/?join=ABCD') === false);
+check('a launch for another room stays on this origin', IP.sameScopeLaunch('https://kolopoly.fun/room/WXYZ', 'https://kolopoly.fun/') === '/room/WXYZ');
+check('a launch for the page already open does nothing', IP.sameScopeLaunch('https://kolopoly.fun/?join=ABCD', 'https://kolopoly.fun/?join=ABCD') === null);
+check('a launch for another site is ignored', IP.sameScopeLaunch('https://example.com/room/ABCD', 'https://kolopoly.fun/') === null);
+
+const manifest = JSON.parse(fs.readFileSync(new URL('./public/manifest.webmanifest', import.meta.url), 'utf8'));
+check('the manifest scope covers the whole site', manifest.scope === '/' && manifest.start_url === '/' && manifest.id === '/');
+check('Android is asked to capture links into the open window', manifest.handle_links === 'preferred' && Array.isArray(manifest.launch_handler.client_mode) && manifest.launch_handler.client_mode[0] === 'navigate-existing' && manifest.launch_handler.client_mode[1] === 'auto');
 
 console.log(fail ? fail + ' failed' : 'all ' + n + ' passed');
 process.exit(fail ? 1 : 0);

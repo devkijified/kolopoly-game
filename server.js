@@ -817,7 +817,10 @@ const server = http.createServer((req, res) => {
     }));
     return;
   }
-  const rel = cleanUrl === '/' ? '/index.html' : cleanUrl;
+  // /room/CODE is inside the manifest scope, same as /?join=CODE.
+  // A captured link has to be the game page, not a missing file.
+  const roomPage = /^\/room\/[A-Za-z]{4}\/?$/.test(cleanUrl);
+  const rel = (cleanUrl === '/' || roomPage) ? '/index.html' : cleanUrl;
   const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
   const entry = staticCache.get(rel);

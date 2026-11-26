@@ -15,6 +15,12 @@
   const GAMES_KEY = 'kolopolyInstallGames';
   const LANDED_KEY = 'kolopolyInstallLanded';
   const SEEN_KEY = 'kolopolyInstallSeen';
+  // Set only while this storage partition is actually running standalone.
+  // iOS keeps the Home Screen app's localStorage separate from Safari, so a
+  // Safari tab usually cannot see this flag. When it is missing, the chip
+  // stays on its normal path. There is no "open in the app" control: iOS
+  // cannot hand a link to the Home Screen app.
+  const SAW_APP_KEY = 'kolopolySawStandalone';
 
   function device(ua, opts) {
     ua = String(ua || '');
@@ -42,6 +48,7 @@
     const kind = env.kind || device(env.ua, env);
     if (kind === 'desktop') return { show: false, reason: 'desktop' };
     if (installed(env)) return { show: false, reason: 'installed' };
+    if (env.seenStandalone) return { show: false, reason: 'seen-standalone' };
     if (env.inGame || env.inTraining) return { show: false, reason: 'busy' };
     if (!env.onLanding) return { show: false, reason: 'away' };
     if (env.snoozeUntil && env.now < env.snoozeUntil) return { show: false, reason: 'snooze' };
@@ -54,6 +61,31 @@
   }
 
   function snoozeUntil(now) { return (now || 0) + SNOOZE_MS; }
+
+  // Manifest scope is the whole origin. Invite links (?join=) and room
+  // links (/room/CODE) both sit under /, so Android can capture them.
+  function linkInScope(url) {
+    let u;
+    try { u = new URL(String(url || '')); } catch (e) { return false; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    const host = u.hostname;
+    if (host !== 'kolopoly.fun' && host !== 'localhost' && host !== '127.0.0.1') return false;
+    return u.pathname === '/' || u.pathname.charAt(0) === '/';
+  }
+
+  // navigate-existing loads the link in the open window. If the browser
+  // only focuses that window, this is the same-origin path to follow.
+  function sameScopeLaunch(target, here) {
+    let next, current;
+    try {
+      next = new URL(String(target || ''));
+      current = new URL(String(here || ''));
+    } catch (e) { return null; }
+    if (next.origin !== current.origin) return null;
+    if (next.pathname.charAt(0) !== '/') return null;
+    if (next.pathname + next.search === current.pathname + current.search) return null;
+    return next.pathname + next.search + next.hash;
+  }
 
   const ICON_SHARE = '<svg class="install-ico" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 3v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8.2 6.6L12 3l3.8 3.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const ICON_PLUS = '<svg class="install-ico" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v8M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
@@ -75,6 +107,12 @@
       if (window.matchMedia('(display-mode: standalone)').matches) displayMode = 'standalone';
       else if (window.matchMedia('(display-mode: fullscreen)').matches) displayMode = 'fullscreen';
     } catch (e) { /* matchMedia can be missing */ }
+    const inApp = displayMode === 'standalone' || displayMode === 'fullscreen' || navigator.standalone === true;
+    let seenStandalone = !!(box && (box.getItem(SAW_APP_KEY) === '1' || box.getItem('kp_installed') === '1'));
+    if (inApp) {
+      seenStandalone = true;
+      if (box) { try { box.setItem(SAW_APP_KEY, '1'); } catch (e) { /* private mode */ } }
+    }
     const landing = document.getElementById('view-landing');
     const game = document.getElementById('view-game');
     const onLanding = !!(landing && landing.classList.contains('active'));
@@ -104,7 +142,8 @@
       inTraining: inTraining,
       onLanding: onLanding,
       hasPrompt: !!deferred,
-      chipOpen: chipOpen
+      chipOpen: chipOpen,
+      seenStandalone: seenStandalone
     };
   }
 
@@ -231,9 +270,19 @@
     tick(Date.now());
   }
 
+  function followLaunch(params) {
+    if (typeof location === 'undefined') return;
+    const target = params && params.targetURL;
+    const next = sameScopeLaunch(target, location.href);
+    if (next) location.assign(next);
+  }
+
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.addEventListener('beforeinstallprompt', notePrompt);
     window.addEventListener('appinstalled', () => { deferred = null; hide(); });
+    if (window.launchQueue && typeof window.launchQueue.setConsumer === 'function') {
+      try { window.launchQueue.setConsumer(followLaunch); } catch (e) { /* the browser navigates on its own */ }
+    }
     const boot = () => {
       tick(Date.now());
       setInterval(() => tick(Date.now()), 1000);
@@ -247,6 +296,8 @@
     decide: decide,
     installed: installed,
     snoozeUntil: snoozeUntil,
+    linkInScope: linkInScope,
+    sameScopeLaunch: sameScopeLaunch,
     SNOOZE_MS: SNOOZE_MS,
     FIRST_WAIT_MS: FIRST_WAIT_MS,
     noteGame: noteGame,
