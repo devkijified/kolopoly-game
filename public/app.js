@@ -1342,6 +1342,10 @@ function connect() {
     }
     if (msg.type === 'notice') {
       if (trainingHome) return;
+      if (msg.action === 'back') {
+        toast("You're back. Your seat is yours.", 4200);
+        return;
+      }
       const quiet = msg.action === 'here' || /quiet|seat|bot/i.test(msg.message || '');
       toast({
         title: msg.title || (quiet ? 'You dey quiet' : 'Kolopoly'),
@@ -4386,19 +4390,24 @@ function renderAuction(room) {
     if (overlay) { overlay.classList.remove('show'); overlay.innerHTML = ''; }
     return;
   }
-  const label = a.kind === 'deed' ? window.KP_DATA.SPACES[a.space].name : (a.kind === 'duplex' ? 'The last duplex' : 'The last mansion');
+  const space = a.kind === 'deed' ? window.KP_DATA.SPACES[a.space] : null;
+  const label = space ? space.name : (a.kind === 'duplex' ? 'The last duplex' : 'The last mansion');
   const high = a.highBidder ? byId(a.highBidder) : null;
   const bidder = room.mode === 'pass' ? (bidAs != null ? bidAs : room.turnPlayerId) : myId;
   const canBid = !spectator && a.eligible.includes(bidder) && !a.passed.includes(bidder);
-  const phaseLine = room.inf && a.kind === 'deed'
-    ? '<p class="caption">Phase ' + room.inf.phase + ' context: printed rent on this street go multiply by ' + (room.inf.phase === 1 ? 'nothing yet' : infFormulaWords(room.inf.phase).replace('printed rent x ', '')) + '. Auction price na the bid, always.</p>'
+  const price = space && window.KP_DATA.auctionPriceCopy ? window.KP_DATA.auctionPriceCopy(space, room.inf, a.highBid) : null;
+  const priceRow = price
+    ? '<div class="auction-price" style="--band:' + price.band + '"><span class="auction-price-text">' + esc(price.text) + '</span>' +
+      (price.hint ? '<span class="auction-hint ' + (price.hint === 'under list' ? 'under' : 'over') + '">' + esc(price.hint) + '</span>' : '') + '</div>'
     : '';
+  const phaseLine = price && price.phase ? '<p class="caption auction-phase">' + esc(price.phase) + '</p>' : '';
   const ends = stableAuctionEnds(a);
   const host = overlay || slot;
   if (slot && host !== slot) slot.innerHTML = '';
   host.innerHTML = '<div class="auction-card">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;"><b class="title" style="font-size:17px;">' + window.icon('gavel', 18) + ' Auction: ' + esc(label) + '</b>' +
     '<span class="turn-timer" data-deadline="' + ends + '" data-auction-clock="1">' + Math.max(0, Math.round((ends - Date.now()) / 1000)) + 's</span></div>' +
+    priceRow +
     '<p style="margin:6px 0 0;">High bid: <b>' + (a.highBid > 0 ? fmtN(a.highBid) + ' by ' + esc(high ? high.name : '') : 'no bid yet') + '</b> · Next minimum: <b>' + fmtN(a.minNext) + '</b></p>' +
     phaseLine +
     (room.mode === 'pass' ? '<p class="caption" style="margin-top:6px;">Bidding as: ' + room.players.filter((p) => a.eligible.includes(p.id) && !p.bankrupt).map((p) => '<button class="chip" data-bidas="' + p.id + '" style="' + (bidder === p.id ? 'background:var(--gold);' : '') + '">' + esc(p.name) + '</button>').join(' ') + '</p>' : '') +
