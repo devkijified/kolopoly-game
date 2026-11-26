@@ -59,7 +59,9 @@ function createOps(opts) {
     errorRate: opts.errorRate,
     admin: opts.admin,
     auditFile: opts.auditFile || '',
-    playCredit: opts.playCredit || null
+    playCredit: opts.playCredit || null,
+    retention,
+    money
   });
   const buckets = new Map();
   const globalBucket = { n: 0, windowEnd: 0, lockedUntil: 0 };

@@ -2,6 +2,8 @@
 // action needs a confirmed session and leaves an audit row.
 import { spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 const TOKEN = 'kp-test-sentinel-token-9f3a';
 let checks = 0;
@@ -13,9 +15,9 @@ function check(name, cond, extra) {
 }
 
 function spawnServer(port) {
-  const audit = '/tmp/kolopoly-ops-audit-' + port + '.json';
-  try { fs.unlinkSync(audit); } catch (e) { /* fresh */ }
-  const env = { ...process.env, PORT: String(port), KP_TEST: '1', KP_ADMIN_TOKEN: TOKEN, KP_OPS_AUDIT_FILE: audit, KP_PERSIST_ROOMS: '' };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kolopoly-ops-live-'));
+  const audit = path.join(dir, 'audit.json');
+  const env = { ...process.env, PORT: String(port), KP_TEST: '1', KP_ADMIN_TOKEN: TOKEN, KP_DATA_DIR: dir, KP_RETENTION_FILE: '', KP_PLAY_CREDIT_FILE: '', KP_PAYMENTS_FILE: '', KP_OPS_AUDIT_FILE: audit, KP_PERSIST_ROOMS: '' };
   let logs = '';
   const child = spawn(process.execPath, ['server.js'], { cwd: new URL('.', import.meta.url).pathname, env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (d) => { logs += d; });
