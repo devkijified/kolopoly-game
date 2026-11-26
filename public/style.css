@@ -2771,36 +2771,93 @@ body.in-game {
   .rush-card.open .rush-grab, .sapa-tag, .rush-grab.nope { animation: none !important; }
 }
 
-/* Install chip. It sits under the Play buttons, in the page flow. */
-#installSlot { margin: 12px 0 4px; }
+/* Install chip: in the landing flow, directly under Quick play.
+   It does not cover that button or the cards below it. */
+#installSlot { margin: 10px 0 0; }
 #installSlot[hidden] { display: none !important; }
 .install-chip {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 8px 8px 10px;
+  border: 3px solid #1a140c;
+  border-radius: 18px;
+  background: #fff6e4;
+  color: #1a140c;
+  box-shadow: 4px 4px 0 #e8a90c;
+}
+.install-top { display: flex; align-items: center; gap: 8px; }
+.install-chip img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+.install-top b { flex: 1; min-width: 0; font: 800 15px/1.15 "Figtree", system-ui, sans-serif; text-align: left; }
+.install-chip small { display: block; margin: 0 4px 2px 44px; font: 700 12px/1.2 "Figtree", system-ui, sans-serif; color: #6d5848; text-align: left; }
+.install-go {
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #1a140c;
+  color: #ffc857;
+  font: 800 13px/1 "Figtree", system-ui, sans-serif;
+}
+.install-x {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #1a140c;
+  font: 700 20px/1 "Figtree", system-ui, sans-serif;
+}
+.install-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(8, 6, 4, 0.62);
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-end;
 }
-.install-chip-go, .install-chip-x, .install-sheet-close {
-  min-height: 44px;
-  border: 3px solid #1a140c;
-  border-radius: 14px;
-  background: #fff6e4;
-  color: #1a140c;
-  box-shadow: 3px 3px 0 #e8a90c;
-  font: 800 14px/1.2 "Figtree", system-ui, sans-serif;
-}
-.install-chip-go { flex: 1; text-align: left; padding: 8px 12px; }
-.install-chip-x { width: 44px; padding: 0; font-size: 22px; }
+.install-backdrop[hidden] { display: none !important; }
 .install-sheet {
-  margin-top: 8px;
-  padding: 12px;
-  border: 3px solid #1a140c;
-  border-radius: 16px;
+  width: 100%;
   background: #fff6e4;
   color: #1a140c;
-  box-shadow: 3px 3px 0 #e8a90c;
+  border-radius: 22px 22px 0 0;
+  padding: 8px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -6px 0 #e8a90c;
 }
-.install-sheet-title { margin: 0 0 8px; font-weight: 900; }
-.install-sheet ol { margin: 0; padding-left: 18px; }
-.install-sheet li { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-weight: 800; }
-.install-share { flex: none; }
-.install-sheet-close { margin-top: 8px; width: 100%; }
+.install-grab {
+  width: 42px;
+  height: 5px;
+  margin: 6px auto 12px;
+  border-radius: 99px;
+  background: #1a140c;
+  opacity: 0.35;
+}
+.install-sheet h2 { margin: 0 0 12px; font: 900 18px/1.25 "Figtree", system-ui, sans-serif; }
+.install-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.install-steps li { display: flex; align-items: center; gap: 10px; font: 800 15px/1.2 "Figtree", system-ui, sans-serif; }
+.install-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1a140c;
+  color: #ffc857;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex: none;
+}
+.install-ico { flex: none; }
+.install-hint { margin: 14px 0; font: 800 13px/1.3 "Figtree", system-ui, sans-serif; text-align: center; }
+.install-down { display: block; font-size: 22px; line-height: 1; margin-top: 4px; }
+.install-got {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: #1a140c;
+  color: #ffc857;
+  font: 800 16px/1 "Figtree", system-ui, sans-serif;
+}
