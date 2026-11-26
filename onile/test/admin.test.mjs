@@ -141,6 +141,19 @@ test('the admin queue endpoint returns every state and stays locked without the 
     for (const code of Object.values(codes)) assert.equal(found.has(code), true, code);
     assert.equal(body.challenges.find((c) => c.code === codes.open).bucket, 'open');
     assert.equal(body.challenges.find((c) => c.code === codes.waiting).players.some((p) => p.paid), true);
+    const prize = body.payouts.find((p) => p.roomCode === codes.done && p.kind === 'prize');
+    assert.ok(prize);
+    assert.equal(prize.bank, null);
+    const blocked = await fetch(base + '/api/admin/payouts/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ id: prize.id, note: 'paid by hand' })
+    });
+    const blockedBody = await blocked.json();
+    assert.equal(blocked.status, 400);
+    assert.equal(blockedBody.message, 'Waiting for bank details');
+    const again = await (await fetch(base + '/api/admin/queue', { headers: { Cookie: cookie } })).json();
+    assert.equal(again.payouts.find((p) => p.id === prize.id).status, 'awaiting-bank');
   } finally {
     child.kill('SIGTERM');
   }

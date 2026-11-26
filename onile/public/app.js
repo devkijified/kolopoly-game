@@ -348,13 +348,19 @@ function detailSheet(data, c) {
   if (c.bucket === 'disputes') actions.push('<button type="button" class="red" data-act="ask" data-kind="refund" data-code="' + esc(c.code) + '">Refund everyone</button>');
   (data.payouts || []).filter(function (p) { return p.roomCode === c.code; }).forEach(function (p) {
     var done = /^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status);
-    if (!done) actions.push('<button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button>');
+    if (!done) actions.push(markPaidButton(p));
   });
   return '<div class="sheet-back" data-act="close-sheet"></div><section class="sheet" role="dialog" aria-label="Challenge detail">' +
     '<div class="desk-card-top"><strong>' + esc(c.code) + '</strong><button type="button" class="secondary sheet-close" data-act="close-sheet">Close</button></div>' +
     '<h2>' + esc(c.title) + '</h2><p class="fine">' + esc(c.activity) + ' · ' + esc(STATUS_LABEL[c.status] || 'Open') + '</p>' +
     '<div class="stack">' + people + '</div>' +
     said + '<ol class="timeline">' + (timeline || '<li><span>No events yet.</span></li>') + '</ol><div class="actions">' + actions.join('') + '</div></section>';
+}
+function markPaidButton(p) {
+  if (p.kind === 'prize' && !p.bank) {
+    return '<button type="button" disabled>Mark payout paid</button><p class="fine">Waiting for bank details</p>';
+  }
+  return '<button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button>';
 }
 function confirmBox() {
   var ask = desk.confirm;
@@ -390,7 +396,7 @@ function viewAdmin(data) {
       return '<article class="card"><span class="desk-card-top"><strong>' + esc(human(PAYOUT_KIND, p.kind)) + ' · ' + naira(p.amountKobo) + '</strong><span class="chip">' + esc(human(PAYOUT_STATUS, p.status)) + '</span></span>' +
         '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || 'Player') + '<br>' + bank + '</p>' +
         '<p class="fine">' + esc(lagos(p.createdAt || p.updatedAt)) + ' Lagos</p>' +
-        '<div class="actions"><button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button></div></article>';
+        '<div class="actions">' + markPaidButton(p) + '</div></article>';
     }).join('') || '<section class="card">No payout rows.</section>';
   } else if (desk.tab === 'payments') {
     list = (data.payments || []).map(function (p) {
