@@ -249,6 +249,80 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
   white-space: normal; overflow-wrap: anywhere; max-width: 100%; min-width: 0;
 }
 
+/* Lobby: one quiet top row, then the Players list is the page. The
+   room settings sit behind a single Settings row; nothing else
+   competes with the seats. */
+.lobby-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.lobby-code-block { min-width: 0; }
+.lobby-code-label { display: block; font-size: 12px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); }
+.lobby-top .code-big { font-size: 38px; letter-spacing: 6px; line-height: 1.05; }
+.lobby-top .invite-actions { margin: 0; flex: none; flex-wrap: nowrap; justify-content: flex-end; }
+.lobby-top .invite-actions .btn { min-height: 44px; white-space: nowrap; }
+.lobby-mode-line { margin: 6px 0 0; font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.lobby-players { margin-top: 14px; }
+.lobby-players-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lobby-players-title { margin: 0; font-family: 'Aeonik Pro', sans-serif; font-size: 19px; font-weight: 700; }
+.lobby-players-count { font-size: 13px; font-weight: 700; color: var(--ink-soft); white-space: nowrap; }
+.lobby-players .slots { grid-template-columns: 1fr; margin: 10px 0 0; }
+.slot .seat-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 1px; }
+.seat-chip {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  background: rgba(120, 110, 95, 0.22); font-size: 12px; font-weight: 800; letter-spacing: 0.3px;
+}
+.seat-chip.host-chip { background: var(--ink); color: var(--gold); }
+.seat-chip.paid-chip, .seat-chip.ready-chip { background: #1fb67a; color: #fff; }
+.seat-chip.wait-chip { background: #e8a90c; color: #1a140c; }
+.slot.empty { justify-content: space-between; }
+.slot-waiting { font-weight: 700; }
+.slot .slot-invite { min-height: 44px; margin-left: auto; flex: none; }
+.slot [data-remove-local], .slot [data-remove-bot] { min-height: 44px; }
+@keyframes kpSeatJoin {
+  0% { transform: scale(0.92) translateY(8px); opacity: 0; }
+  60% { transform: scale(1.03) translateY(0); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.slot.seat-join { animation: kpSeatJoin 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.settings-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px;
+  margin-top: 14px; padding: 10px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: inherit; text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.settings-row-label { font-weight: 800; flex: none; }
+.settings-row-sum { flex: 1; min-width: 0; font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-row-chev { font-size: 20px; font-weight: 800; flex: none; }
+.settings-rows { margin-top: 10px; display: grid; gap: 6px; }
+.settings-row-item { padding: 9px 12px; border-radius: 10px; background: rgba(120, 110, 95, 0.14); font-size: 14px; font-weight: 600; }
+.lobby-wait-host {
+  display: flex; align-items: center; justify-content: center; min-height: 52px;
+  border-radius: 14px; border: 2px dashed var(--line);
+  font-weight: 800; font-size: 16px; color: var(--ink-soft); text-align: center; padding: 8px 12px;
+}
+.lobby-foot { display: flex; justify-content: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.lobby-foot .btn { min-height: 44px; }
+
+/* Narrow phones: the lobby top row (code + Copy + Share) slim down so
+   the one row still fits whole at 360px. */
+@media (max-width: 420px) {
+  .lobby-top .code-big { font-size: 32px; letter-spacing: 4px; }
+  .lobby-top .invite-actions .btn { padding-inline: 11px; font-size: 13px; }
+  .bot-prompt .btnrow .btn { padding-inline: 10px; font-size: 13px; }
+}
+/* The narrowest phones: the invite buttons take their own line under
+   the code, each half the row, so no room code can push them out. */
+@media (max-width: 374px) {
+  .lobby-top { flex-wrap: wrap; }
+  .lobby-top .invite-actions { flex: 1 1 100%; }
+  .lobby-top .invite-actions .btn { flex: 1; }
+}
+
+/* Agreed pause: the vote sheet and the Continue button in the pause card. */
+.pv-line { margin: 8px 0 0; font-size: 15px; }
+.pv-count { color: var(--ink-soft); font-size: 13px; }
+.pv-actions { display: flex; gap: 10px; margin-top: 14px; }
+#pauseVoteSheet .pv-actions .btn { flex: 1; min-height: 52px; }
+.pause-card .btn.big { margin-top: 14px; width: 100%; min-height: 52px; }
+
 /* Paid tables (Play to Earn): the city ladder sheet and the lobby panel */
 .paid-city {
   margin-top: 12px; padding: 14px; border-radius: 16px;
@@ -779,7 +853,7 @@ input, select { font-family: inherit; font-size: var(--fs-lead); color: var(--in
    frosted light glass, layered soft shadow, inset highlights, no hard
    border. */
 .auction-card {
-  background: linear-gradient(180deg, rgba(255, 249, 233, 0.97), rgba(255, 241, 208, 0.94));
+  background: #fff6e4;
   border: none; border-radius: 18px; padding: 13px; margin-bottom: 10px; color: var(--ink);
   box-shadow: 0 12px 26px rgba(10, 6, 2, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(232, 169, 12, 0.35);
 }
@@ -1277,16 +1351,14 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   #view-lobby.active { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); }
   .lobby-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 10px var(--sp-3) calc(10px + env(safe-area-inset-bottom)); }
   .lobby-wrap > p.caption { flex: none; }
-  .code-hero { flex: none; padding: 2px 0 0; }
-  .code-big { font-size: 36px; letter-spacing: 8px; }
+  .lobby-top { flex: none; }
+  .code-big { font-size: 36px; letter-spacing: 6px; }
   #lobbyModeLine { flex: none; margin: 2px 0 6px; font-size: 14px; }
-  .invite-actions { flex: none; margin: 0 0 6px; gap: 6px; }
-  /* The QR leaves portrait phones: Copy invite and Share already do its
-     job in a thumb column, and its 98px was the difference between a
-     pinned Start and a scrolled one at 360x740. It stays on desktop and
-     landscape, where the column has room for it. */
-  .qr-box { display: none; }
-  #lobbyStage { flex: none; height: 112px; margin: 6px 0; border-radius: 14px; }
+  .invite-actions { flex: none; margin: 0; gap: 6px; }
+  .lobby-players { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-top: 6px; }
+  .lobby-players .slots { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .settings-row { flex: none; }
+  .lobby-foot { flex: none; }
   .bot-prompt { flex: none; margin: 6px 0 0; padding: 8px var(--sp-3); border-radius: 14px; }
   .bot-prompt .bp-title { font-size: 15px; margin-bottom: 2px; }
   .bot-prompt .btnrow { margin-top: 8px; gap: 6px; }
@@ -1296,8 +1368,6 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   .slots { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; gap: 6px; margin: 8px 0 0; padding: 1px; }
   .slot { padding: 8px 10px; min-height: 46px; border-radius: 13px; }
   #passAddBox { flex: none; margin-top: 8px; }
-  .settings-chips { flex: none; margin: 8px 0 0; gap: 6px; }
-  #chaosNote { flex: none; margin: 6px 0 0; }
   .lobby-wrap .mt14 { flex: none; }
   #startBtn { min-height: var(--btn-h); font-size: 15px; }
 
@@ -1389,7 +1459,15 @@ body.gl-on #choiceModal .btnrow .btn, body.gl-on #proposalModal .btnrow .btn { m
   letter-spacing: 1.1px; color: rgba(245, 239, 226, 0.58);
 }
 .walletbar .caption { color: rgba(245, 239, 226, 0.75); font-weight: 600; }
-
+.walletbar .raise-offer { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; }
+.walletbar .raise-offer .caption {
+  margin: 0; text-align: left; white-space: normal; overflow: visible;
+  font-size: 14px; line-height: 1.3; font-weight: 700;
+}
+.walletbar .raise-offer .btn {
+  flex: none; width: 100%; min-height: 44px; height: 44px;
+  white-space: nowrap; overflow: visible;
+}
 /* The primary pill: gradient with a gloss sweep on top, soft layered
    shadow, and a springy scale press. Contextual colours ride the same
    gloss. Muted glass when the dock only carries a waiting line. */
@@ -1972,7 +2050,7 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 
   /* The dock pays back padding and gaps, nothing else: the cash
      segment, the 44px primary pill and all six ghost utilities stay. */
-  .walletbar { margin: 2px 10px calc(8px + env(safe-area-inset-bottom)); padding: 7px 11px 8px; }
+  .walletbar { margin: 2px 10px calc(8px + env(safe-area-inset-bottom)); padding: 7px 11px max(10px, calc(env(safe-area-inset-bottom, 0px) + 6px)); }
   .actionbar { margin-top: 5px; }
   #secondaryBar { margin-top: 2px !important; }
   .ubtn { min-height: 42px; padding: 4px 2px 3px; }
@@ -2145,6 +2223,7 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
 #auctionOverlay.show .auction-card {
   pointer-events: auto; margin: 0 auto; max-width: 520px;
   max-height: min(46vh, 340px); overflow: auto;
+  background: #fff6e4;
 }
 #auctionOverlay .btn { min-height: 44px; }
 #modePill.mode-live {
@@ -2172,6 +2251,10 @@ body.gl-on #view-landing > p.landing-foot, #view-landing > p.landing-foot { colo
     width: auto; max-width: 42%; padding: 0 10px;
     font-family: 'Aeonik Pro', sans-serif; font-size: 13px; font-weight: 800; letter-spacing: -0.3px;
   }
+  /* Deals carries its word: a pill, never squeezed to a bare icon. */
+  #hudDeals { width: auto; min-width: 44px; height: 44px; padding: 0 12px; gap: 6px; }
+  #hudPause { width: auto; min-width: 44px; height: 44px; padding: 0 12px; gap: 6px; }
+  .hud-deals-lb { font-family: 'Aeonik Pro', sans-serif; font-size: 13px; font-weight: 800; white-space: nowrap; }
   .hud-cash.warn { box-shadow: 0 0 0 2px var(--red); }
   .hud-ico[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
   .hud-badge {

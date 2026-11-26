@@ -468,15 +468,24 @@
 <!-- ============================ LOBBY ============================ -->
 <main class="view" id="view-lobby">
   <div class="lobby-wrap">
-    <p class="caption center" id="lobbyCodeCap">ROOM CODE: SHARE AM GIVE YOUR PEOPLE</p>
-    <div class="code-hero" id="lobbyCodeHero"><div class="code-big" id="lobbyCode">····</div></div>
-    <p class="center lead" id="lobbyModeLine"></p>
-    <div class="invite-actions">
-      <button class="btn small ghost" id="copyInviteBtn"></button>
-      <button class="btn small ghost" id="shareInviteBtn"></button>
+    <div class="lobby-top" id="lobbyTop">
+      <div class="lobby-code-block">
+        <span class="lobby-code-label">Room code</span>
+        <div class="code-big" id="lobbyCode">····</div>
+      </div>
+      <div class="invite-actions">
+        <button class="btn small ghost" id="copyInviteBtn"></button>
+        <button class="btn small ghost" id="shareInviteBtn"></button>
+      </div>
     </div>
-    <div class="qr-box" id="inviteQr"></div>
-    <div class="lobby-stage" id="lobbyStage"><div class="lobby-stage-fallback"><span class="ls-word">KOLO<span class="gold">POLY</span></span><span class="ls-sub">Your people dey gather around the board</span></div></div>
+    <p class="lobby-mode-line" id="lobbyModeLine"></p>
+    <section class="lobby-players" aria-label="Players in this room">
+      <div class="lobby-players-head">
+        <h3 class="lobby-players-title">Players</h3>
+        <span class="lobby-players-count" id="lobbyPlayerCount"></span>
+      </div>
+      <div class="slots" id="slotBoard"></div>
+    </section>
     <div class="bot-prompt hidden" id="botPrompt">
       <p class="bp-title">Wanna play with bot?</p>
       <p class="caption">Bots take real seats and play by the same rules. Add one or two make the table full.</p>
@@ -486,7 +495,6 @@
         <button class="btn ghost" id="botNone">No bots</button>
       </div>
     </div>
-    <div class="slots" id="slotBoard"></div>
     <div id="passAddBox" class="hidden">
       <label for="localNameIn" style="display:block;font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--ink-soft);margin-bottom:7px;">Add a player to this phone</label>
       <div class="join-row">
@@ -494,27 +502,25 @@
         <button class="btn small" id="addLocalBtn">Add</button>
       </div>
     </div>
-    <div class="settings-chips" id="lobbySettings"></div>
-    <p class="caption" id="chaosNote"></p>
     <div id="paidBox" class="hidden"></div>
+    <button class="settings-row" id="lobbySettingsBtn" type="button">
+      <span class="settings-row-label">Settings</span>
+      <span class="settings-row-sum" id="lobbySettingsSum"></span>
+      <span class="settings-row-chev" aria-hidden="true">›</span>
+    </button>
     <div class="mt14">
       <button class="btn block" id="startBtn">Start game</button>
+      <div class="lobby-wait-host hidden" id="lobbyWaitHost">Waiting for host</div>
       <p class="caption center mt8" id="lobbyHint"></p>
     </div>
-    <button class="train-sticker" id="lobbyHowBtn" type="button">
-      <span><b>How to play</b><small>Nine short cards. Swipe through.</small></span>
-    </button>
-    <button class="train-sticker" id="lobbyTrainBtn" type="button">
-      <img src="/mascot/daddy-stand.webp?v=__KOLOPOLY_BUILD__" alt="" width="48" height="64">
-      <span><b>Training Ground</b><small>Replay the lesson, or practice free.</small></span>
-    </button>
-    <button class="train-sticker" id="lobbyProfileBtn" type="button">
-      <span><b>My profile</b><small>Wallet, prizes, and your record.</small></span>
-    </button>
-    <div class="center mt14 wallet-row"><button class="btn small" id="lobbyWalletBtn" type="button">Wallet</button> <button class="btn small ghost hidden" id="lobbyInstallBtn" type="button">Install Kolopoly</button> <button class="btn small ghost hidden" id="addBotBtn">Add bot</button> <button class="btn small ghost" id="leaveLobbyBtn">Leave room</button></div>
-    <p class="caption center" id="lobbyWalletNote"></p>
+    <div class="lobby-foot">
+      <button class="btn small ghost hidden" id="addBotBtn" type="button">Add bot</button>
+      <button class="btn small ghost" id="leaveLobbyBtn" type="button">Leave room</button>
+    </div>
   </div>
 </main>
+<div class="scrim" id="lobbySettingsScrim"><div class="sheet" id="lobbySettingsSheet"></div></div>
+<div class="scrim" id="pauseVoteScrim"><div class="sheet" id="pauseVoteSheet"></div></div>
 
 <!-- ============================ GAME ============================ -->
 <main class="view" id="view-game">
@@ -534,7 +540,7 @@
         <button type="button" class="hud-ico" id="hudPlayers" aria-label="Players at the table"></button>
         <button type="button" class="hud-cash" id="hudCashBtn" aria-label="Your cash"><span id="hudCashAmt">₦0</span></button>
         <button type="button" class="hud-ico" id="hudDeals" aria-label="Deals"></button>
-        <button type="button" class="hud-ico" id="hudHelp" aria-label="How to play">?</button>
+        <button type="button" class="hud-ico" id="hudPause" aria-label="Pause game" style="display:none"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor"></rect><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"></rect></svg><span class="hud-deals-lb">Pause</span></button>
         <button type="button" class="hud-ico" id="viewToggle" aria-label="Show my token on the board" aria-pressed="false"></button>
       </div>
       <div class="msgbar"><span class="msg-cue" id="msgCue" style="display:none"></span><span id="msgText">Welcome to Kolopoly.</span></div>
