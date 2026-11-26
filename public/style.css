@@ -2770,3 +2770,37 @@ body.in-game {
 @media (prefers-reduced-motion: reduce) {
   .rush-card.open .rush-grab, .sapa-tag, .rush-grab.nope { animation: none !important; }
 }
+
+/* Install chip. It sits under the Play buttons, in the page flow. */
+#installSlot { margin: 12px 0 4px; }
+#installSlot[hidden] { display: none !important; }
+.install-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.install-chip-go, .install-chip-x, .install-sheet-close {
+  min-height: 44px;
+  border: 3px solid #1a140c;
+  border-radius: 14px;
+  background: #fff6e4;
+  color: #1a140c;
+  box-shadow: 3px 3px 0 #e8a90c;
+  font: 800 14px/1.2 "Figtree", system-ui, sans-serif;
+}
+.install-chip-go { flex: 1; text-align: left; padding: 8px 12px; }
+.install-chip-x { width: 44px; padding: 0; font-size: 22px; }
+.install-sheet {
+  margin-top: 8px;
+  padding: 12px;
+  border: 3px solid #1a140c;
+  border-radius: 16px;
+  background: #fff6e4;
+  color: #1a140c;
+  box-shadow: 3px 3px 0 #e8a90c;
+}
+.install-sheet-title { margin: 0 0 8px; font-weight: 900; }
+.install-sheet ol { margin: 0; padding-left: 18px; }
+.install-sheet li { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-weight: 800; }
+.install-share { flex: none; }
+.install-sheet-close { margin-top: 8px; width: 100%; }

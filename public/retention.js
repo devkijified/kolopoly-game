@@ -1011,10 +1011,8 @@
     maybeInstall,
     showInstall: showInstallSheet,
     endInstallHtml() {
-      const mode = installMode();
-      if (mode === 'note') return '<p class="install-note" id="endInstallNote">Open the Kolopoly app from your Home Screen</p>';
-      if (mode !== 'prompt' || installSnoozed()) return '';
-      return '<div class="install-card" id="endInstall"><button class="btn gold block" type="button" id="endInstallGo">' + installCta() + '</button><button class="btn ghost block mt8" type="button" id="endInstallLater">Not now</button></div>';
+      // The install offer lives on the landing chip, not on the final table.
+      return '';
     },
     bindEndInstall() {
       const later = $('endInstallLater');

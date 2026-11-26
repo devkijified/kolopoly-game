@@ -5312,6 +5312,7 @@ function renderEnd(room) {
     paintWalletNote();
     kickWallet();
   }
+  if (!trainingEnd && window.KPInstall && window.KPInstall.noteGame) window.KPInstall.noteGame();
   if (!trainingEnd && window.KPRetention && window.KPRetention.bindEndInstall) window.KPRetention.bindEndInstall();
   const endShare = $('endShare');
   if (endShare) endShare.addEventListener('click', () => {
