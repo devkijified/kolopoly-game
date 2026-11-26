@@ -2450,9 +2450,11 @@ function onState(room) {
   funMoments(room, prev);
   showRoomEmote(room);
   showPayback(room);
-  if (prev && window.KPBigDaddy) {
-    const beat = window.KPBigDaddy.detect(prev, room, myId);
-    if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1 });
+  if (prev && window.KPBigDaddy && !spectator) {
+    const viewer = room.mode === 'pass' ? actingId() : myId;
+    const beat = window.KPBigDaddy.detect(prev, room, viewer);
+    if (beat) window.KPBigDaddy.show(beat, { phase: room.inf ? room.inf.phase : 1, actorId: viewer });
+    if (window.KPBigDaddy.follow) window.KPBigDaddy.follow(room, viewer);
   }
   renderOwambe(room);
   musicWanted = room.status === 'playing' || room.status === 'countdown';
