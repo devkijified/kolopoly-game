@@ -1609,16 +1609,19 @@ function createRetention(opts) {
       cursor = prevDay(cursor);
     }
     const players = [];
-    for (const p of Object.values(db.players)) {
+    for (const [key, p] of Object.entries(db.players)) {
       if (!p || typeof p !== 'object') continue;
+      const id = String(p.clientId || key || '').slice(0, 80);
+      if (!id) continue;
       const days = Object.keys(p.playedDays || {}).filter((k) => p.playedDays[k] && validDay(k)).sort();
       const stats = p.stats && typeof p.stats === 'object' ? p.stats : {};
       const lastClaim = validDay(p.lastClaimDay) ? p.lastClaimDay : '';
       players.push({
-        id: String(p.clientId || ''),
+        id,
         name: String(p.name || '').trim().slice(0, 40),
         daysPlayed: days.length,
         lastPlayed: days.length ? days[days.length - 1] : '',
+        playedDayList: days,
         activeToday: days.includes(day) || lastClaim === day,
         active7d: days.some((k) => recent.has(k)) || (lastClaim && recent.has(lastClaim)),
         tablesPlayed: Math.max(0, Math.floor(Number(stats.played) || 0)),

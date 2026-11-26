@@ -32,9 +32,11 @@ const shelf = {
     kiji: { clientId: 'kiji', name: 'Kiji', claimCount: 4, push: { endpoint: 'https://push.example/secret-endpoint' }, playedDays: { [today]: true }, stats: { played: 5, wins: 2 }, tokens: ['secret-token'] },
     qa: { clientId: 'qa1', name: 'QA Ada', claimCount: 1, playedDays: { [yesterday]: true }, stats: { played: 1, wins: 0 } },
     learner: { clientId: 'learn', name: 'Learner', claimCount: 0, playedDays: {}, stats: { played: 0, wins: 0 } },
-    blank: { clientId: 'blank', name: '', claimCount: 0, playedDays: {} },
-    tunde: { clientId: 'tunde', name: 'Tunde', claimCount: 2, push: { endpoint: 'https://push.example/tunde' }, playedDays: { [today]: true, [yesterday]: true }, stats: { played: 3, wins: 1 } },
-    chioma: { clientId: 'chioma', name: 'Chioma', claimCount: 0, playedDays: {}, stats: { played: 0, wins: 0 } }
+    blank: { clientId: 'blank', name: '', claimCount: 0, playedDays: {}, tokens: ['secret-token-blank'] },
+    named: { clientId: 'noname-day', name: '', claimCount: 1, playedDays: { [today]: true }, tokens: ['secret-token-day'] },
+    tunde: { clientId: 'tunde', name: 'Tunde', claimCount: 2, push: { endpoint: 'https://push.example/tunde' }, playedDays: { [today]: true, [yesterday]: true }, stats: { played: 3, wins: 1 }, tokens: ['secret-token'] },
+    tunde2: { clientId: 'tunde-phone', name: 'Tunde', claimCount: 1, playedDays: { [yesterday]: true }, stats: { played: 1, wins: 0 } },
+    chioma: { name: 'Chioma', claimCount: 0, playedDays: { [yesterday]: true }, push: null, tokens: ['abababababababababababab'] }
   },
   tokens: {},
   stats: {
@@ -102,19 +104,20 @@ try {
   const byName = Object.fromEntries(rows.map((row) => [row.name || 'No name', row]));
   check('shelf players are listed', rows.length >= 6, String(rows.length));
   check('blank name is No name on the wire as empty and not dropped', rows.some((row) => row.name === ''));
-  check('real players are Tunde and Chioma', players.json.stats.real === 2, JSON.stringify(players.json.stats));
+  check('real players are the named shelves plus a nameless played day', players.json.stats.real === 3, JSON.stringify(players.json.stats));
   check('Kiji is the owner and not real', byName.Kiji && byName.Kiji.tags.includes('owner') && byName.Kiji.real === false);
   check('QA Ada is tagged', byName['QA Ada'] && byName['QA Ada'].tags.includes('qa') && byName['QA Ada'].real === false);
   check('Learner is tagged', byName.Learner && byName.Learner.tags.includes('learner') && byName.Learner.real === false);
   check('a nameless shelf is training', rows.some((row) => row.name === '' && row.tags.includes('training') && row.real === false));
-  check('Tunde has days, tables, claims, push and credit', byName.Tunde && byName.Tunde.daysPlayed === 2 && byName.Tunde.lastPlayed === today && byName.Tunde.tablesPlayed === 3 && byName.Tunde.tablesWon === 1 && byName.Tunde.claims === 2 && byName.Tunde.pushOn === true && byName.Tunde.creditKobo === 20000);
-  check('Chioma has no tables yet', byName.Chioma && byName.Chioma.tablesPlayed === 0 && byName.Chioma.real === true);
+  check('two Tunde shelves merge into one person', byName.Tunde && byName.Tunde.daysPlayed === 2 && byName.Tunde.lastPlayed === today && byName.Tunde.tablesPlayed === 4 && byName.Tunde.tablesWon === 1 && byName.Tunde.claims === 3 && byName.Tunde.pushOn === true && byName.Tunde.creditKobo === 20000 && rows.filter((row) => row.name === 'Tunde').length === 1);
+  check('a shelf with no tables field still counts when a day was played', byName.Chioma && byName.Chioma.tablesPlayed === 0 && byName.Chioma.daysPlayed === 1 && byName.Chioma.real === true);
+  check('a played day with a blank name stays real', rows.some((row) => row.name === '' && row.real === true && row.daysPlayed === 1));
   check('a credit with no shelf still shows', rows.some((row) => row.creditKobo === 5000 && row.real === false));
   check('the player list has no push endpoint or house key', !players.text.includes('secret-endpoint') && !players.text.includes('secret-token') && !players.text.includes(TOKEN) && !players.text.includes('p256dh'));
 
   const overview = await request('GET', '/ops/live?part=overview', { headers: auth });
   const stats = overview.json.stats;
-  check('overview counts real players and today', stats.realPlayers === 2 && stats.activeToday === 1 && stats.active7d === 1 && stats.tablesStarted === 4 && stats.tablesFinished === 3 && stats.afk === 1 && stats.claims === 2, JSON.stringify(stats));
+  check('overview counts real players and today', stats.realPlayers === 3 && stats.activeToday === 2 && stats.active7d === 3 && stats.tablesStarted === 4 && stats.tablesFinished === 3 && stats.afk === 1 && stats.claims === 2, JSON.stringify(stats));
   check('overview days come from the shelf', (overview.json.days || []).some((row) => row.day === today && row.started === 4 && row.finished === 3));
 
   const rooms = await request('GET', '/ops/live?part=rooms', { headers: auth });

@@ -460,6 +460,11 @@ label.live-toggle { display: flex; align-items: center; gap: 10px; min-height: 4
   .money-side { justify-content: flex-start; }
   .live-player, .live-row { flex-wrap: wrap; align-items: flex-start; }
   .live-card button, .live-actions button { width: 100%; }
+  .live-card .seg button { width: auto; }
   .live-actions { display: grid; gap: 8px; }
   .live-confirm { width: calc(100% - 24px); max-width: 360px; }
 }
+.seg { display: inline-flex; max-width: 100%; border: 2px solid #1c140e; border-radius: 999px; overflow: hidden; background: #fff; margin: 0 0 10px; }
+.live-card .seg button { min-height: 36px; height: 36px; width: auto; padding: 0 16px; border: 0; border-radius: 0; background: #fff; color: var(--ink); box-shadow: none; }
+.live-card .seg button + button { box-shadow: inset 1px 0 0 #1c140e; }
+.live-card .seg button.on { background: var(--gold); color: var(--ink); }

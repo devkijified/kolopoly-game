@@ -143,10 +143,20 @@
       const data = await get('part=events');
       const ev = data.event || {};
       const s = data.stats || {};
-      root.innerHTML = '<article class="live-card"><h2>Weekly event</h2>' + statGrid([['Live events', s.live || 0], ['Scheduled', s.scheduled || 0]]) + '<p><b>' + esc(ev.name || 'none yet') + '</b> · ' + esc(ev.status || 'off') + '</p><p>' + esc(ev.starts || 'none yet') + ' → ' + esc(ev.ends || 'none yet') + '</p><div class="live-actions"><button type="button" data-act="event_stop">Stop</button><button type="button" data-act="event_start">Start</button></div></article>' +
+      const running = ev.status === 'live' && ev.name && ev.name !== 'No event';
+      const nextName = (data.scheduled || []).map((item) => item.name).filter(Boolean).join(', ');
+      const stateCopy = running
+        ? '<p><b>' + esc(ev.name) + '</b> is running</p>' + ((ev.starts || ev.ends) ? '<p>' + esc(ev.starts || '') + ' → ' + esc(ev.ends || '') + '</p>' : '')
+        : '<p><b>No event running</b></p><p>Next: ' + esc(nextName || 'none scheduled') + '</p>';
+      const stateAction = running
+        ? '<button type="button" data-act="event_stop">Stop</button>'
+        : '<button type="button" data-act="event_start">Start</button>';
+      root.innerHTML = '<article class="live-card"><h2>Weekly event</h2>' + statGrid([['Live events', s.live || 0], ['Scheduled', s.scheduled || 0]]) + stateCopy + '<div class="live-actions">' + stateAction + '</div></article>' +
         '<article class="live-card"><h3>Schedule</h3><input id="ev-name" placeholder="Event name"><button type="button" id="ev-save">Schedule</button></article>';
-      root.querySelector('[data-act="event_stop"]').addEventListener('click', () => act({ action: 'event_stop' }, 'Stop the event', 'Players will leave this event.'));
-      root.querySelector('[data-act="event_start"]').addEventListener('click', () => act({ action: 'event_start', name: ev.name }, 'Start the event', 'This event goes live.'));
+      const stopBtn = root.querySelector('[data-act="event_stop"]');
+      const startBtn = root.querySelector('[data-act="event_start"]');
+      if (stopBtn) stopBtn.addEventListener('click', () => act({ action: 'event_stop' }, 'Stop the event', 'Players will leave this event.'));
+      if (startBtn) startBtn.addEventListener('click', () => act({ action: 'event_start', name: ev.name && ev.name !== 'No event' ? ev.name : 'House event' }, 'Start the event', 'This event goes live.'));
       document.getElementById('ev-save').addEventListener('click', () => act({ action: 'event_schedule', name: document.getElementById('ev-name').value || 'House week' }, 'Schedule an event', 'Add it to the schedule.'));
     } else if (next === 'broadcast') {
       const data = await get('part=overview');
@@ -166,7 +176,7 @@
     const stats = data.stats || {};
     const hide = !root.querySelector('#hide-test') || root.querySelector('#hide-test').checked;
     root.innerHTML = '<article class="live-card"><h2>Players</h2><p class="real-count">Real players: ' + esc(stats.real || 0) + '</p>' +
-      statGrid([['Real players', stats.real || 0], ['On the shelf', stats.total || 0]]) +
+      statGrid([['Real players', stats.real || 0], ['People', stats.total || 0]]) +
       '<label class="live-toggle"><input type="checkbox" id="hide-test"' + (hide ? ' checked' : '') + '> Hide QA, training, and owner</label>' +
       '<input class="live-search" id="player-q" placeholder="Search by name" value="' + esc(query) + '"></article>' +
       playerList(data.players, hide);
@@ -197,7 +207,7 @@
     const h = data.headlines || {};
     const shown = (v) => (v == null || v === '' ? 'none yet' : v);
     const series = data.series || [];
-    root.innerHTML = '<article class="live-card"><h2>Economy</h2><div class="live-actions"><button type="button" data-days="7">7 days</button><button type="button" data-days="30">30 days</button></div>' +
+    root.innerHTML = '<article class="live-card"><h2>Economy</h2><div class="seg" role="group" aria-label="Range"><button type="button" data-days="7"' + (String(days) === '7' ? ' class="on"' : '') + '>7 days</button><button type="button" data-days="30"' + (String(days) === '30' ? ' class="on"' : '') + '>30 days</button></div>' +
       statGrid([
         ['Active today', shown(h.dau)],
         ['Active 7d', shown(h.wau)],

@@ -279,16 +279,47 @@ function createLive(opts) {
     };
   }
 
+  function everPlayed(row) {
+    return (Number(row.tablesPlayed) || Number(row.games) || 0) > 0 || (Number(row.daysPlayed) || 0) > 0 || !!row.lastPlayed;
+  }
   function tagsFor(row) {
     const name = String(row.name || '').trim();
     const tags = [];
     if (/^kiji$/i.test(name)) tags.push('owner');
     if (/^qa\s/i.test(name)) tags.push('qa');
     if (/^learner\b/i.test(name)) tags.push('learner');
-    const tables = Number(row.tablesPlayed) || 0;
-    if (!name || /^train/i.test(name)) tags.push('training');
-    else if (tables <= 0 && tags.length) tags.push('training');
+    if (!everPlayed(row)) tags.push('training');
     return tags;
+  }
+  function mergePeople(rows) {
+    const groups = new Map();
+    for (const row of rows) {
+      const name = String(row.name || '').trim();
+      const key = name ? name.toLowerCase() : ('id:' + row.id);
+      const days = (row.playedDayList || []).slice();
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, Object.assign({}, row, { playedDayList: days }));
+        continue;
+      }
+      existing.claims = (existing.claims || 0) + (row.claims || 0);
+      existing.tablesPlayed = (existing.tablesPlayed || 0) + (row.tablesPlayed || 0);
+      existing.tablesWon = (existing.tablesWon || 0) + (row.tablesWon || 0);
+      existing.creditKobo = (existing.creditKobo || 0) + (row.creditKobo || 0);
+      existing.pushOn = !!(existing.pushOn || row.pushOn);
+      existing.activeToday = !!(existing.activeToday || row.activeToday);
+      existing.active7d = !!(existing.active7d || row.active7d);
+      for (const day of days) if (!existing.playedDayList.includes(day)) existing.playedDayList.push(day);
+      if ((row.lastPlayed || '') > (existing.lastPlayed || '')) existing.lastPlayed = row.lastPlayed;
+    }
+    return [...groups.values()].map((row) => {
+      row.playedDayList.sort();
+      row.daysPlayed = row.playedDayList.length;
+      if (!row.lastPlayed && row.playedDayList.length) row.lastPlayed = row.playedDayList[row.playedDayList.length - 1];
+      delete row.playedDayList;
+      const tags = tagsFor(row);
+      return Object.assign(row, { tags, real: tags.length === 0 });
+    });
   }
   function creditBook() {
     if (!opts.playCredit || typeof opts.playCredit.view !== 'function') return [];
@@ -312,6 +343,7 @@ function createLive(opts) {
         claims: row.claims || 0,
         pushOn: !!row.pushOn,
         creditKobo: 0,
+        playedDayList: (row.playedDayList || []).slice(),
         shelf: true
       });
     }
@@ -328,15 +360,13 @@ function createLive(opts) {
         });
       }
     }
-    const rows = [];
-    for (const row of byId.values()) {
-      const tags = tagsFor(row);
-      rows.push(Object.assign({}, row, { tags, real: tags.length === 0 }));
-    }
-    if (!rows.length && seeded) {
+    const shelfRows = [...byId.values()];
+    if (!shelfRows.length && seeded) {
       return seedPlayers().map((p) => Object.assign({}, p, { tags: tagsFor(p), real: tagsFor(p).length === 0, shelf: false, creditKobo: 0, pushOn: false, claims: 0, daysPlayed: 0, lastPlayed: '', tablesPlayed: p.games || 0, tablesWon: p.wins || 0 }));
     }
-    return rows;
+    const people = mergePeople(shelfRows);
+    people.sort((a, b) => (b.lastPlayed || '').localeCompare(a.lastPlayed || '') || String(a.name || '').localeCompare(String(b.name || '')));
+    return people;
   }
   function houseStats() {
     const rows = shelfPlayers().filter((row) => row.shelf);
