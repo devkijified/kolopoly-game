@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { createEscrow } = require('../escrow');
 const { createWinnerMail, DEFAULT_ADMIN } = require('../winner-mail');
-const { createMailer } = require('../../mailer');
+const { createOnileMail } = require('../mail');
 
 function world() {
   const escrow = createEscrow({ memory: true, housePercent: 10 });
@@ -166,7 +166,7 @@ test('the house address defaults, and a refused sender is not recorded as sent',
 test('the Resend transport posts the letter and does not log the key', async () => {
   const calls = [];
   const logs = [];
-  const mailer = createMailer({
+  const mailer = createOnileMail({
     apiKey: 're_test_key_not_real',
     from: 'Onile <hold@example.com>',
     log: (line) => logs.push(String(line)),

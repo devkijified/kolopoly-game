@@ -12,6 +12,7 @@ const { createPayouts } = require('../payouts');
 const { createAuth } = require('../auth');
 const { createMailer } = require('../mailer');
 const { createEscrow, clampPercent, normCode } = require('./escrow');
+const { createOnileMail } = require('./mail');
 const { createWinnerMail } = require('./winner-mail');
 
 const PUBLIC = path.join(__dirname, 'public');
@@ -45,7 +46,9 @@ const escrow = createEscrow({
   joinWindowMs: JOIN_MS,
   reportWindowMs: REPORT_MS
 });
-const winnerMail = createWinnerMail({ mailer, escrow, payouts, publicUrl: PUBLIC_URL });
+const onileMail = createOnileMail({});
+if (onileMail.testMode) console.log('Winner mail uses the test transport. Set RESEND_API_KEY to email the house.');
+const winnerMail = createWinnerMail({ mailer: onileMail, escrow, payouts, publicUrl: PUBLIC_URL });
 
 const ADMIN_FAILS = new Map();
 const LIMITS = new Map();
