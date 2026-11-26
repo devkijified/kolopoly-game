@@ -356,9 +356,13 @@ function detailSheet(data, c) {
     '<div class="stack">' + people + '</div>' +
     said + '<ol class="timeline">' + (timeline || '<li><span>No events yet.</span></li>') + '</ol><div class="actions">' + actions.join('') + '</div></section>';
 }
+function payoutChip(p) {
+  if (p.bank && p.status === 'awaiting-bank') return 'Ready to send';
+  return human(PAYOUT_STATUS, p.status);
+}
 function markPaidButton(p) {
   if (/^(paid|paid-manual|refunded|refunded-manual)$/.test(p.status)) return '';
-  if (p.kind === 'prize' && (!p.bank || !p.bank.accountNumber)) {
+  if (p.kind === 'prize' && !p.bank) {
     return '<button type="button" disabled>Mark payout paid</button>';
   }
   return '<button type="button" data-act="ask" data-kind="manual" data-id="' + esc(p.id) + '">Mark payout paid</button>';
@@ -366,8 +370,15 @@ function markPaidButton(p) {
 function payoutFacts(p) {
   var button = markPaidButton(p);
   if (p.kind !== 'prize') return '<div class="actions">' + button + '</div>';
-  if (!p.bank || !p.bank.accountNumber) {
+  if (!p.bank) {
     return '<p class="fine">Waiting for bank details</p><div class="actions">' + button + '</div>';
+  }
+  if (!p.bank.accountNumber) {
+    return '<div class="pay-facts">' +
+      '<p><span>Bank</span><b>' + esc(p.bank.bankName) + '</b></p>' +
+      '<p><span>Account name</span><b>' + esc(p.bank.accountName) + '</b></p>' +
+      (p.bank.last4 ? '<p><span>Last four</span><b>' + esc(p.bank.last4) + '</b></p>' : '') +
+      '</div><div class="actions">' + button + '</div>';
   }
   var line = p.bank.bankName + ' ' + p.bank.accountNumber + ' ' + p.bank.accountName + ' ' + naira(p.amountKobo);
   return '<div class="pay-facts">' +
@@ -408,7 +419,7 @@ function viewAdmin(data) {
   var list = '';
   if (desk.tab === 'payouts') {
     list = (data.payouts || []).map(function (p) {
-      return '<article class="card"><span class="desk-card-top"><strong>' + esc(human(PAYOUT_KIND, p.kind)) + ' · ' + naira(p.amountKobo) + '</strong><span class="chip">' + esc(human(PAYOUT_STATUS, p.status)) + '</span></span>' +
+      return '<article class="card"><span class="desk-card-top"><strong>' + esc(human(PAYOUT_KIND, p.kind)) + ' · ' + naira(p.amountKobo) + '</strong><span class="chip">' + esc(payoutChip(p)) + '</span></span>' +
         '<p class="fine">' + esc(p.roomCode) + ' · ' + esc(p.name || 'Player') + '</p>' +
         payoutFacts(p) +
         '<p class="fine">' + esc(lagos(p.createdAt || p.updatedAt)) + ' Lagos</p></article>';

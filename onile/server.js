@@ -549,22 +549,61 @@ const server = http.createServer((req, res) => {
     json(res, 200, { ok: true }, { 'Set-Cookie': 'onile_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
     return;
   }
-  function payoutCard(p) {
-    const masked = p.bank || null;
-    let bank = null;
+  function maskFields(raw) {
+    if (!raw || (!raw.bankName && !raw.accountName && !raw.last4)) return null;
+    return { bankName: raw.bankName || '', accountName: raw.accountName || '', last4: String(raw.last4 || '') };
+  }
+  function payoutBankFile() {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'payouts.json'), 'utf8'));
+      return parsed && parsed.banks && typeof parsed.banks === 'object' ? parsed.banks : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  async function recipientAccountNumber(recipientCode) {
+    const secret = String(process.env.PAYSTACK_SECRET_KEY || '').trim();
+    const code = String(recipientCode || '').trim();
+    if (!secret || !code) return null;
+    const base = String(process.env.PAYSTACK_API_BASE || 'https://api.paystack.co').replace(/\/+$/, '');
+    try {
+      const res = await fetch(base + '/transferrecipient/' + encodeURIComponent(code), {
+        headers: { Authorization: 'Bearer ' + secret }
+      });
+      if (!res.ok) return null;
+      const body = await res.json();
+      const details = body && body.data && body.data.details;
+      const number = String(details && details.account_number || '').replace(/\s+/g, '');
+      return /^\d{10}$/.test(number) ? number : null;
+    } catch (e) {
+      console.log('Paystack recipient lookup failed.');
+      return null;
+    }
+  }
+  async function payoutCard(p, banks) {
+    const saved = p.accountId && banks ? banks[p.accountId] : null;
+    const masked = maskFields(p.bank) || maskFields(p.claimedBank) || maskFields(saved);
+    let accountNumber = null;
     if (masked) {
       const stored = p.accountId ? payoutDetails.forAccount(p.accountId) : null;
-      const accountNumber = stored && stored.accountNumber.slice(-4) === masked.last4 ? stored.accountNumber : null;
-      bank = {
-        bankName: masked.bankName,
-        accountName: masked.accountName,
-        last4: masked.last4,
-        accountNumber
-      };
+      if (stored && stored.accountNumber && stored.accountNumber.slice(-4) === masked.last4) {
+        accountNumber = stored.accountNumber;
+      } else if (saved && saved.recipientCode && masked.last4) {
+        const looked = await recipientAccountNumber(saved.recipientCode);
+        if (looked && looked.slice(-4) === masked.last4) {
+          payoutDetails.remember(p.accountId, {
+            bankName: masked.bankName || saved.bankName,
+            accountName: masked.accountName || saved.accountName,
+            accountNumber: looked
+          });
+          accountNumber = looked;
+        }
+      }
     }
     return {
       id: p.id, kind: p.kind, roomCode: p.roomCode, amountKobo: p.amountKobo,
-      status: p.status, name: p.name, note: p.note || null, bank,
+      status: p.status, name: p.name, note: p.note || null,
+      bank: masked ? { bankName: masked.bankName, accountName: masked.accountName, last4: masked.last4, accountNumber } : null,
       updatedAt: p.updatedAt, createdAt: p.createdAt
     };
   }
@@ -578,13 +617,16 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/admin/queue' && req.method === 'GET') {
     if (!adminToken()) { json(res, 503, { ok: false, error: 'locked', message: 'Admin locked until KP_ADMIN_TOKEN is set' }); return; }
     if (!adminOk(req)) { json(res, 401, { ok: false, error: 'auth', message: 'Open the desk first.' }); return; }
+    (async () => {
     const overview = escrow.overview();
     for (const row of overview.challenges) {
       if (row.bucket === 'disputes' || row.bucket === 'settled') escrow.drain(row.code, payouts);
     }
     const fresh = escrow.overview();
     const money = payouts.view();
-    const payoutRows = money.payouts.map(payoutCard);
+    const banks = payoutBankFile();
+    const payoutRows = [];
+    for (const row of money.payouts) payoutRows.push(await payoutCard(row, banks));
     let payoutsPending = 0;
     let payoutsPendingKobo = 0;
     let payoutsPaidKobo = 0;
@@ -606,6 +648,7 @@ const server = http.createServer((req, res) => {
       payments: payments.list().map(paymentCard).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
       payouts: payoutRows
     });
+    })().catch(() => { if (!res.headersSent) json(res, 500, { ok: false }); });
     return;
   }
   if (pathname === '/api/admin/cancel' && req.method === 'POST') {
