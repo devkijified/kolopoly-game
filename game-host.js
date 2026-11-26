@@ -2932,6 +2932,10 @@ function tick() {
     if (room.status === 'playing') {
       for (const p of room.players) {
         if (p.linkHold && now() >= p.linkHold.until) finishLinkHold(room, p);
+        if (p.linkGraceUntil && now() >= p.linkGraceUntil) {
+          p.linkGraceUntil = 0;
+          if (p.botBrain) p.botBrain.hold = false;
+        }
       }
     }
     if (room.status !== 'playing' || room.paused) continue;
@@ -3108,14 +3112,25 @@ function firsQuote(room, player) {
   const pct = Math.floor(netWorth(room, player) * 0.10);
   return { flat, percent: pct, showPercent: pct > 0 && pct < flat };
 }
+// A seat that returns takes its waiting line with it: the reconnect
+// broadcast must not keep telling the table to wait for a player who
+// is already back. Only the exact waiting line for this player is
+// replaced; any other message stands untouched.
+function clearWaitingLine(room, wait) {
+  if (room.message === 'Waiting for ' + wait.name + ' to reconnect.') {
+    setMessage(room, wait.name + ' don come back.');
+  }
+}
 function clearLinkHold(room, player) {
+  const waited = room && room.linkWait && player && room.linkWait.playerId === player.id ? room.linkWait : null;
   if (!player || !player.linkHold) {
-    if (room && room.linkWait && player && room.linkWait.playerId === player.id) room.linkWait = null;
+    if (waited) { room.linkWait = null; clearWaitingLine(room, waited); }
     return;
   }
   player.linkUsedMs = (player.linkUsedMs || 0) + Math.max(0, now() - (player.linkHold.armed || now()));
   player.linkHold = null;
   if (room.linkWait && room.linkWait.playerId === player.id) room.linkWait = null;
+  if (waited) clearWaitingLine(room, waited);
 }
 function creditStake(room, player, reason, idPrefix) {
   const kobo = (room.paidFee || 0) * 100;
@@ -3149,10 +3164,57 @@ function finishLinkHold(room, player) {
     return;
   }
   if (!convertHumanToAfkBot(room, player)) setMessage(room, name + ' still away.');
+  else graceLinkBot(player, LINK_GRACE_MS);
   updatePause(room);
+}
+// A seat taken over because a link blinked gets a short decision
+// grace: the seat IS a bot from this moment and the table never
+// waits on it, but the brain does not spend, answer or settle
+// anything in the player's name inside the blink window. If the
+// player lands back in time, nothing was done for them; if the
+// window runs out, the bot plays on like any AFK takeover. The
+// idle AFK takeover is a different road (the player had minutes
+// of warnings) and takes no grace.
+const LINK_GRACE_MS = 10000;
+function graceLinkBot(player, ms) {
+  if (!player || !player.botBrain) return;
+  player.botBrain.hold = true;
+  player.linkGraceUntil = now() + ms;
+}
+// A drop at a free table is a blink, not a freeze: the other humans
+// get one small toast and the game rolls on. Never an overlay.
+function toastRoomOthers(room, dropped, text) {
+  for (const p of room.players) {
+    if (!p || p.id === dropped.id || p.bot || p.resigned || p.bankrupt) continue;
+    if (!p.connected || !p.ws || p.ws.__bot || p.ws.readyState !== 1) continue;
+    try { p.ws.send(JSON.stringify({ type: 'toast', text })); } catch (e) { }
+  }
 }
 function armLinkHold(room, player) {
   if (!player || player.bot || player.resigned || room.status !== 'playing') return;
+  if (!room.paid && !room.practice) {
+    // Free table: never arm the long hold and never set room.linkWait.
+    // The seat converts to an AFK bot straight away, and the owner
+    // takes it back on return through the usual AFK reclaim. Only when
+    // the conversion cannot happen (AFK cap reached, nobody else
+    // seated) does a short hold of at most 10 seconds arm instead, so
+    // finishLinkHold still settles the seat within about 10 seconds.
+    const name = player.humanName || player.name;
+    if (convertHumanToAfkBot(room, player)) {
+      graceLinkBot(player, LINK_GRACE_MS);
+      toastRoomOthers(room, player, name + ' network blink. Bot dey hold their seat.');
+      return;
+    }
+    const usedFree = player.linkUsedMs || 0;
+    const windowFree = Math.min(10000, Math.max(0, LINK_CAP_MS - usedFree));
+    if (windowFree < 5000) { finishLinkHold(room, player); return; }
+    player.linkHold = { until: now() + windowFree, armed: now() };
+    player.linkDrops = (player.linkDrops || 0) + 1;
+    room.linkWait = { playerId: player.id, name, until: player.linkHold.until, ms: windowFree };
+    setMessage(room, 'Waiting for ' + name + ' to reconnect.');
+    updatePause(room);
+    return;
+  }
   const used = player.linkUsedMs || 0;
   const windowMs = Math.min(LINK_DROP_MS, Math.max(0, LINK_CAP_MS - used));
   if (windowMs < 5000) { finishLinkHold(room, player); return; }
@@ -3215,6 +3277,7 @@ function reclaimAfkBot(room, player, ws) {
   // Paid tables never hand a seat to a bot, so there is nothing to take back.
   if (!room || room.paid || !player || !player.afkTaken) return false;
   if (player.botBrain) { try { player.botBrain.kill(); } catch (e) { } player.botBrain = null; }
+  player.linkGraceUntil = 0;
   if (player.ws && player.ws.__bot) {
     try { player.ws.__detached = true; player.ws.readyState = 3; } catch (e) { }
   }
