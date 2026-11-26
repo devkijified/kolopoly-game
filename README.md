@@ -24,10 +24,13 @@ No build step, no framework, no runtime CDN: Node (built-in http + the `ws`
 package) serves `public/`, and the server is authoritative for dice, money,
 deeds, auctions, contracts and timers. Clients send intents only.
 
-The live host is Cloudflare Workers on the free plan (no sleep, no hour cap).
-`npm start` remains the Node fallback. Deploying that Worker needs Node 22
-(Wrangler 4.156 and later). `render.yaml` is the old host and is kept only
-so that service can still be rebuilt. See `deploy/CLOUDFLARE.md`.
+Production is the Node server on the OVH box at `40.160.155.6`: Caddy
+proxies `kolopoly.fun` to it, and it runs as a systemd unit. Deploy is
+merge to `main`; a timer on the box pulls and restarts the services.
+Merging restarts live games, so merge only when no games are live and
+only with the owner's go. The Cloudflare Worker in this repo is a
+spare, not production, and `render.yaml` is legacy and unused. The
+full picture is in `deploy/CLOUDFLARE.md`.
 
 ## Daily market and whispers
 
@@ -39,11 +42,9 @@ day pays the base drop again. There is no streak meter.
 
 The shelf is stored on the server, keyed by the same device `clientId` the
 table already keeps, and by the seat reconnect token once a room has linked
-the two. On Cloudflare it lives in a Durable Object, so a deploy does not
-wipe it. The Node fallback still uses `data/retention.json`.
-`KP_RETENTION_FILE` overrides that file path. On Render's free web service
-the disk is ephemeral, so the file survives only as long as the instance
-does.
+the two. Production stores it in `data/retention.json` on the box, so a
+deploy does not wipe it. `KP_RETENTION_FILE` overrides that file path.
+(On the spare Cloudflare Worker it lives in a Durable Object instead.)
 
 Whispers are Web Push. The phone asks only after a win or the first Claim,
 and only after an explicit tap. Sound off, and the Whispers switch on the
@@ -51,10 +52,11 @@ shelf, both mute them. A permission denial is respected. The service worker
 shows the notification. Copy stays in the house voice (Owambe pot, a held
 seat, the daily drop).
 
-### VAPID keys on Render
+### VAPID keys
 
-Push stays off until three environment variables are set. Generate them
-locally, then paste them into the Render service. Do not commit the private
+Push stays off until three environment variables are set on the
+production service. Generate them locally, then set them in the
+`kolopoly` unit's environment on the box. Do not commit the private
 key. Keep the same keys, or every phone must subscribe again.
 
 ```sh
@@ -71,19 +73,17 @@ VAPID_SUBJECT=mailto:you@yourdomain
 
 `VAPID_SUBJECT` must be a `mailto:` address or an `https:` URL.
 
-On Render:
+On the box:
 
-1. Open the `kolopoly-game` web service.
-2. Go to Environment.
-3. Add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`.
-4. Save. Render redeploys.
-5. Confirm `GET /api/push/vapid` returns `"enabled": true` and a public key.
+1. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in
+   the `kolopoly` service's environment.
+2. Restart the service (or wait for the next deploy).
+3. Confirm `GET /api/push/vapid` returns `"enabled": true` and a public key.
    The private key is never in that response.
 
-`render.yaml` lists the same three variables with `sync: false`, so a
-blueprint deploy asks for them in the dashboard instead of storing them in
-git. No extra npm package is required: VAPID and the push body are signed
-with Node crypto.
+No extra npm package is required: VAPID and the push body are signed
+with Node crypto. (`render.yaml` also lists these variables, but Render
+is legacy and unused; setting them there does nothing.)
 
 ## Ops desk
 
@@ -91,9 +91,9 @@ with Node crypto.
 and whether whispers are on. It is view only. The landing page does not
 link to it, and it answers `noindex`.
 
-The door stays shut until `KP_ADMIN_TOKEN` is set on the service. Add it
-in the Render dashboard (Environment), save, and redeploy. Do not commit
-the value. `render.yaml` lists the variable with `sync: false`.
+The door stays shut until `KP_ADMIN_TOKEN` is set on the service. Set
+it in the `kolopoly` service's environment on the box and restart the
+service. Do not commit the value.
 
 ## The money scale
 
